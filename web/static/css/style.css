@@ -1,0 +1,616 @@
+/* Exact CSS Design System matching parinazkassemi.com Screenshots */
+
+:root {
+    /* Blue Theme Default (Screenshot 1) */
+    --bg-desktop: linear-gradient(180deg, #2b619e 0%, #5d8cc0 45%, #a6c6e2 100%);
+    --accent-color: #2F6FD0;
+    --cur-arrow: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M4.5 1.8 L4.5 20.4 L9.5 15.6 L12.4 22.2 L15.4 20.9 L12.5 14.4 L19.2 14.0 Z" fill="%232F6FD0" stroke="%23ffffff" stroke-width="1.2" stroke-linejoin="round"/></svg>') 4 2, auto;
+    --cur-hand: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24"><path d="M9.0 3.0A1.6 1.6 0 0 1 12.2 3.0L12.2 9.0C12.2 8.2 12.9 7.6 13.7 7.6C14.5 7.6 15.2 8.2 15.2 9.0L15.2 9.6C15.2 8.9 15.8 8.4 16.5 8.4C17.2 8.4 17.8 8.9 17.8 9.6L17.8 10.4C17.8 9.8 18.3 9.3 18.9 9.3C19.6 9.3 20.1 9.8 20.1 10.4L20.1 15.0C20.1 18.9 17.6 21.8 14.0 21.8L12.4 21.8C10.6 21.8 9.0 20.9 8.1 19.4L5.2 14.6C4.7 13.7 5.0 12.6 5.9 12.1C6.7 11.6 7.8 11.9 8.3 12.7L9.0 13.9Z" fill="%232F6FD0" stroke="%23ffffff" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/></svg>') 10 2, pointer;
+}
+
+body[data-theme="black"] {
+    /* Dark Charcoal Theme (Screenshot 2) */
+    --bg-desktop: linear-gradient(180deg, #16181c 0%, #292b30 50%, #111215 100%);
+    --accent-color: #ffffff;
+    --cur-arrow: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M4.5 1.8 L4.5 20.4 L9.5 15.6 L12.4 22.2 L15.4 20.9 L12.5 14.4 L19.2 14.0 Z" fill="%23ffffff" stroke="%23000000" stroke-width="1.2" stroke-linejoin="round"/></svg>') 4 2, auto;
+}
+
+body[data-theme="green"] {
+    /* Sage Green Theme (Screenshot 3) */
+    --bg-desktop: linear-gradient(180deg, #3d6348 0%, #578063 50%, #82a38b 100%);
+    --accent-color: #2E7D52;
+    --cur-arrow: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M4.5 1.8 L4.5 20.4 L9.5 15.6 L12.4 22.2 L15.4 20.9 L12.5 14.4 L19.2 14.0 Z" fill="%232E7D52" stroke="%23ffffff" stroke-width="1.2" stroke-linejoin="round"/></svg>') 4 2, auto;
+}
+
+body[data-theme="purple"] {
+    /* Soft Purple Theme (Screenshot 4) */
+    --bg-desktop: linear-gradient(180deg, #483f61 0%, #685b85 50%, #9587b1 100%);
+    --accent-color: #7B4FD1;
+    --cur-arrow: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M4.5 1.8 L4.5 20.4 L9.5 15.6 L12.4 22.2 L15.4 20.9 L12.5 14.4 L19.2 14.0 Z" fill="%237B4FD1" stroke="%23ffffff" stroke-width="1.2" stroke-linejoin="round"/></svg>') 4 2, auto;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    font-family: "Space Grotesk", -apple-system, sans-serif;
+    background: var(--bg-desktop);
+    background-attachment: fixed;
+    color: #ffffff;
+    cursor: var(--cur-arrow);
+    overflow-x: hidden;
+    user-select: none;
+}
+
+a, button, .desktop-icon-item, .dock-app-btn, .theme-circle {
+    cursor: var(--cur-hand) !important;
+}
+
+/* Lock Screen Loader */
+.lock-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    background: var(--bg-desktop);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    padding: 40px 20px;
+    transition: opacity 0.5s ease;
+}
+
+.lock-screen.hide {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.lock-clock {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.lock-date {
+    font-size: 0.9rem;
+    letter-spacing: 0.1em;
+    color: rgba(255,255,255,0.85);
+}
+
+.lock-time {
+    font-family: "Big Shoulders Display", sans-serif;
+    font-size: clamp(100px, 16vw, 190px);
+    line-height: 0.9;
+    color: rgba(255,255,255,0.4);
+}
+
+.lock-center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.spinning-logo {
+    width: 64px;
+    height: 64px;
+    animation: spin 8s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.lock-name { font-weight: 700; font-size: 1.1rem; }
+.lock-role { font-size: 0.7rem; letter-spacing: 0.2em; color: rgba(255,255,255,0.7); }
+
+.lock-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.72rem;
+    letter-spacing: 0.15em;
+    padding: 12px 24px;
+    border: 1px solid rgba(255,255,255,0.35);
+    border-radius: 9999px;
+    background: rgba(255,255,255,0.12);
+    backdrop-filter: blur(8px);
+}
+
+.lock-hint { font-size: 0.65rem; letter-spacing: 0.15em; color: rgba(255,255,255,0.5); }
+
+/* Menubar */
+.menubar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 38px;
+    background: rgba(0, 0, 0, 0.2);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 16px;
+    z-index: 1000;
+}
+
+.menubar-left, .menubar-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.brand { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 0.85rem; }
+.menu-nav { display: flex; gap: 12px; }
+.menu-item { font-size: 0.78rem; color: rgba(255,255,255,0.7); }
+
+.social-icons { display: flex; gap: 8px; font-size: 0.8rem; }
+.menu-date, .menu-clock { font-family: "JetBrains Mono", monospace; font-size: 0.78rem; }
+
+/* Left Badge Tab */
+.left-badge-tab {
+    position: fixed;
+    left: 0;
+    top: 45%;
+    transform: translateY(-50%);
+    z-index: 800;
+}
+
+.badge-pill {
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-left: none;
+    padding: 16px 8px;
+    border-radius: 0 10px 10px 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.badge-w { font-weight: 800; font-size: 1.2rem; }
+.badge-sub { font-size: 0.65rem; font-family: "JetBrains Mono", monospace; writing-mode: vertical-rl; transform: rotate(180deg); }
+
+/* Main Desktop Canvas */
+.desktop-canvas {
+    padding-top: 54px;
+    padding-bottom: 90px;
+    min-height: 100vh;
+    display: flex;
+    justify-content: space-between;
+    padding-left: 60px;
+    padding-right: 20px;
+}
+
+.desktop-main-area {
+    flex: 1;
+    max-width: 800px;
+    display: flex;
+    flex-direction: column;
+    gap: 40px;
+}
+
+/* Profile Header Card */
+.profile-header-card {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.profile-avatar-circle {
+    width: 90px;
+    height: 90px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #00f2fe, #7928ca);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 3px solid rgba(255,255,255,0.4);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+}
+
+.avatar-inner { font-size: 2.2rem; }
+
+.profile-bio-text {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.bio-title {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.8rem;
+    letter-spacing: 0.1em;
+    color: rgba(255,255,255,0.9);
+}
+
+.bio-p {
+    font-size: 0.85rem;
+    color: rgba(255,255,255,0.8);
+    line-height: 1.4;
+}
+
+.bio-link {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.72rem;
+    color: #ffffff;
+    font-weight: 700;
+    text-decoration: underline;
+}
+
+/* Desktop Icons Grid */
+.desktop-icons-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 24px 16px;
+}
+
+.desktop-icon-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    text-align: center;
+    transition: transform 0.2s ease;
+}
+
+.desktop-icon-item:hover {
+    transform: translateY(-4px);
+}
+
+.icon-img-box {
+    width: 64px;
+    height: 64px;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.8rem;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+.add-box {
+    border: 2px dashed rgba(255, 255, 255, 0.4);
+    background: rgba(255, 255, 255, 0.05);
+    font-size: 1.6rem;
+    font-weight: 700;
+}
+
+.icon-label {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.9);
+    font-weight: 500;
+    max-width: 110px;
+    line-height: 1.2;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.4);
+}
+
+/* Right Sidebar Widgets Panel */
+.desktop-right-widgets {
+    width: 280px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.widget-box {
+    background: rgba(0, 0, 0, 0.25);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 16px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.widget-title {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+/* Theme Picker Circles */
+.theme-circles-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 4px;
+}
+
+.theme-circle {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    transition: transform 0.2s ease;
+}
+
+.theme-circle:hover, .theme-circle.active {
+    transform: scale(1.2);
+    border-color: #ffffff;
+}
+
+.circle-blue { background: #5d8cc0; }
+.circle-black { background: #292b30; }
+.circle-green { background: #578063; }
+.circle-purple { background: #685b85; }
+
+/* Weather Widget */
+.weather-widget {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.city-name { font-size: 0.65rem; font-family: "JetBrains Mono", monospace; color: rgba(255,255,255,0.7); }
+.temp-deg { font-size: 1.8rem; font-weight: 700; line-height: 1; margin: 4px 0; }
+.cond-text { font-size: 0.7rem; color: rgba(255,255,255,0.6); }
+
+/* Now Playing Music Widget */
+.music-card-inner {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.music-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.7rem;
+    color: rgba(255,255,255,0.7);
+}
+
+.track-flex {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.track-cover {
+    width: 38px;
+    height: 38px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.track-name { font-size: 0.82rem; font-weight: 700; }
+.track-sub { font-size: 0.72rem; color: rgba(255,255,255,0.6); }
+
+.track-progress-bar {
+    height: 3px;
+    background: rgba(255,255,255,0.15);
+    border-radius: 2px;
+}
+
+.track-progress-fill { width: 45%; height: 100%; background: #ffffff; }
+.music-link { font-family: "JetBrains Mono", monospace; font-size: 0.68rem; color: rgba(255,255,255,0.8); text-decoration: none; }
+
+/* Languages & Streak Widget */
+.widget-title-row { display: flex; justify-content: space-between; font-size: 0.65rem; font-family: "JetBrains Mono", monospace; }
+.streak-val-row { display: flex; align-items: baseline; gap: 6px; margin: 4px 0; }
+.fire-icon { font-size: 1.2rem; }
+.streak-num { font-size: 1.6rem; font-weight: 800; }
+.streak-lbl { font-size: 0.68rem; color: rgba(255,255,255,0.6); }
+
+.skill-bars-list { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.sb-info { display: flex; justify-content: space-between; font-size: 0.72rem; }
+.sb-info .lvl { color: rgba(255,255,255,0.5); font-family: "JetBrains Mono", monospace; }
+.sb-bar { height: 3px; background: rgba(255,255,255,0.15); border-radius: 2px; }
+.sb-fill { height: 100%; background: #ffffff; }
+
+.retro-mac-icon { font-size: 1.8rem; text-align: right; opacity: 0.7; }
+
+/* Bottom Dock */
+.desktop-bottom-dock {
+    position: fixed;
+    bottom: 12px;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.dock-container {
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 20px;
+    padding: 8px 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.4);
+}
+
+.dock-title { font-family: "JetBrains Mono", monospace; font-size: 0.6rem; color: rgba(255,255,255,0.6); }
+
+.dock-icons-row {
+    display: flex;
+    gap: 10px;
+}
+
+.dock-app-btn {
+    background: transparent;
+    border: none;
+    padding: 4px;
+    border-radius: 12px;
+    transition: transform 0.2s ease;
+}
+
+.dock-app-btn:hover {
+    transform: translateY(-6px) scale(1.15);
+}
+
+.dock-app-btn.active {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.app-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.15);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+}
+
+.chat-dock-btn .chat-icon {
+    background: linear-gradient(135deg, #00f2fe, #7928ca);
+    color: #ffffff;
+    box-shadow: 0 0 12px rgba(0, 242, 254, 0.4);
+}
+
+/* ==========================================================================
+   5. 30/70 Percent Split Window Modal (#splitModal)
+   ========================================================================== */
+.split-modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(10px);
+}
+
+.split-modal-overlay.active {
+    display: flex;
+}
+
+.split-window-frame {
+    width: 95vw;
+    max-width: 1280px;
+    height: 85vh;
+    background: #0d0f14;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 18px;
+    box-shadow: 0 30px 90px rgba(0,0,0,0.8);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.split-frame-header {
+    height: 40px;
+    background: #141720;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+}
+
+.traffic-lights { display: flex; gap: 6px; }
+.tl { width: 11px; height: 11px; border-radius: 50%; border: none; }
+.tl-close { background: #ff5f56; }
+.tl-min { background: #ffbd2e; }
+.tl-max { background: #27c93f; }
+
+.split-frame-title { font-size: 0.78rem; font-weight: 600; color: rgba(255,255,255,0.8); }
+.split-frame-badge { font-family: "JetBrains Mono", monospace; font-size: 0.68rem; color: #00f2fe; }
+
+/* 30% / 70% Split Body Layout */
+.split-frame-body {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+}
+
+/* LEFT 30% CHAT SPACE */
+.split-left-chat {
+    flex: 0 0 30%;
+    background: #11141c;
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    flex-direction: column;
+    padding: 14px;
+    gap: 10px;
+}
+
+.chat-pane-header { display: flex; justify-content: space-between; align-items: center; }
+.chat-pane-header h3 { font-size: 0.88rem; font-weight: 700; }
+.pane-badge { font-family: "JetBrains Mono", monospace; font-size: 0.65rem; color: #00f2fe; background: rgba(0,242,254,0.1); padding: 2px 6px; border-radius: 4px; }
+
+.split-chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-right: 4px;
+}
+
+.msg-bubble { padding: 10px; border-radius: 10px; font-size: 0.82rem; line-height: 1.4; }
+.jarvis-msg { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); }
+.user-msg { background: #00f2fe; color: #050608; font-weight: 600; align-self: flex-end; }
+
+.msg-author { font-family: "JetBrains Mono", monospace; font-size: 0.65rem; color: #00f2fe; margin-bottom: 2px; }
+
+.split-chat-form { display: flex; gap: 6px; margin-top: auto; }
+.split-chat-form input { flex: 1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #ffffff; padding: 8px 10px; font-size: 0.82rem; outline: none; }
+.split-chat-form button { background: #00f2fe; color: #050608; border: none; padding: 0 12px; font-size: 0.78rem; font-weight: 700; border-radius: 6px; }
+
+/* RIGHT 70% EXECUTION WORKSPACE */
+.split-right-workspace {
+    flex: 0 0 70%;
+    background: #090b10;
+    display: flex;
+    flex-direction: column;
+    padding: 16px;
+    gap: 14px;
+    overflow-y: auto;
+}
+
+.workspace-pane-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; }
+.workspace-pane-header h3 { font-size: 0.9rem; font-weight: 700; }
+.workspace-status-pills { display: flex; gap: 8px; align-items: center; }
+
+.status-pill { font-family: "JetBrains Mono", monospace; font-size: 0.68rem; color: rgba(255,255,255,0.5); padding: 3px 8px; border-radius: 9999px; background: rgba(255,255,255,0.05); }
+.active-pill { color: #34d399; background: rgba(52,211,153,0.1); }
+
+.execution-dashboard { display: flex; flex-direction: column; gap: 14px; }
+.exec-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+.exec-card h4 { font-size: 0.82rem; font-weight: 600; color: rgba(255,255,255,0.7); }
+
+.exec-task-name { font-family: "JetBrains Mono", monospace; font-size: 0.88rem; color: #00f2fe; }
+.exec-progress-bar { height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden; }
+.exec-progress-fill { height: 100%; background: linear-gradient(90deg, #00f2fe, #34d399); transition: width 0.3s ease; }
+
+.exec-terminal-log { background: #050608; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 12px; font-family: "JetBrains Mono", monospace; font-size: 0.75rem; color: #34d399; max-height: 180px; overflow-y: auto; white-space: pre-wrap; }
+
+.exec-assets-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.asset-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px; text-align: center; }
+.asset-icon { font-size: 1.4rem; margin-bottom: 2px; }
+.asset-title { font-size: 0.78rem; font-weight: 600; }
+.asset-card small { font-size: 0.68rem; color: rgba(255,255,255,0.5); }
+
+@media (max-width: 900px) {
+    .desktop-canvas { flex-direction: column; padding-left: 20px; }
+    .desktop-right-widgets { width: 100%; }
+    .desktop-icons-grid { grid-template-columns: repeat(2, 1fr); }
+    .split-frame-body { flex-direction: column; }
+    .split-left-chat, .split-right-workspace { flex: 1; }
+}

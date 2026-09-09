@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>JARVIS / NEXUS - Interactive Executive Desktop</title>
+
+    <!-- Google Fonts matching parinazkassemi.com screenshots -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@300;400;500;700&family=Instrument+Serif:ital@0;1&family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body data-theme="blue">
+
+    <!-- ==========================================================================
+         1. iOS Lock Screen Loader
+         ========================================================================== -->
+    <div id="loader" class="lock-screen">
+        <div class="lock-clock">
+            <div id="lock-date" class="lock-date">WEDNESDAY, AUG 12</div>
+            <div id="lock-time" class="lock-time">05:47 AM</div>
+        </div>
+
+        <div class="lock-center">
+            <div class="logo-wrapper">
+                <svg class="logo spinning-logo" viewBox="0 0 100 100">
+                    <circle cx="50" cy="50" r="42" fill="none" stroke="currentColor" stroke-width="4" stroke-dasharray="8 6" />
+                    <circle cx="50" cy="50" r="26" fill="none" stroke="currentColor" stroke-width="3" />
+                    <circle cx="50" cy="50" r="10" fill="currentColor" />
+                </svg>
+            </div>
+            <div class="lock-name">JARVIS EXECUTIVE OS</div>
+            <div class="lock-role">NEURAL AI & REASONING SYSTEM</div>
+        </div>
+
+        <div class="lock-cta" id="unlock-btn">
+            <span>PRESS OR CLICK TO UNLOCK DESKTOP</span>
+            <svg viewBox="0 0 24 24" width="14" height="14"><path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+        </div>
+
+        <div class="lock-hint">JARVIS SYSTEM V2.4 • TOUCH OR CLICK ANYWHERE</div>
+    </div>
+
+    <!-- ==========================================================================
+         2. macOS Menubar (Top)
+         ========================================================================== -->
+    <header id="menubar" class="menubar">
+        <div class="menubar-left">
+            <div class="brand">
+                <span class="apple-icon"></span>
+                <span class="brand-name">Jarvis Core</span>
+            </div>
+            <div class="menu-nav hide-mobile">
+                <span class="menu-item">Edit</span>
+                <span class="menu-item">Help</span>
+                <span class="menu-item">Customization</span>
+            </div>
+        </div>
+
+        <div class="menubar-right">
+            <div class="social-icons hide-mobile">
+                <span class="social-icon">📷</span>
+                <span class="social-icon">💼</span>
+                <span class="social-icon">𝕏</span>
+            </div>
+            <span class="menu-sep hide-mobile">|</span>
+            <span class="menu-date">Aug 12</span>
+            <span id="menu-clock" class="menu-clock">05:47 AM</span>
+        </div>
+    </header>
+
+    <!-- ==========================================================================
+         3. Left Side Badge (W. Nominee Drawer Launcher)
+         ========================================================================== -->
+    <aside id="left-badge" class="left-badge-tab">
+        <div class="badge-pill">
+            <span class="badge-w">W.</span>
+            <span class="badge-sub">JARVIS CORE</span>
+        </div>
+    </aside>
+
+    <!-- ==========================================================================
+         4. Main Desktop Canvas Layout
+         ========================================================================== -->
+    <main id="desktop" class="desktop-canvas">
+        
+        <!-- Desktop Central Workspace Area -->
+        <div class="desktop-main-area">
+
+            <!-- Profile & Bio Header Card -->
+            <section class="profile-header-card">
+                <div class="profile-avatar-circle">
+                    <div class="avatar-inner">🧠</div>
+                </div>
+                <div class="profile-bio-text">
+                    <h2 class="bio-title">JARVIS EXECUTIVE SYSTEM</h2>
+                    <p class="bio-p">I turn complex ideas and goals into intuitive, beautifully crafted digital workflows. Powered by dual-process System 1/2 neural reasoning, task orchestration, RAG skill learning, and persistent memory.</p>
+                    <a href="#" id="bio-learn-more" class="bio-link">MORE ABOUT JARVIS →</a>
+                </div>
+            </section>
+
+            <!-- Center Desktop Icons Grid (User Specific Requirements) -->
+            <section class="desktop-icons-grid" id="icons-grid">
+                
+                <!-- Icon 1: Research Papers -->
+                <div class="desktop-icon-item" data-action="open-research">
+                    <div class="icon-img-box">📄</div>
+                    <span class="icon-label">Research Papers</span>
+                </div>
+
+                <!-- Icon 2: Pictures Uploaded & Generated -->
+                <div class="desktop-icon-item" data-action="open-pictures">
+                    <div class="icon-img-box">🎨</div>
+                    <span class="icon-label">Pictures Uploaded & Generated</span>
+                </div>
+
+                <!-- Icon 3: Documents Shared -->
+                <div class="desktop-icon-item" data-action="open-docs">
+                    <div class="icon-img-box">📁</div>
+                    <span class="icon-label">Documents Shared</span>
+                </div>
+
+                <!-- Icon 4: Notebook -->
+                <div class="desktop-icon-item" data-action="open-notebook">
+                    <div class="icon-img-box">📓</div>
+                    <span class="icon-label">Notebook</span>
+                </div>
+
+                <!-- Icon 5: Case Studies -->
+                <div class="desktop-icon-item" data-action="open-casestudies">
+                    <div class="icon-img-box">📂</div>
+                    <span class="icon-label">Case Studies</span>
+                </div>
+
+                <!-- Icon 6: Customizable / Add New Icon -->
+                <div class="desktop-icon-item add-icon-item" id="add-custom-icon-btn">
+                    <div class="icon-img-box add-box">+</div>
+                    <span class="icon-label">Add Custom Node</span>
+                </div>
+
+            </section>
+
+        </div>
+
+        <!-- Right Sidebar Widgets Panel (Parinaz Style) -->
+        <aside class="desktop-right-widgets">
+
+            <!-- Theme Picker Widget (4 Color Circles) -->
+            <div class="widget-box theme-picker-widget">
+                <div class="widget-title">CHOOSE A THEME</div>
+                <div class="theme-circles-row">
+                    <button class="theme-circle circle-blue active" data-theme="blue" title="Ice Blue Theme"></button>
+                    <button class="theme-circle circle-black" data-theme="black" title="Dark Charcoal Theme"></button>
+                    <button class="theme-circle circle-green" data-theme="green" title="Sage Green Theme"></button>
+                    <button class="theme-circle circle-purple" data-theme="purple" title="Dusky Purple Theme"></button>
+                </div>
+            </div>
+
+            <!-- Dynamic Weather Widget (Chandigarh Default / Geolocation) -->
+            <div class="widget-box weather-widget" id="weather-widget">
+                <div class="weather-col">
+                    <div class="city-name" id="city-1-name">CHANDIGARH ▾</div>
+                    <div class="temp-deg" id="city-1-temp">--°C</div>
+                    <div class="cond-text" id="city-1-cond">Loading...</div>
+                </div>
+                <div class="weather-col">
+                    <div class="city-name" id="city-2-name">NEW DELHI ▾</div>
+                    <div class="temp-deg" id="city-2-temp">--°C</div>
+                    <div class="cond-text" id="city-2-cond">Loading...</div>
+                </div>
+            </div>
+
+            <!-- Music Player Widget (Soundcheck) -->
+            <div class="widget-box now-playing-widget">
+                <div class="widget-title">NOW PLAYING</div>
+                <div class="music-card-inner">
+                    <div class="music-header">
+                        <span class="music-brand"> Music</span>
+                        <span class="music-sign">Sign In</span>
+                    </div>
+                    <div class="track-flex">
+                        <div class="track-cover">🎵</div>
+                        <div class="track-meta">
+                            <div class="track-name">soundcheck</div>
+                            <div class="track-sub">Jarvis Soundscapes</div>
+                        </div>
+                    </div>
+                    <div class="track-progress-bar">
+                        <div class="track-progress-fill"></div>
+                    </div>
+                    <a href="https://music.apple.com" target="_blank" class="music-link">open in apple music →</a>
+                </div>
+            </div>
+
+            <!-- System Streak & Capabilities Widget -->
+            <div class="widget-box languages-widget">
+                <div class="widget-title-row">
+                    <span>CAPABILITIES & STREAK</span>
+                    <span class="sub-lbl">JARVIS CORE</span>
+                </div>
+                <div class="streak-val-row">
+                    <span class="fire-icon">🔥</span>
+                    <span class="streak-num">231</span>
+                    <span class="streak-lbl">DAY STREAK</span>
+                </div>
+                <div class="skill-bars-list">
+                    <div class="skill-bar-item">
+                        <div class="sb-info"><span>System 1/2 Reasoning</span> <span class="lvl">fluent</span></div>
+                    </div>
+                    <div class="skill-bar-item">
+                        <div class="sb-info"><span>Task Orchestration</span> <span class="lvl">level 60</span></div>
+                        <div class="sb-bar"><div class="sb-fill" style="width: 85%;"></div></div>
+                    </div>
+                    <div class="skill-bar-item">
+                        <div class="sb-info"><span>RAG Knowledge Retrieval</span> <span class="lvl">level 31</span></div>
+                        <div class="sb-bar"><div class="sb-fill" style="width: 65%;"></div></div>
+                    </div>
+                </div>
+                <div class="retro-mac-icon hide-mobile">💻</div>
+            </div>
+
+        </aside>
+
+        <!-- Bottom Dock (Jarvis Handled Applications + Chat Icon) -->
+        <nav class="desktop-bottom-dock">
+            <div class="dock-container">
+                <span class="dock-title">TECH STACK / JARVIS CAPABILITIES</span>
+                <div class="dock-icons-row">
+                    <button class="dock-app-btn" title="Python Code Execution Engine" data-action="exec">
+                        <div class="app-icon py-icon">🐍</div>
+                    </button>
+                    <button class="dock-app-btn" title="RAG Knowledge & Vector DB" data-action="rag">
+                        <div class="app-icon rag-icon">⚡</div>
+                    </button>
+                    <button class="dock-app-btn" title="Task Orchestrator & Planner" data-action="tasks">
+                        <div class="app-icon task-icon">🎯</div>
+                    </button>
+                    <button class="dock-app-btn" title="Memory Vault & Persistence" data-action="memory">
+                        <div class="app-icon mem-icon">💾</div>
+                    </button>
+                    <button class="dock-app-btn" title="Neural Reasoning Engine" data-action="reasoning">
+                        <div class="app-icon neural-icon">🧠</div>
+                    </button>
+                    <button class="dock-app-btn" title="Skill Learning Lab" data-action="skills">
+                        <div class="app-icon skill-icon">📘</div>
+                    </button>
+                    
+                    <!-- Chat Icon (i / Message Icon for Opening 30/70 Split Window) -->
+                    <button class="dock-app-btn chat-dock-btn active" id="open-chat-dock-btn" title="Open Jarvis Interactive Workspace (30/70 Split)">
+                        <div class="app-icon chat-icon">💬</div>
+                    </button>
+                </div>
+            </div>
+        </nav>
+
+    </main>
+
+    <!-- ==========================================================================
+         5. 30/70 Percent Split Interactive Workspace Window Modal (#splitModal)
+         ========================================================================== -->
+    <div id="splitModal" class="split-modal-overlay">
+        <div class="split-window-frame">
+            
+            <!-- Window Header Bar -->
+            <div class="split-frame-header">
+                <div class="traffic-lights">
+                    <button class="tl tl-close" id="close-split-modal-btn"></button>
+                    <button class="tl tl-min"></button>
+                    <button class="tl tl-max"></button>
+                </div>
+                <div class="split-frame-title">JARVIS EXECUTIVE WORKSPACE (30% CHAT / 70% EXECUTION SPLIT)</div>
+                <div class="split-frame-badge">ACTIVE SESSION</div>
+            </div>
+
+            <!-- Window Body: 30 / 70 Split Layout -->
+            <div class="split-frame-body">
+                
+                <!-- LEFT 30% SPLIT: Interactive Chat Space -->
+                <section class="split-left-chat">
+                    <div class="chat-pane-header">
+                        <h3>💬 Jarvis Chat Space</h3>
+                        <span class="pane-badge">30% Split</span>
+                    </div>
+
+                    <div id="split-chat-messages" class="split-chat-messages">
+                        <div class="msg-bubble jarvis-msg">
+                            <div class="msg-author">Jarvis AI</div>
+                            <div class="msg-text">Hello! I am Jarvis. Type a command or goal below. I will execute it and display live progress in the 70% workspace pane on the right!</div>
+                        </div>
+                    </div>
+
+                    <form id="split-chat-form" class="split-chat-form">
+                        <input type="text" id="split-user-input" placeholder="Ask Jarvis to execute a goal..." required autocomplete="off">
+                        <button type="submit">Send →</button>
+                    </form>
+                </section>
+
+                <!-- RIGHT 70% SPLIT: What Jarvis is Doing (Execution Workspace) -->
+                <section class="split-right-workspace">
+                    <div class="workspace-pane-header">
+                        <h3>⚡ Execution Workspace (What Jarvis is Doing)</h3>
+                        <div class="workspace-status-pills">
+                            <span class="status-pill active-pill">System 1/2 Reasoning</span>
+                            <span class="status-pill">Memory Sync</span>
+                            <span class="pane-badge">70% Split</span>
+                        </div>
+                    </div>
+
+                    <div class="workspace-content-scroll" id="workspace-dynamic-content">
+                        <!-- Default View: Live Dashboard -->
+                        <div class="execution-dashboard">
+                            <div class="exec-card">
+                                <h4>Current Active Task</h4>
+                                <div class="exec-task-name" id="exec-task-name">Idle — Waiting for query...</div>
+                                <div class="exec-progress-bar">
+                                    <div class="exec-progress-fill" id="exec-progress-fill" style="width: 100%;"></div>
+                                </div>
+                            </div>
+
+                            <div class="exec-card">
+                                <h4>Live Execution Log & Chain of Thought</h4>
+                                <pre class="exec-terminal-log" id="exec-terminal-log">[05:47:00 AM] Jarvis Core Initialized.
+[05:47:01 AM] RAG Knowledge Vault Loaded (D:\Desktop\RAG).
+[05:47:02 AM] Memory System Online (SQLite nexus_web_memory.db).
+[05:47:03 AM] Operational Modes: Deep Focus, Learning Companion, Creative Collaboration, Strategic Planning.
+[05:47:04 AM] Ready to receive prompt...</pre>
+                            </div>
+
+                            <div class="exec-card">
+                                <h4>Generated Output & Workspace Assets</h4>
+                                <div class="exec-assets-grid" id="exec-assets-grid">
+                                    <div class="asset-card">
+                                        <div class="asset-icon">📄</div>
+                                        <div class="asset-title">Research Papers</div>
+                                        <small>3 Docs Available</small>
+                                    </div>
+                                    <div class="asset-card">
+                                        <div class="asset-icon">🎨</div>
+                                        <div class="asset-title">Generated Pictures</div>
+                                        <small>5 Assets</small>
+                                    </div>
+                                    <div class="asset-card">
+                                        <div class="asset-icon">📁</div>
+                                        <div class="asset-title">Shared Docs</div>
+                                        <small>12 Files</small>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                </section>
+
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

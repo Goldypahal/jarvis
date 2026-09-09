@@ -1,0 +1,18 @@
+{
+  "user_id": "console_user",
+  "name": "User",
+  "preferences": {
+    "communication_style": "professional_warm",
+    "detail_tolerance": "medium",
+    "proactivity_preference": "balanced",
+    "humor_tolerance": "medium",
+    "feedback_style": "constructive"
+  },
+  "expertise_areas": [],
+  "goals": [],
+  "privacy_settings": {
+    "remember_interactions": true,
+    "allow_contextual_learning": true,
+    "data_retention_days": 30
+  }
+}
