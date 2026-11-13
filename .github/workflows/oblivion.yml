@@ -1,0 +1,36 @@
+name: oblivion
+
+on:
+  push:
+    paths: ["oblivion/**", ".github/workflows/oblivion.yml"]
+  pull_request:
+    paths: ["oblivion/**", ".github/workflows/oblivion.yml"]
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: oblivion
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: oblivion
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+      - run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: oblivion-${{ matrix.os }}
+          path: |
+            oblivion/target/release/oblivion
+            oblivion/target/release/oblivion.exe
+          if-no-files-found: ignore

@@ -1,0 +1,25 @@
+[package]
+name = "oblivion-cli"
+description = "Oblivion: a personal AI agent that runs on free model APIs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "oblivion"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+chrono.workspace = true
+oblivion-providers.workspace = true
+oblivion-tools.workspace = true
+oblivion-core.workspace = true
+
+
+# Turns on colour support in the classic Windows console.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Console"] }

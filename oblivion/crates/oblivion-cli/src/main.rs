@@ -1,0 +1,451 @@
+//! `oblivion` command-line interface (SRS FR-70/71, Phase 0 version).
+
+use std::io::{BufRead, IsTerminal, Write};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+use anyhow::{bail, Context, Result};
+use clap::Parser;
+use oblivion_core::config::{self, Config, DEFAULT_CONFIG};
+use oblivion_core::{prompt, Agent, AgentEvent, ApprovalMode, Approver, Decision, Session};
+use oblivion_providers::Router;
+use oblivion_tools::{normalize_path, Shell, ToolBox};
+use tokio::sync::Notify;
+
+#[derive(Parser, Debug)]
+#[command(
+    name = "oblivion",
+    version,
+    about = "A personal AI agent that runs on free model APIs"
+)]
+struct Cli {
+    /// Run this task once and exit. Without it, starts an interactive chat.
+    prompt: Vec<String>,
+
+    /// Only use models whose "provider/model" label contains this text (e.g. "groq").
+    #[arg(short, long)]
+    model: Option<String>,
+
+    /// Approval mode: ask, auto-edit or yolo.
+    #[arg(short, long)]
+    approval: Option<String>,
+
+    /// Shortcut for --approval yolo. Never asks. Use only in a throwaway folder.
+    #[arg(long)]
+    yes: bool,
+
+    /// Workspace folder (default: current folder).
+    #[arg(short = 'C', long)]
+    cwd: Option<PathBuf>,
+
+    /// Config file (default: ~/.oblivion/oblivion.toml).
+    #[arg(long)]
+    config: Option<PathBuf>,
+
+    /// Resume a saved session by id (see --sessions).
+    #[arg(long)]
+    resume: Option<String>,
+
+    /// Write a starter config file and exit.
+    #[arg(long)]
+    init: bool,
+
+    /// List configured models and which providers are missing keys, then exit.
+    #[arg(long)]
+    models: bool,
+
+    /// List saved sessions, then exit.
+    #[arg(long)]
+    sessions: bool,
+}
+
+mod style {
+    pub const DIM: &str = "\x1b[2m";
+    pub const BOLD: &str = "\x1b[1m";
+    pub const RED: &str = "\x1b[31m";
+    pub const GREEN: &str = "\x1b[32m";
+    pub const YELLOW: &str = "\x1b[33m";
+    pub const CYAN: &str = "\x1b[36m";
+    pub const RESET: &str = "\x1b[0m";
+}
+use style::*;
+
+struct TerminalApprover;
+
+impl Approver for TerminalApprover {
+    fn approve(&self, tool: &str, summary: &str) -> Decision {
+        let stdin = std::io::stdin();
+        if !stdin.is_terminal() {
+            eprintln!("{YELLOW}! {tool} needs approval but there is no terminal; declined. Use --approval auto-edit or --yes.{RESET}");
+            return Decision::No;
+        }
+        loop {
+            print!("\n{YELLOW}? Allow {BOLD}{summary}{RESET}{YELLOW}  [y]es / [n]o / [a]lways for {tool}: {RESET}");
+            let _ = std::io::stdout().flush();
+            let mut line = String::new();
+            if stdin.lock().read_line(&mut line).unwrap_or(0) == 0 {
+                return Decision::No;
+            }
+            match line.trim().to_ascii_lowercase().as_str() {
+                "y" | "yes" => return Decision::Yes,
+                "n" | "no" => return Decision::No,
+                "a" | "always" => return Decision::Always,
+                _ => println!("Please type y, n or a."),
+            }
+        }
+    }
+}
+
+fn print_event(e: AgentEvent) {
+    let mut out = std::io::stdout();
+    match e {
+        AgentEvent::Text(t) => {
+            let _ = write!(out, "{t}");
+        }
+        AgentEvent::TextEnd => {
+            let _ = writeln!(out);
+        }
+        AgentEvent::ToolStart { name, summary } => {
+            let _ = writeln!(out, "{CYAN}● {name}{RESET} {DIM}{summary}{RESET}");
+        }
+        AgentEvent::ToolEnd {
+            preview, is_error, ..
+        } => {
+            let color = if is_error { RED } else { DIM };
+            for line in preview.lines() {
+                let _ = writeln!(out, "  {color}│ {line}{RESET}");
+            }
+        }
+        AgentEvent::Declined { name } => {
+            let _ = writeln!(out, "{YELLOW}  ✗ declined {name}{RESET}");
+        }
+        AgentEvent::Fallback { from, reason } => {
+            let short: String = reason.chars().take(160).collect();
+            let _ = writeln!(
+                out,
+                "{YELLOW}  ↷ {from} failed ({short}); trying next model{RESET}"
+            );
+        }
+        AgentEvent::Model(m) => {
+            let _ = writeln!(out, "{DIM}  [{m}]{RESET}");
+        }
+        AgentEvent::Notice(n) => {
+            let _ = writeln!(out, "{YELLOW}{n}{RESET}");
+        }
+    }
+    let _ = out.flush();
+}
+
+fn init_config(path: &PathBuf) -> Result<()> {
+    if path.exists() {
+        bail!(
+            "{} already exists; edit it or delete it first",
+            path.display()
+        );
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(path, DEFAULT_CONFIG)?;
+    println!("Wrote {}", path.display());
+    println!("Next: set at least one API key, e.g. on Windows PowerShell:");
+    println!("  setx OPENROUTER_API_KEY \"sk-or-...\"   (then open a new terminal)");
+    println!("Then run `oblivion --models` to check, and `oblivion` to start.");
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() {
+    if let Err(e) = run().await {
+        eprintln!("{RED}error:{RESET} {e:#}");
+        std::process::exit(1);
+    }
+}
+
+/// The classic Windows console shows colour codes as `←[1m` unless the
+/// program switches on "virtual terminal processing" for its window.
+#[cfg(windows)]
+fn enable_ansi_colors() {
+    use windows_sys::Win32::System::Console::{
+        GetConsoleMode, GetStdHandle, SetConsoleMode, ENABLE_VIRTUAL_TERMINAL_PROCESSING,
+        STD_ERROR_HANDLE, STD_OUTPUT_HANDLE,
+    };
+    for which in [STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+        // SAFETY: plain Win32 calls on this process's own standard handles;
+        // `mode` is a valid local the API writes into.
+        unsafe {
+            let handle = GetStdHandle(which);
+            let mut mode: u32 = 0;
+            if !handle.is_null() && GetConsoleMode(handle, &mut mode) != 0 {
+                SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+            }
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn enable_ansi_colors() {}
+
+async fn run() -> Result<()> {
+    enable_ansi_colors();
+    let cli = Cli::parse();
+    let home = config::home_dir();
+    let config_path = cli
+        .config
+        .clone()
+        .unwrap_or_else(config::default_config_path);
+    let sessions_dir = home.join("sessions");
+
+    if cli.init {
+        return init_config(&config_path);
+    }
+    if cli.sessions {
+        let list = Session::list(&sessions_dir);
+        if list.is_empty() {
+            println!("No saved sessions in {}", sessions_dir.display());
+        }
+        for s in list {
+            println!(
+                "{BOLD}{}{RESET}  {DIM}{}{RESET}  {}",
+                s.id,
+                s.workspace.display(),
+                s.first_prompt
+            );
+        }
+        return Ok(());
+    }
+
+    let cfg = Config::load(&config_path)?;
+    cfg.validate()?;
+    let (targets, skipped) = cfg.targets(&|k| std::env::var(k).ok());
+
+    if cli.models {
+        println!("{BOLD}Models, in fallback order:{RESET}");
+        for t in &targets {
+            println!("  {GREEN}✓{RESET} {}", t.label());
+        }
+        for s in &skipped {
+            println!("  {DIM}– {} skipped: {}{RESET}", s.name, s.reason);
+        }
+        return Ok(());
+    }
+    if targets.is_empty() {
+        bail!(
+            "no usable models. Set an API key (e.g. OPENROUTER_API_KEY or GROQ_API_KEY) or enable ollama in {}.\nSkipped: {}",
+            config_path.display(),
+            skipped.iter().map(|s| format!("{} ({})", s.name, s.reason)).collect::<Vec<_>>().join(", ")
+        );
+    }
+
+    let mut router = Router::new(targets);
+    if let Some(filter) = &cli.model {
+        if !router.pin(filter) {
+            bail!("no configured model matches '{filter}'. Run `oblivion --models` to see them.");
+        }
+    }
+
+    let root = match &cli.cwd {
+        Some(p) => {
+            if !p.is_dir() {
+                bail!("cannot open folder {}", p.display());
+            }
+            normalize_path(p)
+        }
+        None => normalize_path(&std::env::current_dir()?),
+    };
+    let shell = match &cfg.agent.shell {
+        Some(s) => Shell::parse(s).with_context(|| format!("unknown shell '{s}' in config"))?,
+        None => Shell::platform_default(),
+    };
+    let approval = if cli.yes {
+        ApprovalMode::Yolo
+    } else if let Some(a) = &cli.approval {
+        ApprovalMode::parse(a)
+            .with_context(|| format!("unknown approval mode '{a}' (ask, auto-edit, yolo)"))?
+    } else {
+        cfg.agent.approval
+    };
+
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let system = prompt::build(&root, shell, &today);
+    let mut agent = {
+        // Snapshot folder is named per run so undo data never mixes between sessions.
+        let snap = home
+            .join("snapshots")
+            .join(chrono::Local::now().format("%Y%m%d-%H%M%S").to_string());
+        let tools = ToolBox::new(root.clone(), shell, snap);
+        Agent::new(
+            router,
+            tools,
+            Box::new(TerminalApprover),
+            approval,
+            cfg.agent.max_steps,
+            system,
+        )
+    };
+    if let Some(id) = &cli.resume {
+        agent.resume(Session::load(&sessions_dir, id)?);
+        println!(
+            "{DIM}Resumed session {id} ({} messages){RESET}",
+            agent.session.messages.len()
+        );
+    }
+    agent.persist_to(sessions_dir);
+
+    // Ctrl+C cancels the running request; at the prompt it exits.
+    let in_turn = Arc::new(AtomicBool::new(false));
+    let cancel = Arc::new(Notify::new());
+    {
+        let in_turn = in_turn.clone();
+        let cancel = cancel.clone();
+        tokio::spawn(async move {
+            while tokio::signal::ctrl_c().await.is_ok() {
+                if in_turn.load(Ordering::SeqCst) {
+                    cancel.notify_one();
+                } else {
+                    println!();
+                    std::process::exit(130);
+                }
+            }
+        });
+    }
+
+    if !cli.prompt.is_empty() {
+        let task = cli.prompt.join(" ");
+        run_one(&mut agent, &task, &in_turn, &cancel).await;
+        return Ok(());
+    }
+
+    println!(
+        "{BOLD}Oblivion{RESET} {DIM}v{} · {} · approval: {:?} · /help for commands{RESET}",
+        env!("CARGO_PKG_VERSION"),
+        root.display(),
+        agent.approval
+    );
+    let stdin = std::io::stdin();
+    loop {
+        print!("\n{GREEN}❯{RESET} ");
+        std::io::stdout().flush()?;
+        let mut line = String::new();
+        let n = tokio::task::block_in_place(|| stdin.lock().read_line(&mut line))?;
+        if n == 0 {
+            break; // EOF (Ctrl+D / Ctrl+Z)
+        }
+        let input = line.trim();
+        if input.is_empty() {
+            continue;
+        }
+        if let Some(cmd) = input.strip_prefix('/') {
+            if handle_command(&mut agent, cmd)? {
+                break;
+            }
+            continue;
+        }
+        run_one(&mut agent, input, &in_turn, &cancel).await;
+    }
+    Ok(())
+}
+
+async fn run_one(agent: &mut Agent, task: &str, in_turn: &AtomicBool, cancel: &Notify) {
+    in_turn.store(true, Ordering::SeqCst);
+    let mut on_event = print_event;
+    let result = tokio::select! {
+        r = agent.run_turn(task, &mut on_event) => Some(r),
+        _ = cancel.notified() => None,
+    };
+    in_turn.store(false, Ordering::SeqCst);
+    match result {
+        None => {
+            agent.repair();
+            println!(
+                "\n{YELLOW}Cancelled. File changes so far are kept; /undo reverts them.{RESET}"
+            );
+        }
+        Some(Err(e)) => println!("\n{RED}✗ {e:#}{RESET}"),
+        Some(Ok(s)) => {
+            let tokens = if s.usage.prompt_tokens + s.usage.completion_tokens > 0 {
+                format!(
+                    " · {} in / {} out tokens",
+                    s.usage.prompt_tokens, s.usage.completion_tokens
+                )
+            } else {
+                String::new()
+            };
+            println!(
+                "{DIM}  {} step(s) · {} tool call(s){tokens}{RESET}",
+                s.steps, s.tool_calls
+            );
+        }
+    }
+}
+
+/// Returns true when the user asked to quit.
+fn handle_command(agent: &mut Agent, cmd: &str) -> Result<bool> {
+    let (name, arg) = cmd
+        .split_once(' ')
+        .map(|(a, b)| (a, b.trim()))
+        .unwrap_or((cmd, ""));
+    match name {
+        "exit" | "quit" | "q" => return Ok(true),
+        "help" | "h" => {
+            println!("/undo          revert file changes from the last request");
+            println!("/models        show models and cooldowns");
+            println!("/model <text>  only use models whose label contains <text>");
+            println!("/approval <m>  ask | auto-edit | yolo");
+            println!("/clear         start a fresh conversation");
+            println!("/session       show the session id (resume with --resume <id>)");
+            println!("/exit          quit (Ctrl+C also quits at the prompt)");
+        }
+        "undo" => match agent.undo_last_turn()? {
+            Some(r) => println!(
+                "Restored {} file(s), removed {} new file(s).",
+                r.restored, r.removed
+            ),
+            None => println!("Nothing to undo."),
+        },
+        "models" => {
+            for (label, cooldown) in agent.router.status() {
+                match cooldown {
+                    Some(d) => println!(
+                        "  {YELLOW}…{RESET} {label} {DIM}(cooling down {}s){RESET}",
+                        d.as_secs()
+                    ),
+                    None => println!("  {GREEN}✓{RESET} {label}"),
+                }
+            }
+        }
+        "model" => {
+            if arg.is_empty() {
+                println!("Usage: /model <text>");
+            } else if agent.router.pin(arg) {
+                println!(
+                    "Using: {}",
+                    agent
+                        .router
+                        .targets()
+                        .iter()
+                        .map(|t| t.label())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            } else {
+                println!("No model matches '{arg}'.");
+            }
+        }
+        "approval" => match ApprovalMode::parse(arg) {
+            Some(m) => {
+                agent.approval = m;
+                println!("Approval mode: {m:?}");
+            }
+            None => println!("Usage: /approval ask | auto-edit | yolo"),
+        },
+        "clear" => {
+            agent.clear();
+            println!("Conversation cleared.");
+        }
+        "session" => println!("Session {}", agent.session.id),
+        other => println!("Unknown command /{other}. Try /help."),
+    }
+    Ok(false)
+}

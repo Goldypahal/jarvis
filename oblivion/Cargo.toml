@@ -1,0 +1,38 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/oblivion-providers",
+    "crates/oblivion-tools",
+    "crates/oblivion-core",
+    "crates/oblivion-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+anyhow = "1"
+thiserror = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "io-util", "io-std", "fs", "signal", "sync", "net"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+futures-util = "0.3"
+toml = "0.8"
+dirs = "5"
+clap = { version = "4", features = ["derive"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+tempfile = "3"
+
+oblivion-providers = { path = "crates/oblivion-providers" }
+oblivion-tools = { path = "crates/oblivion-tools" }
+oblivion-core = { path = "crates/oblivion-core" }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

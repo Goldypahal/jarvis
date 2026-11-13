@@ -1,0 +1,15 @@
+[package]
+name = "oblivion-tools"
+description = "Built-in tools for the Oblivion agent: read, write, edit, shell"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+oblivion-providers.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
