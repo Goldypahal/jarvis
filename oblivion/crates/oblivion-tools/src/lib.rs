@@ -1,12 +1,16 @@
-//! Built-in tools (SRS FR-10..FR-14): read_file, write_file, edit_file, shell.
+//! Built-in tools (SRS FR-10..FR-17): files, search, shell, web and todo.
 //!
 //! The agent core asks [`ToolBox::risk`] whether a call needs the user's
 //! approval, then runs it with [`ToolBox::execute`]. Every file change is
 //! snapshotted first so it can be undone (SRS FR-62).
 
 mod fs_tools;
+mod fuzzy;
+mod search;
 mod shell;
 mod snapshot;
+mod todo;
+mod web;
 
 use std::path::{Path, PathBuf};
 
@@ -15,6 +19,8 @@ use serde_json::Value;
 
 pub use shell::Shell;
 pub use snapshot::{Journal, UndoReport};
+pub use todo::{TodoItem, TodoList, TodoStatus};
+pub use web::{html_to_text, parse_duckduckgo, SearchBackend, SearchResult};
 
 /// Result of running a tool, returned to the model as the tool message.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,6 +59,9 @@ pub struct ToolBox {
     shell: Shell,
     journal: Journal,
     max_output_chars: usize,
+    todos: TodoList,
+    http: reqwest::Client,
+    search: SearchBackend,
 }
 
 impl ToolBox {
@@ -62,7 +71,27 @@ impl ToolBox {
             shell,
             journal: Journal::new(snapshot_dir.into()),
             max_output_chars: 30_000,
+            todos: TodoList::default(),
+            http: web::http_client(),
+            search: SearchBackend::DuckDuckGo,
         }
+    }
+
+    pub fn with_search(mut self, backend: SearchBackend) -> Self {
+        self.search = backend;
+        self
+    }
+
+    pub fn todos(&self) -> &TodoList {
+        &self.todos
+    }
+
+    pub(crate) fn http(&self) -> &reqwest::Client {
+        &self.http
+    }
+
+    pub(crate) fn search_backend(&self) -> &SearchBackend {
+        &self.search
     }
 
     pub fn root(&self) -> &Path {
@@ -79,7 +108,10 @@ impl ToolBox {
 
     pub fn specs(&self) -> Vec<ToolSpec> {
         let mut specs = fs_tools::specs();
+        specs.extend(search::specs());
         specs.push(shell::spec(self.shell));
+        specs.extend(web::specs());
+        specs.push(todo::spec());
         specs
     }
 
@@ -110,11 +142,47 @@ impl ToolBox {
             }
             "write_file" => Risk::Ask(format!("write {}", self.resolve(path_arg()).display())),
             "edit_file" => Risk::Ask(format!("edit {}", self.resolve(path_arg()).display())),
+            "glob" | "grep" => match args.get("path").and_then(Value::as_str) {
+                Some(p) if !self.inside_root(&self.resolve(p)) => Risk::Ask(format!(
+                    "search {} (outside the workspace)",
+                    self.resolve(p).display()
+                )),
+                _ => Risk::Safe,
+            },
             "shell" => {
                 let cmd = args.get("command").and_then(Value::as_str).unwrap_or("");
                 Risk::Ask(format!("run: {cmd}"))
             }
+            "web_fetch" => {
+                let url = args.get("url").and_then(Value::as_str).unwrap_or("");
+                Risk::Ask(format!("fetch {url}"))
+            }
             _ => Risk::Safe,
+        }
+    }
+
+    /// The text permission rules are matched against: the command for `shell`,
+    /// the URL for `web_fetch`, the query for `web_search`, otherwise the path.
+    pub fn subject(&self, name: &str, args: &Value) -> String {
+        let get = |k: &str| {
+            args.get(k)
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string()
+        };
+        match name {
+            "shell" => get("command"),
+            "web_fetch" => get("url"),
+            "web_search" => get("query"),
+            "todo" => String::new(),
+            _ => {
+                let p = get("path");
+                if p.is_empty() {
+                    ".".into()
+                } else {
+                    p.replace('\\', "/")
+                }
+            }
         }
     }
 
@@ -123,9 +191,19 @@ impl ToolBox {
             "read_file" => fs_tools::read_file(self, args).await,
             "write_file" => fs_tools::write_file(self, args).await,
             "edit_file" => fs_tools::edit_file(self, args).await,
+            "glob" => search::glob(self, args).await,
+            "grep" => search::grep(self, args).await,
             "shell" => shell::run(self, args).await,
+            "web_search" => web::web_search(self, args).await,
+            "web_fetch" => web::web_fetch(self, args).await,
+            "todo" => todo::update(&self.todos, args),
             other => Err(format!(
-                "unknown tool '{other}'. Available tools: read_file, write_file, edit_file, shell"
+                "unknown tool '{other}'. Available tools: {}",
+                self.specs()
+                    .iter()
+                    .map(|s| s.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             )),
         };
         match out {

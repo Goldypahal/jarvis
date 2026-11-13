@@ -23,6 +23,20 @@ pub struct SessionInfo {
     pub first_prompt: String,
 }
 
+/// Where sessions are saved. The CLI uses SQLite; tests and fallbacks use JSON files.
+pub trait SessionStore: Send + Sync {
+    fn save(&self, session: &Session) -> Result<()>;
+}
+
+/// One JSON file per session in a folder (the Phase 0 format).
+pub struct JsonDir(pub PathBuf);
+
+impl SessionStore for JsonDir {
+    fn save(&self, session: &Session) -> Result<()> {
+        session.save(&self.0)
+    }
+}
+
 impl Session {
     pub fn new(workspace: PathBuf) -> Self {
         let now = chrono::Local::now();

@@ -6,5 +6,7 @@ pub mod router;
 pub mod types;
 
 pub use client::{Client, ProviderConfig, ProviderError, StreamEvent};
-pub use router::{AllFailed, Router, Target};
-pub use types::{Completion, FunctionCall, Message, Role, ToolCall, ToolSpec, Usage};
+pub use router::{AllFailed, Router, Target, TargetStatus, UsageLedger};
+pub use types::{
+    estimate_tokens, Completion, FunctionCall, Message, Role, ToolCall, ToolSpec, Usage,
+};

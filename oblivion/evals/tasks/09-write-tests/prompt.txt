@@ -1,0 +1,1 @@
+Write a pytest test file test_stack.py with at least 4 tests that cover push, pop, peek and popping from an empty stack. Run the tests to make sure they pass.

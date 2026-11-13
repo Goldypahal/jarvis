@@ -14,7 +14,9 @@ Rust cargo workspace. Read the SRS (Oblivion project doc) before adding features
 - `crates/oblivion-providers` — model client + router. No knowledge of tools or the CLI.
 - `crates/oblivion-tools` — tools. Each tool: a spec, a risk level, an async implementation, unit tests.
 - `crates/oblivion-core` — agent loop, config, prompt, sessions. `tests/e2e.rs` drives the loop against a fake server.
-- `crates/oblivion-cli` — terminal UI only; no business logic.
+- `crates/oblivion-store` — SQLite (sessions, daily usage ledger). Implements core's `SessionStore` and providers' `UsageLedger`.
+- `crates/oblivion-cli` — terminal UI, key storage (`keys.rs`); no business logic.
+- `evals/` — 10 end-to-end tasks with hidden tests; `python evals/run_evals.py`. Run before merging prompt or tool changes.
 
 ## Rules
 

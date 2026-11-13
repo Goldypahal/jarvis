@@ -1,0 +1,1 @@
+Read sales.csv and write summary.json containing an object that maps each region to its total amount (as a number), e.g. {"north": 12.5}. Use a Python script.

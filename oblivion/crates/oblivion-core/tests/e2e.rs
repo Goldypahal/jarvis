@@ -4,7 +4,9 @@
 
 use std::sync::{Arc, Mutex};
 
-use oblivion_core::{Agent, AgentEvent, ApprovalMode, Approver, Decision};
+use oblivion_core::compact::{SUMMARY_MARKER, SUMMARY_PROMPT};
+use oblivion_core::{Agent, AgentEvent, ApprovalMode, Approver, Decision, Rules};
+use oblivion_providers::Message;
 use oblivion_providers::{ProviderConfig, Role, Router, Target};
 use oblivion_tools::{Shell, ToolBox};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -67,8 +69,13 @@ async fn fake_server(script: Vec<(u16, String)>) -> (String, Arc<Mutex<Vec<serde
             } else {
                 "application/json"
             };
+            let retry = if status == 429 {
+                "Retry-After: 1\r\n"
+            } else {
+                ""
+            };
             let resp = format!(
-                "HTTP/1.1 {status} {reason}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                "HTTP/1.1 {status} {reason}\r\nContent-Type: {ctype}\r\n{retry}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
                 body.len()
             );
             sock.write_all(resp.as_bytes()).await.unwrap();
@@ -79,16 +86,16 @@ async fn fake_server(script: Vec<(u16, String)>) -> (String, Arc<Mutex<Vec<serde
 }
 
 fn target(name: &str, url: &str) -> Target {
-    Target {
-        provider: Arc::new(ProviderConfig {
+    Target::new(
+        Arc::new(ProviderConfig {
             name: name.into(),
             base_url: url.into(),
             api_key: Some("test-key".into()),
             headers: vec![],
             stream_usage: false,
         }),
-        model: "m".into(),
-    }
+        "m",
+    )
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -217,5 +224,175 @@ async fn all_providers_failing_is_a_clear_error() {
     assert!(
         err.contains("every model failed") && err.contains("only/m"),
         "{err}"
+    );
+}
+
+struct NeverAsked;
+impl Approver for NeverAsked {
+    fn approve(&self, tool: &str, _: &str) -> Decision {
+        panic!("approval should not be needed for {tool}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn rules_block_denied_calls_and_skip_prompts_for_allowed_ones() {
+    let script = vec![
+        (
+            200,
+            sse(&[
+                r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"d1","function":{"name":"shell","arguments":"{\"command\":\"git push --force origin main\"}"}},{"index":1,"id":"w1","function":{"name":"write_file","arguments":"{\"path\":\"notes.txt\",\"content\":\"hi\"}"}}]},"finish_reason":"tool_calls"}]}"#,
+            ]),
+        ),
+        (
+            200,
+            sse(&[r#"{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}"#]),
+        ),
+    ];
+    let (url, _) = fake_server(script).await;
+    let dir = tempfile::tempdir().unwrap();
+    let tools = ToolBox::new(dir.path(), Shell::Sh, dir.path().join(".snap"));
+    let mut agent = Agent::new(
+        Router::new(vec![target("p", &url)]),
+        tools,
+        Box::new(NeverAsked),
+        ApprovalMode::Ask,
+        5,
+        "s".into(),
+    );
+    agent.set_rules(
+        Rules::new(
+            &["write_file(notes.txt)".into()],
+            &["shell(*git push --force*)".into()],
+        )
+        .unwrap(),
+    );
+    let mut events = Vec::new();
+    let mut sink = |e: AgentEvent| events.push(e);
+    agent.run_turn("go", &mut sink).await.unwrap();
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("notes.txt")).unwrap(),
+        "hi"
+    );
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, AgentEvent::Blocked { name, .. } if name == "shell")));
+    let blocked = agent
+        .session
+        .messages
+        .iter()
+        .find(|m| m.tool_call_id.as_deref() == Some("d1"))
+        .unwrap();
+    assert!(blocked
+        .content
+        .as_ref()
+        .unwrap()
+        .contains("Blocked by the rule"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn long_history_is_summarized_before_the_next_request() {
+    let script = vec![
+        (
+            200,
+            sse(&[
+                r#"{"choices":[{"delta":{"content":"User fixed bug A in a.py."},"finish_reason":"stop"}]}"#,
+            ]),
+        ),
+        (
+            200,
+            sse(&[
+                r#"{"choices":[{"delta":{"content":"Next step done."},"finish_reason":"stop"}]}"#,
+            ]),
+        ),
+    ];
+    let (url, seen) = fake_server(script).await;
+    let dir = tempfile::tempdir().unwrap();
+    let tools = ToolBox::new(dir.path(), Shell::Sh, dir.path().join(".snap"));
+    let mut agent = Agent::new(
+        Router::new(vec![target("p", &url)]),
+        tools,
+        Box::new(AlwaysYes),
+        ApprovalMode::Ask,
+        5,
+        "s".into(),
+    );
+    // Tool specs alone are ~2.5K tokens; leave room for only a little history.
+    agent.context_tokens = 4000;
+    let filler = "word ".repeat(1500);
+    for i in 0..4 {
+        agent
+            .session
+            .messages
+            .push(Message::user(format!("task {i}: {filler}")));
+        agent.session.messages.push(Message::assistant(
+            Some(format!("reply {i}: {filler}")),
+            vec![],
+        ));
+    }
+    let mut sink = |_e: AgentEvent| {};
+    agent
+        .run_turn("and now the next step", &mut sink)
+        .await
+        .unwrap();
+
+    let reqs = seen.lock().unwrap();
+    // First request is the summary call: no tools, our summary prompt.
+    assert!(reqs[0].get("tools").is_none());
+    assert_eq!(reqs[0]["messages"][0]["content"], SUMMARY_PROMPT);
+    // The real request carries the summary instead of the old turns.
+    let msgs = reqs[1]["messages"].as_array().unwrap();
+    assert!(msgs[1]["content"]
+        .as_str()
+        .unwrap()
+        .starts_with(SUMMARY_MARKER));
+    assert!(
+        msgs.len() < 10,
+        "history was not shortened: {} messages",
+        msgs.len()
+    );
+    assert!(msgs.last().unwrap()["content"]
+        .as_str()
+        .unwrap()
+        .contains("next step"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn waits_out_a_short_rate_limit_instead_of_failing() {
+    // Like Groq's free tier: one 429 with Retry-After: 1, then success.
+    let script = vec![
+        (
+            429,
+            r#"{"error":{"message":"Rate limit reached ... tokens per minute (TPM)"}}"#.to_string(),
+        ),
+        (
+            200,
+            sse(&[r#"{"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}"#]),
+        ),
+    ];
+    let (url, _) = fake_server(script).await;
+    let dir = tempfile::tempdir().unwrap();
+    let tools = ToolBox::new(dir.path(), Shell::Sh, dir.path().join(".snap"));
+    let mut agent = Agent::new(
+        Router::new(vec![target("groqlike", &url)]),
+        tools,
+        Box::new(AlwaysYes),
+        ApprovalMode::Ask,
+        5,
+        "s".into(),
+    );
+    let mut events = Vec::new();
+    let mut sink = |e: AgentEvent| events.push(e);
+    let started = std::time::Instant::now();
+    agent.run_turn("hi", &mut sink).await.unwrap();
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::Waiting(s) if *s >= 1 && *s <= 3)),
+        "{events:?}"
+    );
+    assert!(started.elapsed() >= std::time::Duration::from_secs(1));
+    assert_eq!(
+        agent.session.messages.last().unwrap().content.as_deref(),
+        Some("done")
     );
 }

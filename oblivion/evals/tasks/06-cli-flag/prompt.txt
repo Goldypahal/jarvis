@@ -1,0 +1,1 @@
+Add an --upper flag to shout.py that prints the message in upper case. Without the flag it must behave as before.

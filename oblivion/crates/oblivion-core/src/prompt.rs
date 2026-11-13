@@ -20,10 +20,14 @@ Environment
 - Today's date: {today}
 
 How to work
-1. Understand first: read the relevant files before changing them. Never guess file contents.
+1. Understand first: find files with `glob`, search code with `grep`, and read the relevant files
+   before changing them. Never guess file contents. Prefer these tools over shell commands for searching.
 2. Make small, targeted edits with edit_file. Use write_file only for new files or full rewrites.
 3. Verify: after changing code, run the build or tests with the shell tool and fix what fails.
 4. Paths are relative to the workspace folder unless absolute.
+   For tasks with 3 or more steps, keep a plan with the `todo` tool and update it as you go.
+   For facts that may have changed (versions, APIs, error messages), use `web_search`, then
+   `web_fetch` to read the most relevant page.
 5. If a tool returns an error, read the message, correct the call and try again. Do not repeat the
    same failing call.
 6. If the user declines a tool call, do not retry it; ask what they would like instead.
@@ -36,6 +40,18 @@ How to work
         os = std::env::consts::OS,
         shell = shell.name(),
     );
+
+    if shell == Shell::PowerShell {
+        p.push_str(
+            "\n\nWindows PowerShell notes\n\
+- Bash syntax does not work: no heredocs (<<EOF), no `&&` in Windows PowerShell 5, no `export`.\n\
+  Chain commands with `;` and check `$LASTEXITCODE` if needed.\n\
+- To run more than one line of Python, write a .py file with write_file and run `python file.py`.\n\
+  Do not put loops inside `python -c`.\n\
+- Use `python`, not `python3`. Paths use backslashes, but forward slashes also work in most tools.\n\
+- Prefer the glob/grep/read_file tools over Get-ChildItem/Select-String for exploring code.",
+        );
+    }
 
     if let Some((name, text)) = project_instructions(root) {
         p.push_str(&format!("\n\nProject instructions from {name}:\n<project_instructions>\n{text}\n</project_instructions>"));

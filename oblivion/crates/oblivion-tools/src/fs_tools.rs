@@ -186,10 +186,37 @@ pub(crate) async fn edit_file(tb: &ToolBox, args: &Value) -> Result<String, Stri
 
     let count = original.matches(&old_m).count();
     if count == 0 {
-        return Err(format!(
-            "old_string was not found in {}. Read the file again and copy the text exactly, including whitespace.",
-            path.display()
-        ));
+        if replace_all {
+            return Err(format!(
+                "old_string was not found in {}. Read the file again and copy the text exactly.",
+                path.display()
+            ));
+        }
+        // Exact text not found: retry ignoring whitespace and line-number prefixes.
+        return match crate::fuzzy::fuzzy_replace(&original, old, new) {
+            Ok(edit) => {
+                tb.journal()
+                    .snapshot(&path)
+                    .map_err(|e| format!("snapshot failed, nothing changed: {e}"))?;
+                tokio::fs::write(&path, &edit.text)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Ok(format!(
+                    "Edited {}: replaced 1 occurrence starting at line {} ({})",
+                    path.display(),
+                    edit.line,
+                    edit.note
+                ))
+            }
+            Err(crate::fuzzy::FuzzyError::Ambiguous(n)) => Err(format!(
+                "old_string matches {n} places in {} when whitespace is ignored. Include more surrounding lines.",
+                path.display()
+            )),
+            Err(crate::fuzzy::FuzzyError::NotFound) => Err(format!(
+                "old_string was not found in {}. Read the file again and copy the text exactly (without line numbers).",
+                path.display()
+            )),
+        };
     }
     if count > 1 && !replace_all {
         return Err(format!(
@@ -211,9 +238,9 @@ pub(crate) async fn edit_file(tb: &ToolBox, args: &Value) -> Result<String, Stri
 
     // Report where the change landed so the model can verify.
     let first_line = original[..original.find(&old_m).unwrap_or(0)]
-        .lines()
+        .matches('\n')
         .count()
-        .max(1);
+        + 1;
     Ok(format!(
         "Edited {}: replaced {} occurrence(s), starting near line {}",
         path.display(),

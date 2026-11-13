@@ -1,0 +1,1 @@
+parse_int crashes on bad input. It should return None for anything that is not a valid integer (including None and empty strings), and still parse values like ' 42 '.

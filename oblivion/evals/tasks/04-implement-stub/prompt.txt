@@ -1,0 +1,1 @@
+Implement is_palindrome in strings.py. It should ignore case, spaces and punctuation.

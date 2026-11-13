@@ -24,7 +24,7 @@ pub struct ProviderConfig {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProviderError {
-    #[error("rate limited (retry after {retry_after_secs:?}s): {body}")]
+    #[error("rate limited{}: {body}", retry_note(*.retry_after_secs))]
     RateLimited {
         retry_after_secs: Option<u64>,
         body: String,
@@ -50,6 +50,17 @@ pub enum StreamEvent {
         from: String,
         reason: String,
     },
+    /// Every model is briefly rate-limited; the router waits this long, then retries.
+    Waiting {
+        seconds: u64,
+    },
+}
+
+fn retry_note(secs: Option<u64>) -> String {
+    match secs {
+        Some(s) => format!(" (retry in {s}s)"),
+        None => String::new(),
+    }
 }
 
 pub struct Client {

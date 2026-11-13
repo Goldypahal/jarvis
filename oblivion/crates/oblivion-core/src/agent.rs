@@ -3,14 +3,17 @@
 
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::Result;
 use oblivion_providers::{Message, Role, Router, StreamEvent, Usage};
 use oblivion_tools::{Risk, ToolBox, UndoReport};
 use serde_json::Value;
 
+use crate::compact::{self, Stage};
 use crate::config::ApprovalMode;
-use crate::session::Session;
+use crate::rules::{Rules, Verdict};
+use crate::session::{JsonDir, Session, SessionStore};
 
 /// What the user said to an approval prompt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,12 +47,19 @@ pub enum AgentEvent {
     Declined {
         name: String,
     },
+    /// Refused by a deny rule in the config.
+    Blocked {
+        name: String,
+        rule: String,
+    },
     Fallback {
         from: String,
         reason: String,
     },
     Model(String),
     Notice(String),
+    /// All models are rate-limited for a few seconds; waiting before retrying.
+    Waiting(u64),
 }
 
 #[derive(Debug, Default, Clone)]
@@ -67,7 +77,10 @@ pub struct Agent {
     pub approval: ApprovalMode,
     pub max_steps: usize,
     pub session: Session,
-    session_dir: Option<PathBuf>,
+    /// Conversation size (estimated tokens) at which history is shrunk.
+    pub context_tokens: usize,
+    rules: Rules,
+    store: Option<Arc<dyn SessionStore>>,
     approver: Box<dyn Approver>,
     always_allowed: HashSet<String>,
     /// Journal marks at the start of each turn, for `/undo`.
@@ -91,16 +104,27 @@ impl Agent {
             approval,
             max_steps,
             session,
-            session_dir: None,
+            context_tokens: 24_000,
+            rules: Rules::default(),
+            store: None,
             approver,
             always_allowed: HashSet::new(),
             turn_marks: Vec::new(),
         }
     }
 
-    /// Save the session to `dir` after every step.
+    /// Save the session as JSON files in `dir` after every step.
     pub fn persist_to(&mut self, dir: PathBuf) {
-        self.session_dir = Some(dir);
+        self.store = Some(Arc::new(JsonDir(dir)));
+    }
+
+    /// Save the session to `store` after every step.
+    pub fn persist_with(&mut self, store: Arc<dyn SessionStore>) {
+        self.store = Some(store);
+    }
+
+    pub fn set_rules(&mut self, rules: Rules) {
+        self.rules = rules;
     }
 
     /// Continue an earlier conversation, keeping this run's fresh system prompt.
@@ -120,10 +144,71 @@ impl Agent {
     }
 
     fn save(&self) {
-        if let Some(dir) = &self.session_dir {
+        if let Some(store) = &self.store {
             // Losing a save should not kill the task; the next step saves again.
-            let _ = self.session.save(dir);
+            let _ = store.save(&self.session);
         }
+    }
+
+    /// The budget compaction aims for: the configured size, but never more than
+    /// the biggest request any available model accepts.
+    fn budget(&self) -> usize {
+        match self.router.largest_input_budget() {
+            Some(max) => self.context_tokens.min(max as usize),
+            None => self.context_tokens,
+        }
+    }
+
+    /// Shrink history if it is near the budget (SRS FR-51). `force` summarizes
+    /// even when under budget (the /compact command).
+    pub async fn compact(
+        &mut self,
+        force: bool,
+        on_event: &mut (dyn FnMut(AgentEvent) + Send),
+    ) -> Result<bool> {
+        let specs = self.tools.specs();
+        let budget = self.budget();
+        let stage = if force {
+            Stage::NeedsSummary
+        } else {
+            compact::trim_old_tool_output(&mut self.session.messages, &specs, budget)
+        };
+        if stage != Stage::NeedsSummary {
+            return Ok(stage == Stage::Trimmed);
+        }
+        let Some(split) = compact::split_point(&self.session.messages, &specs, budget) else {
+            return Ok(false);
+        };
+        if split <= 1 {
+            return Ok(false);
+        }
+        on_event(AgentEvent::Notice(
+            "Conversation is long; summarizing earlier turns to save space…".into(),
+        ));
+        let text = compact::transcript(&self.session.messages[1..split], budget * 2);
+        let request = vec![
+            Message::system(compact::SUMMARY_PROMPT),
+            Message::user(text),
+        ];
+        let mut quiet = |e: StreamEvent| match e {
+            StreamEvent::Fallback { from, reason } => {
+                on_event(AgentEvent::Fallback { from, reason })
+            }
+            StreamEvent::Waiting { seconds } => on_event(AgentEvent::Waiting(seconds)),
+            StreamEvent::TextDelta(_) => {}
+        };
+        let summary = match self.router.complete(&request, &[], &mut quiet).await {
+            Ok(c) => c.message.content.unwrap_or_default(),
+            Err(_) => String::new(),
+        };
+        let summary = if summary.trim().is_empty() {
+            "(Earlier messages were removed to save space; no summary was available.)".to_string()
+        } else {
+            summary
+        };
+        compact::apply_summary(&mut self.session.messages, split, &summary);
+        self.save();
+        Ok(true)
     }
 
     /// Undo every file change from the most recent turn.
@@ -210,6 +295,7 @@ impl Agent {
                 break;
             }
             summary.steps += 1;
+            self.compact(false, on_event).await?;
 
             let completion = {
                 let mut forward = |e: StreamEvent| match e {
@@ -217,6 +303,7 @@ impl Agent {
                     StreamEvent::Fallback { from, reason } => {
                         on_event(AgentEvent::Fallback { from, reason })
                     }
+                    StreamEvent::Waiting { seconds } => on_event(AgentEvent::Waiting(seconds)),
                 };
                 self.router
                     .complete(&self.session.messages, &specs, &mut forward)
@@ -278,7 +365,21 @@ impl Agent {
                     Risk::Ask(s) => s.clone(),
                     Risk::Safe => describe(&name, &args),
                 };
-                if let Some(question) = self.needs_approval(&name, &risk) {
+                let verdict = self.rules.check(&name, &self.tools.subject(&name, &args));
+                if let Verdict::Deny(rule) = &verdict {
+                    on_event(AgentEvent::Blocked {
+                        name: name.clone(),
+                        rule: rule.clone(),
+                    });
+                    self.session.messages.push(Message::tool_result(
+                        &call.id,
+                        format!("Blocked by the rule `{rule}` in oblivion.toml. Do not try to work around it; find another way or ask the user."),
+                    ));
+                    continue;
+                }
+                let pre_approved = matches!(verdict, Verdict::Allow(_));
+                if let Some(question) = self.needs_approval(&name, &risk).filter(|_| !pre_approved)
+                {
                     let decision =
                         tokio::task::block_in_place(|| self.approver.approve(&name, &question));
                     match decision {
@@ -318,11 +419,18 @@ impl Agent {
 }
 
 fn describe(name: &str, args: &Value) -> String {
+    let get = |k: &str| {
+        args.get(k)
+            .and_then(Value::as_str)
+            .unwrap_or("?")
+            .to_string()
+    };
     match name {
-        "read_file" => format!(
-            "read {}",
-            args.get("path").and_then(Value::as_str).unwrap_or("?")
-        ),
+        "read_file" => format!("read {}", get("path")),
+        "glob" => format!("find {}", get("pattern")),
+        "grep" => format!("search /{}/", get("pattern")),
+        "web_search" => format!("search the web: {}", get("query")),
+        "todo" => "update task list".into(),
         _ => name.to_string(),
     }
 }

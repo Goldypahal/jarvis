@@ -115,3 +115,20 @@ pub struct Completion {
     /// "provider/model" that actually answered.
     pub served_by: String,
 }
+
+/// Rough token count for a request (about 4 characters per token, plus
+/// per-message overhead). Good enough to stay under free-tier limits.
+pub fn estimate_tokens(messages: &[Message], tools: &[ToolSpec]) -> usize {
+    let mut chars = 0usize;
+    for m in messages {
+        chars += 16;
+        chars += m.content.as_deref().map_or(0, str::len);
+        for c in &m.tool_calls {
+            chars += c.function.name.len() + c.function.arguments.len() + 16;
+        }
+    }
+    for t in tools {
+        chars += t.name.len() + t.description.len() + t.parameters.to_string().len();
+    }
+    chars / 4
+}

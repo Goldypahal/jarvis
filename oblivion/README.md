@@ -2,17 +2,22 @@
 
 A personal AI agent in Rust that reads, writes and edits files and runs commands — like Claude Code or Codex — using **free model APIs** with automatic fallback between providers.
 
-This is **Phase 0** of the Oblivion SRS: the core agent loop, four tools, approvals, undo, sessions and multi-provider fallback. Skills, MCP, the web UI and desktop features come in later phases.
+Status: **Phase 1 (in progress)** of the Oblivion SRS. Done: agent loop, 9 tools, approvals and permission rules, undo, SQLite sessions and quota tracking, conversation compaction, key storage in Windows Credential Manager, multi-provider fallback, and a 10-task eval suite. Next: full-screen terminal UI, then skills and MCP (Phase 2).
 
 ## What works today
 
 - Streaming chat with tool calling against any OpenAI-compatible API (OpenRouter, Groq, NVIDIA, Gemini, Mistral, Cerebras, Ollama…)
 - **Fallback**: if a model is rate-limited, down or rejects the request, the next one in `oblivion.toml` takes over, mid-task. Rate-limited models cool down (honouring `Retry-After`).
-- Tools: `read_file`, `write_file`, `edit_file` (exact replace, CRLF-safe), `shell` (PowerShell on Windows, bash elsewhere; timeout; output trimmed to head + tail)
+- Tools: `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `shell`, `web_search`, `web_fetch`, `todo`
+  - `edit_file` forgives small copy mistakes (trailing spaces, indentation, CRLF, line-number prefixes) but only edits when exactly one place matches
+  - `glob`/`grep` respect `.gitignore`; `web_search` needs no key (DuckDuckGo) or can use Tavily / SearXNG
+- **Free-tier aware**: each model can have `requests_per_day` and `max_input_tokens`; requests too big for a model (Groq allows ~8K tokens/min) go to the next one, and daily allowances are tracked in `~/.oblivion/oblivion.db`
+- **Compaction**: long conversations are shrunk automatically (old tool output trimmed, then older turns summarized); `/compact` forces it
+- **Permission rules** in `oblivion.toml`: `allow = ["shell(cargo test*)"]` skips the prompt, `deny = ["shell(*git push --force*)"]` refuses outright
 - **Approvals**: `ask` (default), `auto-edit` (edits inside the folder are free, commands still ask), `yolo`
 - **Undo**: every file change is snapshotted; `/undo` reverts the last request
 - Project rules from `OBLIVION.md`, `AGENTS.md` or `CLAUDE.md` in the folder
-- Sessions saved to `~/.oblivion/sessions`, resumable with `--resume`
+- Sessions saved in SQLite (`~/.oblivion/oblivion.db`), resumable with `--resume`; `--usage` shows today's requests and tokens per model
 - Ctrl+C cancels the current request; at the prompt it quits
 - ~3 MB release binary, ~5 MB RAM idle
 
@@ -30,15 +35,16 @@ This is **Phase 0** of the Oblivion SRS: the core agent loop, four tools, approv
    .\target\release\oblivion.exe --init
    ```
    This writes `%USERPROFILE%\.oblivion\oblivion.toml`.
-4. Get free API keys and set them as environment variables (open a **new** terminal afterwards):
+4. Get free API keys and save them in Windows Credential Manager (you paste the key; it is not shown):
    ```powershell
-   setx OPENROUTER_API_KEY "sk-or-..."    # https://openrouter.ai/keys
-   setx GROQ_API_KEY "gsk_..."            # https://console.groq.com/keys
-   setx NVIDIA_API_KEY "nvapi-..."        # https://build.nvidia.com
-   setx GEMINI_API_KEY "..."              # https://aistudio.google.com/apikey
-   setx MISTRAL_API_KEY "..."             # https://console.mistral.ai
+   oblivion --set-key groq         # https://console.groq.com/keys
+   oblivion --set-key openrouter   # https://openrouter.ai/keys
+   oblivion --set-key nvidia       # https://build.nvidia.com
+   oblivion --set-key gemini       # https://aistudio.google.com/apikey
+   oblivion --set-key mistral      # https://console.mistral.ai
    ```
-   One key is enough to start; more keys mean more free requests per day.
+   One key is enough to start; more keys mean more free requests per day. Environment variables
+   such as `GROQ_API_KEY` still work and take priority over saved keys.
 5. Check what will be used:
    ```powershell
    oblivion --models
@@ -57,7 +63,7 @@ oblivion --sessions                       # list saved sessions
 oblivion --resume 20261113-201500         # continue one
 ```
 
-Commands inside the chat: `/undo`, `/models`, `/model <text>`, `/approval <mode>`, `/clear`, `/session`, `/help`, `/exit`.
+Commands inside the chat: `/undo`, `/models`, `/model <text>`, `/todo`, `/compact`, `/approval <mode>`, `/clear`, `/session`, `/help`, `/exit`.
 
 Use Windows Terminal (not the old console window) so colours display correctly.
 
@@ -82,13 +88,30 @@ oblivion --approval auto-edit "run the tests with pytest, find the bug and fix i
 
 Pass = the agent edits `calc.py` and pytest reports 1 passed. Try it with two different providers (`-m openrouter`, `-m groq`).
 
+## Eval suite (Phase 1 gate)
+
+`evals/tasks/` holds 10 small coding tasks (bug fixes, a stub to implement, a cross-file fix, a CLI flag,
+a rename across files, error handling, writing tests, a CSV-to-JSON script). Each is checked by hidden
+tests the agent never sees. Phase 1 passes when all 10 pass on free models.
+
+```powershell
+cd D:\Jarvis\oblivion
+cargo build --release
+python evals\run_evals.py                 # all tasks, all configured models
+python evals\run_evals.py --model groq    # only Groq
+python evals\run_evals.py --only 07       # one task
+```
+
+Results and full logs go to `evals\results\<time>\`. The runner uses `--yes` in throwaway temp folders.
+
 ## Layout
 
 | Crate | What it does |
 | --- | --- |
 | `oblivion-providers` | OpenAI-compatible streaming client, tool-call assembly, fallback router |
-| `oblivion-tools` | read/write/edit/shell tools, risk levels, snapshots and undo |
-| `oblivion-core` | Config, system prompt, sessions, the agent loop |
+| `oblivion-tools` | file, search, shell, web and todo tools; risk levels; snapshots and undo |
+| `oblivion-core` | Config, system prompt, permission rules, compaction, sessions, the agent loop |
+| `oblivion-store` | SQLite: sessions and per-day model usage |
 | `oblivion-cli` | The `oblivion` binary |
 
 Run the tests with `cargo test` (includes an end-to-end test against a fake provider).
@@ -97,5 +120,5 @@ Run the tests with `cargo test` (includes an end-to-end test against a fake prov
 
 - Default mode asks before every file change and command. Read what it wants to run.
 - `--yes` / `yolo` never asks — only use it in a throwaway folder.
-- API keys are read from environment variables only and are never written to sessions or logs.
+- API keys live in Windows Credential Manager (or environment variables) and are never written to sessions, logs or the database.
 - Gemini's free tier may use prompts for training; disable it in `oblivion.toml` when working on private code.

@@ -15,12 +15,30 @@ pub const DEFAULT_CONFIG: &str = r#"# Oblivion configuration
 # Providers are tried top to bottom; within a provider, models are tried in order.
 # If one fails or hits its free-tier limit, Oblivion moves to the next automatically.
 # Free model IDs change often: check each provider's model list and edit the IDs below.
-# API keys are read from environment variables (never put keys in this file).
+# API keys: run `oblivion --set-key <provider>` (stored in Windows Credential Manager),
+# or set the environment variable named in api_key_env. Never put keys in this file.
+#
+# Free-tier limits (optional per provider; built-in defaults exist for openrouter and groq):
+#   requests_per_day = 1000    skip this provider once today's allowance is used
+#   max_input_tokens = 7000    send bigger requests to another provider instead
 
 [agent]
 max_steps = 50          # tool-call rounds per request before stopping
 approval = "ask"        # ask | auto-edit | yolo
+context_tokens = 24000  # shrink the conversation when it grows past about this size
 # shell = "powershell"  # powershell | cmd | bash | sh (default: powershell on Windows, bash elsewhere)
+
+# Rules are "tool(pattern)"; * matches anything. Deny wins over allow.
+# Allowed calls run without asking; denied calls are refused.
+[permissions]
+allow = ["shell(git status*)", "shell(git diff*)", "shell(git log*)", "shell(cargo test*)", "shell(cargo build*)", "shell(pytest*)", "shell(python -m pytest*)"]
+deny = ["shell(*rm -rf /*)", "shell(*rm -rf ~*)", "shell(*git push --force*)", "shell(*git push -f *)", "shell(format *)", "shell(*Format-Volume*)"]
+
+# web_search backend: "duckduckgo" (no key), "tavily" (free monthly credits; key via
+# `oblivion --set-key tavily` or TAVILY_API_KEY) or "searxng" (your own server).
+[search]
+backend = "duckduckgo"
+# searxng_url = "http://localhost:8888"
 
 # OpenRouter: 20 req/min, 50 req/day on ":free" models (1,000/day after a one-time $10 credit).
 # Keys: https://openrouter.ai/keys
@@ -29,15 +47,18 @@ name = "openrouter"
 base_url = "https://openrouter.ai/api/v1"
 api_key_env = "OPENROUTER_API_KEY"
 models = ["qwen/qwen3-coder:free", "openai/gpt-oss-120b:free"]
+requests_per_day = 50
 headers = { "HTTP-Referer" = "https://github.com/Goldypahal/jarvis", "X-Title" = "Oblivion" }
 
-# Groq: fast; per model about 30 req/min and 1,000 req/day on the free plan.
-# Keys: https://console.groq.com/keys
+# Groq: fast; per model about 30 req/min, 1,000 req/day and only ~8,000 tokens/min on
+# the free plan, so big requests go elsewhere. Keys: https://console.groq.com/keys
 [[providers]]
 name = "groq"
 base_url = "https://api.groq.com/openai/v1"
 api_key_env = "GROQ_API_KEY"
 models = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+requests_per_day = 1000
+max_input_tokens = 7000
 
 # NVIDIA API catalog: about 40 req/min for prototyping. Keys: https://build.nvidia.com
 [[providers]]
@@ -101,6 +122,8 @@ pub struct AgentSettings {
     pub approval: ApprovalMode,
     #[serde(default)]
     pub shell: Option<String>,
+    #[serde(default = "default_context_tokens")]
+    pub context_tokens: usize,
 }
 
 impl Default for AgentSettings {
@@ -109,12 +132,46 @@ impl Default for AgentSettings {
             max_steps: default_max_steps(),
             approval: ApprovalMode::Ask,
             shell: None,
+            context_tokens: default_context_tokens(),
         }
     }
 }
 
 fn default_max_steps() -> usize {
     50
+}
+
+fn default_context_tokens() -> usize {
+    24_000
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Permissions {
+    #[serde(default)]
+    pub allow: Vec<String>,
+    #[serde(default)]
+    pub deny: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchSettings {
+    #[serde(default = "default_backend")]
+    pub backend: String,
+    #[serde(default)]
+    pub searxng_url: Option<String>,
+}
+
+impl Default for SearchSettings {
+    fn default() -> Self {
+        Self {
+            backend: default_backend(),
+            searxng_url: None,
+        }
+    }
+}
+
+fn default_backend() -> String {
+    "duckduckgo".into()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -131,6 +188,19 @@ pub struct ProviderEntry {
     pub enabled: bool,
     #[serde(default)]
     pub stream_usage: bool,
+    #[serde(default)]
+    pub requests_per_day: Option<u32>,
+    #[serde(default)]
+    pub max_input_tokens: Option<u32>,
+}
+
+/// Free-tier limits used when the config does not set them (Nov 2026 figures).
+fn known_limits(provider: &str) -> (Option<u32>, Option<u32>) {
+    match provider {
+        "openrouter" => (Some(50), None),
+        "groq" => (Some(1000), Some(7000)),
+        _ => (None, None),
+    }
 }
 
 fn yes() -> bool {
@@ -143,6 +213,10 @@ pub struct Config {
     pub agent: AgentSettings,
     #[serde(default)]
     pub providers: Vec<ProviderEntry>,
+    #[serde(default)]
+    pub permissions: Permissions,
+    #[serde(default)]
+    pub search: SearchSettings,
 }
 
 /// Why a provider was left out, for `oblivion --models`.
@@ -168,7 +242,11 @@ impl Config {
     }
 
     /// Build the router's target list from enabled providers that have keys.
-    pub fn targets(&self, env: &dyn Fn(&str) -> Option<String>) -> (Vec<Target>, Vec<Skipped>) {
+    /// `key_for` looks up a provider's key (environment variable, then key store).
+    pub fn targets(
+        &self,
+        key_for: &dyn Fn(&ProviderEntry) -> Option<String>,
+    ) -> (Vec<Target>, Vec<Skipped>) {
         let mut targets = Vec::new();
         let mut skipped = Vec::new();
         for p in &self.providers {
@@ -180,18 +258,22 @@ impl Config {
                 continue;
             }
             let api_key = match &p.api_key_env {
-                Some(var) => match env(var).filter(|v| !v.trim().is_empty()) {
+                Some(var) => match key_for(p).filter(|v| !v.trim().is_empty()) {
                     Some(k) => Some(k.trim().to_string()),
                     None => {
                         skipped.push(Skipped {
                             name: p.name.clone(),
-                            reason: format!("{var} is not set"),
+                            reason: format!(
+                                "no API key (run `oblivion --set-key {}` or set {var})",
+                                p.name
+                            ),
                         });
                         continue;
                     }
                 },
                 None => None,
             };
+            let (known_rpd, known_max) = known_limits(&p.name);
             let provider = Arc::new(ProviderConfig {
                 name: p.name.clone(),
                 base_url: p.base_url.clone(),
@@ -205,8 +287,9 @@ impl Config {
             });
             for m in &p.models {
                 targets.push(Target {
-                    provider: provider.clone(),
-                    model: m.clone(),
+                    requests_per_day: p.requests_per_day.or(known_rpd),
+                    max_input_tokens: p.max_input_tokens.or(known_max),
+                    ..Target::new(provider.clone(), m.clone())
                 });
             }
         }
@@ -261,15 +344,43 @@ mod tests {
     #[test]
     fn targets_skip_missing_keys_and_disabled() {
         let c = Config::parse(DEFAULT_CONFIG).unwrap();
-        let env = |k: &str| (k == "GROQ_API_KEY").then(|| "gsk_test".to_string());
-        let (targets, skipped) = c.targets(&env);
+        let keys = |p: &ProviderEntry| (p.name == "groq").then(|| "gsk_test".to_string());
+        let (targets, skipped) = c.targets(&keys);
         assert!(targets.iter().all(|t| t.provider.name == "groq"));
         assert_eq!(targets.len(), 2);
+        assert_eq!(targets[0].max_input_tokens, Some(7000));
+        assert_eq!(targets[0].requests_per_day, Some(1000));
+        assert_eq!(c.permissions.deny.len(), 6);
+        assert_eq!(c.search.backend, "duckduckgo");
         assert!(skipped
             .iter()
-            .any(|s| s.name == "openrouter" && s.reason.contains("OPENROUTER_API_KEY")));
+            .any(|s| s.name == "openrouter" && s.reason.contains("--set-key openrouter")));
         assert!(skipped
             .iter()
             .any(|s| s.name == "ollama" && s.reason.contains("disabled")));
+    }
+}
+
+#[cfg(test)]
+mod compat_tests {
+    use super::*;
+
+    #[test]
+    fn old_phase0_config_still_loads_with_known_limits() {
+        let old = r#"
+[agent]
+max_steps = 50
+approval = "ask"
+[[providers]]
+name = "groq"
+base_url = "https://api.groq.com/openai/v1"
+api_key_env = "GROQ_API_KEY"
+models = ["openai/gpt-oss-120b"]
+"#;
+        let c = Config::parse(old).unwrap();
+        assert_eq!(c.agent.context_tokens, 24_000);
+        assert!(c.permissions.allow.is_empty());
+        let (t, _) = c.targets(&|_| Some("k".into()));
+        assert_eq!(t[0].max_input_tokens, Some(7000));
     }
 }

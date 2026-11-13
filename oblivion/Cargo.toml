@@ -4,6 +4,7 @@ members = [
     "crates/oblivion-providers",
     "crates/oblivion-tools",
     "crates/oblivion-core",
+    "crates/oblivion-store",
     "crates/oblivion-cli",
 ]
 
@@ -29,6 +30,7 @@ tempfile = "3"
 oblivion-providers = { path = "crates/oblivion-providers" }
 oblivion-tools = { path = "crates/oblivion-tools" }
 oblivion-core = { path = "crates/oblivion-core" }
+oblivion-store = { path = "crates/oblivion-store" }
 
 [profile.release]
 opt-level = "z"

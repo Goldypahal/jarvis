@@ -1,4 +1,6 @@
-//! `oblivion` command-line interface (SRS FR-70/71, Phase 0 version).
+//! `oblivion` command-line interface (SRS FR-70/71).
+
+mod keys;
 
 use std::io::{BufRead, IsTerminal, Write};
 use std::path::PathBuf;
@@ -8,9 +10,10 @@ use std::sync::Arc;
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 use oblivion_core::config::{self, Config, DEFAULT_CONFIG};
-use oblivion_core::{prompt, Agent, AgentEvent, ApprovalMode, Approver, Decision, Session};
-use oblivion_providers::Router;
-use oblivion_tools::{normalize_path, Shell, ToolBox};
+use oblivion_core::{prompt, Agent, AgentEvent, ApprovalMode, Approver, Decision, Rules};
+use oblivion_providers::{Router, UsageLedger};
+use oblivion_store::Store;
+use oblivion_tools::{normalize_path, SearchBackend, Shell, TodoList, ToolBox};
 use tokio::sync::Notify;
 
 #[derive(Parser, Debug)]
@@ -58,6 +61,18 @@ struct Cli {
     /// List saved sessions, then exit.
     #[arg(long)]
     sessions: bool,
+
+    /// Save a provider's API key in the system key store (Windows Credential Manager), then exit.
+    #[arg(long, value_name = "PROVIDER")]
+    set_key: Option<String>,
+
+    /// Delete a provider's saved API key, then exit.
+    #[arg(long, value_name = "PROVIDER")]
+    delete_key: Option<String>,
+
+    /// Show today's requests and tokens per model, then exit.
+    #[arg(long)]
+    usage: bool,
 }
 
 mod style {
@@ -117,6 +132,9 @@ fn print_event(e: AgentEvent) {
                 let _ = writeln!(out, "  {color}│ {line}{RESET}");
             }
         }
+        AgentEvent::Blocked { name, rule } => {
+            let _ = writeln!(out, "{RED}  ⛔ {name} blocked by rule {rule}{RESET}");
+        }
         AgentEvent::Declined { name } => {
             let _ = writeln!(out, "{YELLOW}  ✗ declined {name}{RESET}");
         }
@@ -129,6 +147,12 @@ fn print_event(e: AgentEvent) {
         }
         AgentEvent::Model(m) => {
             let _ = writeln!(out, "{DIM}  [{m}]{RESET}");
+        }
+        AgentEvent::Waiting(secs) => {
+            let _ = writeln!(
+                out,
+                "{YELLOW}  ⏳ all models are at their per-minute limit; waiting {secs}s{RESET}"
+            );
         }
         AgentEvent::Notice(n) => {
             let _ = writeln!(out, "{YELLOW}{n}{RESET}");
@@ -200,10 +224,35 @@ async fn run() -> Result<()> {
     if cli.init {
         return init_config(&config_path);
     }
+    if let Some(p) = &cli.set_key {
+        return keys::set(p);
+    }
+    if let Some(p) = &cli.delete_key {
+        return keys::delete(p);
+    }
+
+    let store = Arc::new(Store::open(&home.join("oblivion.db"))?);
+    // Phase 0 kept sessions as JSON files; bring them into the database once.
+    if sessions_dir.is_dir() {
+        let _ = store.import_json_dir(&sessions_dir);
+    }
+    if cli.usage {
+        let rows = store.usage_today()?;
+        if rows.is_empty() {
+            println!("No model requests yet today (UTC).");
+        }
+        for r in rows {
+            println!(
+                "  {:<45} {:>5} requests  {:>8} in / {:>7} out tokens",
+                r.target, r.requests, r.prompt_tokens, r.completion_tokens
+            );
+        }
+        return Ok(());
+    }
     if cli.sessions {
-        let list = Session::list(&sessions_dir);
+        let list = store.list_sessions(30)?;
         if list.is_empty() {
-            println!("No saved sessions in {}", sessions_dir.display());
+            println!("No saved sessions yet.");
         }
         for s in list {
             println!(
@@ -218,12 +267,34 @@ async fn run() -> Result<()> {
 
     let cfg = Config::load(&config_path)?;
     cfg.validate()?;
-    let (targets, skipped) = cfg.targets(&|k| std::env::var(k).ok());
+    let (targets, skipped) = cfg.targets(&keys::for_provider);
 
     if cli.models {
         println!("{BOLD}Models, in fallback order:{RESET}");
         for t in &targets {
-            println!("  {GREEN}✓{RESET} {}", t.label());
+            let used = store.requests_today(&t.label());
+            let limits = match (t.requests_per_day, t.max_input_tokens) {
+                (Some(d), Some(m)) => format!("{used}/{d} today · max ~{m} tokens/request"),
+                (Some(d), None) => format!("{used}/{d} today"),
+                (None, Some(m)) => format!("{used} today · max ~{m} tokens/request"),
+                (None, None) => format!("{used} today"),
+            };
+            let env_var = cfg
+                .providers
+                .iter()
+                .find(|p| p.name == t.provider.name)
+                .and_then(|p| p.api_key_env.as_deref());
+            let source = match keys::lookup(&t.provider.name, env_var) {
+                Some((_, keys::KeySource::Env)) => {
+                    "key: environment variable (overrides key store)"
+                }
+                Some((_, keys::KeySource::Store)) => "key: key store",
+                None => "no key needed",
+            };
+            println!(
+                "  {GREEN}✓{RESET} {}  {DIM}{limits} · {source}{RESET}",
+                t.label()
+            );
         }
         for s in &skipped {
             println!("  {DIM}– {} skipped: {}{RESET}", s.name, s.reason);
@@ -232,13 +303,31 @@ async fn run() -> Result<()> {
     }
     if targets.is_empty() {
         bail!(
-            "no usable models. Set an API key (e.g. OPENROUTER_API_KEY or GROQ_API_KEY) or enable ollama in {}.\nSkipped: {}",
+            "no usable models. Save a key with `oblivion --set-key groq` (or openrouter, nvidia, …) or enable ollama in {}.\nSkipped: {}",
             config_path.display(),
             skipped.iter().map(|s| format!("{} ({})", s.name, s.reason)).collect::<Vec<_>>().join(", ")
         );
     }
 
-    let mut router = Router::new(targets);
+    let rules = Rules::new(&cfg.permissions.allow, &cfg.permissions.deny)
+        .map_err(|e| anyhow::anyhow!("[permissions] in {}: {e}", config_path.display()))?;
+    let search = match cfg.search.backend.as_str() {
+        "duckduckgo" => SearchBackend::DuckDuckGo,
+        "tavily" => match keys::lookup("tavily", Some("TAVILY_API_KEY")) {
+            Some((api_key, _)) => SearchBackend::Tavily { api_key },
+            None => bail!("search backend is tavily but no key: run `oblivion --set-key tavily`"),
+        },
+        "searxng" => SearchBackend::SearxNg {
+            base_url: cfg
+                .search
+                .searxng_url
+                .clone()
+                .context("search backend is searxng but searxng_url is not set")?,
+        },
+        other => bail!("unknown search backend '{other}' (duckduckgo, tavily, searxng)"),
+    };
+
+    let mut router = Router::new(targets).with_ledger(store.clone());
     if let Some(filter) = &cli.model {
         if !router.pin(filter) {
             bail!("no configured model matches '{filter}'. Run `oblivion --models` to see them.");
@@ -274,7 +363,7 @@ async fn run() -> Result<()> {
         let snap = home
             .join("snapshots")
             .join(chrono::Local::now().format("%Y%m%d-%H%M%S").to_string());
-        let tools = ToolBox::new(root.clone(), shell, snap);
+        let tools = ToolBox::new(root.clone(), shell, snap).with_search(search);
         Agent::new(
             router,
             tools,
@@ -284,14 +373,16 @@ async fn run() -> Result<()> {
             system,
         )
     };
+    agent.context_tokens = cfg.agent.context_tokens;
+    agent.set_rules(rules);
     if let Some(id) = &cli.resume {
-        agent.resume(Session::load(&sessions_dir, id)?);
+        agent.resume(store.load_session(id)?);
         println!(
             "{DIM}Resumed session {id} ({} messages){RESET}",
             agent.session.messages.len()
         );
     }
-    agent.persist_to(sessions_dir);
+    agent.persist_with(store.clone());
 
     // Ctrl+C cancels the running request; at the prompt it exits.
     let in_turn = Arc::new(AtomicBool::new(false));
@@ -337,7 +428,7 @@ async fn run() -> Result<()> {
             continue;
         }
         if let Some(cmd) = input.strip_prefix('/') {
-            if handle_command(&mut agent, cmd)? {
+            if handle_command(&mut agent, cmd).await? {
                 break;
             }
             continue;
@@ -381,7 +472,7 @@ async fn run_one(agent: &mut Agent, task: &str, in_turn: &AtomicBool, cancel: &N
 }
 
 /// Returns true when the user asked to quit.
-fn handle_command(agent: &mut Agent, cmd: &str) -> Result<bool> {
+async fn handle_command(agent: &mut Agent, cmd: &str) -> Result<bool> {
     let (name, arg) = cmd
         .split_once(' ')
         .map(|(a, b)| (a, b.trim()))
@@ -390,7 +481,9 @@ fn handle_command(agent: &mut Agent, cmd: &str) -> Result<bool> {
         "exit" | "quit" | "q" => return Ok(true),
         "help" | "h" => {
             println!("/undo          revert file changes from the last request");
-            println!("/models        show models and cooldowns");
+            println!("/models        show models, cooldowns and today's usage");
+            println!("/todo          show the agent's task list");
+            println!("/compact       summarize older turns now to free up space");
             println!("/model <text>  only use models whose label contains <text>");
             println!("/approval <m>  ask | auto-edit | yolo");
             println!("/clear         start a fresh conversation");
@@ -405,14 +498,29 @@ fn handle_command(agent: &mut Agent, cmd: &str) -> Result<bool> {
             None => println!("Nothing to undo."),
         },
         "models" => {
-            for (label, cooldown) in agent.router.status() {
-                match cooldown {
+            for st in agent.router.status() {
+                let used = match (st.used_today, st.requests_per_day) {
+                    (Some(u), Some(d)) => format!("{u}/{d} today"),
+                    (Some(u), None) => format!("{u} today"),
+                    _ => String::new(),
+                };
+                match st.cooldown {
                     Some(d) => println!(
-                        "  {YELLOW}…{RESET} {label} {DIM}(cooling down {}s){RESET}",
+                        "  {YELLOW}…{RESET} {} {DIM}(cooling down {}s) {used}{RESET}",
+                        st.label,
                         d.as_secs()
                     ),
-                    None => println!("  {GREEN}✓{RESET} {label}"),
+                    None => println!("  {GREEN}✓{RESET} {} {DIM}{used}{RESET}", st.label),
                 }
+            }
+        }
+        "todo" => println!("{}", TodoList::render(&agent.tools.todos().items())),
+        "compact" => {
+            let mut sink = print_event;
+            if agent.compact(true, &mut sink).await? {
+                println!("Earlier turns summarized.");
+            } else {
+                println!("Nothing to compact yet.");
             }
         }
         "model" => {
