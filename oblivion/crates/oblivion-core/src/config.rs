@@ -82,6 +82,28 @@ base_url = "https://api.mistral.ai/v1"
 api_key_env = "MISTRAL_API_KEY"
 models = ["mistral-small-latest"]
 
+# MCP connectors. Each server is a local program (command + args) or a URL.
+# The model sees one compact `mcp` tool and asks for a server's tools only when needed.
+# Tokens for URL servers: `oblivion --set-key mcp-<name>` or the env var in token_env.
+#
+# [[mcp_servers]]
+# name = "filesystem"
+# description = "Read and write files in my Documents folder"
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-filesystem", "C:\\Users\\me\\Documents"]
+#
+# [[mcp_servers]]
+# name = "github"
+# description = "GitHub issues, pull requests and repositories"
+# url = "https://api.githubcopilot.com/mcp/"
+# token_env = "GITHUB_TOKEN"
+
+# Skills: folders with SKILL.md from ~/.oblivion/skills, ~/.agents/skills, ~/.claude/skills,
+# ~/.codex/skills and the project's .agents/skills (Claude and Codex skills work as-is).
+[skills]
+enabled = true
+prompt_chars = 2500     # space for the skill list in every request (names + descriptions)
+
 # Local models through Ollama (offline, private). Install from https://ollama.com,
 # run `ollama pull qwen3.5:9b`, then set enabled = true.
 [[providers]]
@@ -154,6 +176,55 @@ pub struct Permissions {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillSettings {
+    #[serde(default = "yes")]
+    pub enabled: bool,
+    #[serde(default = "default_skill_chars")]
+    pub prompt_chars: usize,
+}
+
+impl Default for SkillSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            prompt_chars: default_skill_chars(),
+        }
+    }
+}
+
+fn default_skill_chars() -> usize {
+    2500
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpServerEntry {
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Local server: program to run (e.g. "npx", "uvx", "python").
+    #[serde(default)]
+    pub command: Option<String>,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    /// Remote server: streamable-HTTP URL.
+    #[serde(default)]
+    pub url: Option<String>,
+    /// Environment variable with a bearer token for `url` servers.
+    #[serde(default)]
+    pub token_env: Option<String>,
+    #[serde(default = "yes")]
+    pub enabled: bool,
+    #[serde(default = "default_mcp_timeout")]
+    pub timeout_secs: u64,
+}
+
+fn default_mcp_timeout() -> u64 {
+    60
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchSettings {
     #[serde(default = "default_backend")]
     pub backend: String,
@@ -217,6 +288,10 @@ pub struct Config {
     pub permissions: Permissions,
     #[serde(default)]
     pub search: SearchSettings,
+    #[serde(default)]
+    pub skills: SkillSettings,
+    #[serde(default)]
+    pub mcp_servers: Vec<McpServerEntry>,
 }
 
 /// Why a provider was left out, for `oblivion --models`.
@@ -299,6 +374,18 @@ impl Config {
     pub fn validate(&self) -> Result<()> {
         if self.agent.max_steps == 0 {
             bail!("agent.max_steps must be at least 1");
+        }
+        for m in &self.mcp_servers {
+            match (&m.command, &m.url) {
+                (Some(_), None) | (None, Some(_)) => {}
+                _ => bail!(
+                    "mcp server '{}' needs exactly one of `command` or `url`",
+                    m.name
+                ),
+            }
+            if m.name.is_empty() || m.name.contains(char::is_whitespace) {
+                bail!("mcp server names must be one word, got '{}'", m.name);
+            }
         }
         for p in &self.providers {
             if p.models.is_empty() {

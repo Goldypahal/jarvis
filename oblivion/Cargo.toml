@@ -3,6 +3,8 @@ resolver = "2"
 members = [
     "crates/oblivion-providers",
     "crates/oblivion-tools",
+    "crates/oblivion-skills",
+    "crates/oblivion-mcp",
     "crates/oblivion-core",
     "crates/oblivion-store",
     "crates/oblivion-cli",
@@ -29,6 +31,8 @@ tempfile = "3"
 
 oblivion-providers = { path = "crates/oblivion-providers" }
 oblivion-tools = { path = "crates/oblivion-tools" }
+oblivion-skills = { path = "crates/oblivion-skills" }
+oblivion-mcp = { path = "crates/oblivion-mcp" }
 oblivion-core = { path = "crates/oblivion-core" }
 oblivion-store = { path = "crates/oblivion-store" }
 

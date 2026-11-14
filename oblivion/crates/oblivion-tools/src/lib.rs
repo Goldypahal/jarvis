@@ -12,7 +12,10 @@ mod snapshot;
 mod todo;
 mod web;
 
+use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
+use std::sync::Arc;
 
 use oblivion_providers::ToolSpec;
 use serde_json::Value;
@@ -53,6 +56,24 @@ pub enum Risk {
     Ask(String),
 }
 
+/// A boxed future, so tool providers can be stored as trait objects.
+pub type ToolFuture<'a> = Pin<Box<dyn Future<Output = Result<String, String>> + Send + 'a>>;
+
+/// An extra set of tools plugged into the ToolBox (skills, MCP servers…).
+pub trait ToolProvider: Send + Sync {
+    fn specs(&self) -> Vec<ToolSpec>;
+    fn handles(&self, name: &str) -> bool;
+    /// Defaults to asking, the safe choice for tools Oblivion did not write.
+    fn risk(&self, name: &str, _args: &Value) -> Risk {
+        Risk::Ask(format!("use {name}"))
+    }
+    /// Text that permission rules are matched against.
+    fn subject(&self, _name: &str, _args: &Value) -> String {
+        String::new()
+    }
+    fn execute<'a>(&'a self, name: &'a str, args: &'a Value) -> ToolFuture<'a>;
+}
+
 /// Everything tools need to know about where they run.
 pub struct ToolBox {
     root: PathBuf,
@@ -62,6 +83,7 @@ pub struct ToolBox {
     todos: TodoList,
     http: reqwest::Client,
     search: SearchBackend,
+    providers: Vec<Arc<dyn ToolProvider>>,
 }
 
 impl ToolBox {
@@ -74,7 +96,16 @@ impl ToolBox {
             todos: TodoList::default(),
             http: web::http_client(),
             search: SearchBackend::DuckDuckGo,
+            providers: Vec::new(),
         }
+    }
+
+    pub fn add_provider(&mut self, p: Arc<dyn ToolProvider>) {
+        self.providers.push(p);
+    }
+
+    fn provider_for(&self, name: &str) -> Option<&Arc<dyn ToolProvider>> {
+        self.providers.iter().find(|p| p.handles(name))
     }
 
     pub fn with_search(mut self, backend: SearchBackend) -> Self {
@@ -112,6 +143,9 @@ impl ToolBox {
         specs.push(shell::spec(self.shell));
         specs.extend(web::specs());
         specs.push(todo::spec());
+        for p in &self.providers {
+            specs.extend(p.specs());
+        }
         specs
     }
 
@@ -130,6 +164,9 @@ impl ToolBox {
     }
 
     pub fn risk(&self, name: &str, args: &Value) -> Risk {
+        if let Some(p) = self.provider_for(name) {
+            return p.risk(name, args);
+        }
         let path_arg = || args.get("path").and_then(Value::as_str).unwrap_or("");
         match name {
             "read_file" => {
@@ -170,6 +207,9 @@ impl ToolBox {
                 .unwrap_or("")
                 .to_string()
         };
+        if let Some(p) = self.provider_for(name) {
+            return p.subject(name, args);
+        }
         match name {
             "shell" => get("command"),
             "web_fetch" => get("url"),
@@ -197,6 +237,12 @@ impl ToolBox {
             "web_search" => web::web_search(self, args).await,
             "web_fetch" => web::web_fetch(self, args).await,
             "todo" => todo::update(&self.todos, args),
+            other if self.provider_for(other).is_some() => {
+                self.provider_for(other)
+                    .expect("checked")
+                    .execute(other, args)
+                    .await
+            }
             other => Err(format!(
                 "unknown tool '{other}'. Available tools: {}",
                 self.specs()

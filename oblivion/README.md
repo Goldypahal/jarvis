@@ -2,7 +2,7 @@
 
 A personal AI agent in Rust that reads, writes and edits files and runs commands — like Claude Code or Codex — using **free model APIs** with automatic fallback between providers.
 
-Status: **Phase 1 (in progress)** of the Oblivion SRS. Done: agent loop, 9 tools, approvals and permission rules, undo, SQLite sessions and quota tracking, conversation compaction, key storage in Windows Credential Manager, multi-provider fallback, and a 10-task eval suite. Next: full-screen terminal UI, then skills and MCP (Phase 2).
+Status: **Phase 2** of the Oblivion SRS. Done: agent loop, 9 built-in tools, approvals and permission rules, undo, SQLite sessions and quota tracking, compaction, Windows Credential Manager keys, multi-provider fallback with rate-limit waits, a 10-task eval suite (10/10 on Groq's free tier), **skills** (Claude/Codex `SKILL.md` format, 10 bundled) and **MCP connectors**. Next: full-screen terminal UI, then the knowledge-work features (Phase 3).
 
 ## What works today
 
@@ -63,7 +63,7 @@ oblivion --sessions                       # list saved sessions
 oblivion --resume 20261113-201500         # continue one
 ```
 
-Commands inside the chat: `/undo`, `/models`, `/model <text>`, `/todo`, `/compact`, `/approval <mode>`, `/clear`, `/session`, `/help`, `/exit`.
+Commands inside the chat: `/undo`, `/models`, `/model <text>`, `/todo`, `/compact`, `/skills`, `/<skill-name> [request]`, `/mcp`, `/approval <mode>`, `/clear`, `/session`, `/help`, `/exit`.
 
 Use Windows Terminal (not the old console window) so colours display correctly.
 
@@ -87,6 +87,42 @@ oblivion --approval auto-edit "run the tests with pytest, find the bug and fix i
 ```
 
 Pass = the agent edits `calc.py` and pytest reports 1 passed. Try it with two different providers (`-m openrouter`, `-m groq`).
+
+## Skills
+
+Skills are folders with a `SKILL.md` (the open format used by Claude Code and Codex). Only each skill's
+name and description go in the prompt; the model loads the full instructions with the `skill` tool when
+a request matches, so many skills cost few tokens.
+
+- **Bundled (10):** init-project, plan, code-review, fix-tests, debug, git-workflow, docx, xlsx, pdf, skill-creator.
+  The document skills use Python (`pip install python-docx openpyxl pypdf`) and include checker scripts.
+- **Your own / installed:** `~/.oblivion/skills/`, plus `~/.agents/skills`, `~/.claude/skills`, `~/.codex/skills`,
+  and a project's `.agents/skills` or `.claude/skills`. Later ones win when names clash.
+- **Install from GitHub:** `oblivion --install-skill https://github.com/anthropics/skills/tree/main/skills/mcp-builder`
+  (needs git; prints the skill's licence).
+- **List:** `oblivion --skills` or `/skills`. **Run directly:** `/code-review the last commit`.
+
+## MCP connectors
+
+Add servers to `oblivion.toml`; they connect on first use. The model sees one compact `mcp` tool
+(list a server's tools, then call one) instead of every schema, which keeps requests small.
+
+```toml
+[[mcp_servers]]
+name = "filesystem"
+description = "Files in my Documents folder"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "C:\\Users\\me\\Documents"]
+
+[[mcp_servers]]
+name = "github"
+description = "GitHub issues, pull requests and repos"
+url = "https://api.githubcopilot.com/mcp/"
+token_env = "GITHUB_TOKEN"        # or: oblivion --set-key mcp-github
+```
+
+`oblivion --mcp` (or `/mcp`) connects to each server and lists its tools. MCP calls ask for approval
+unless a rule allows them, e.g. `allow = ["mcp(filesystem.read_*)", "mcp(github.list_*)"]`.
 
 ## Eval suite (Phase 1 gate)
 
@@ -112,6 +148,8 @@ Results and full logs go to `evals\results\<time>\`. The runner uses `--yes` in 
 | `oblivion-tools` | file, search, shell, web and todo tools; risk levels; snapshots and undo |
 | `oblivion-core` | Config, system prompt, permission rules, compaction, sessions, the agent loop |
 | `oblivion-store` | SQLite: sessions and per-day model usage |
+| `oblivion-skills` | SKILL.md discovery, the `skill` tool, GitHub installer, 10 bundled skills |
+| `oblivion-mcp` | MCP client (stdio + streamable HTTP) behind one `mcp` tool |
 | `oblivion-cli` | The `oblivion` binary |
 
 Run the tests with `cargo test` (includes an end-to-end test against a fake provider).

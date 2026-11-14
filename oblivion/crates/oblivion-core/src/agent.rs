@@ -431,6 +431,8 @@ fn describe(name: &str, args: &Value) -> String {
         "grep" => format!("search /{}/", get("pattern")),
         "web_search" => format!("search the web: {}", get("query")),
         "todo" => "update task list".into(),
+        "skill" => format!("load skill {}", get("name")),
+        "mcp" => format!("list tools on {}", get("server")),
         _ => name.to_string(),
     }
 }

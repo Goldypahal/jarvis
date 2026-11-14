@@ -11,7 +11,9 @@ use anyhow::{bail, Context, Result};
 use clap::Parser;
 use oblivion_core::config::{self, Config, DEFAULT_CONFIG};
 use oblivion_core::{prompt, Agent, AgentEvent, ApprovalMode, Approver, Decision, Rules};
+use oblivion_mcp::McpHub;
 use oblivion_providers::{Router, UsageLedger};
+use oblivion_skills::{GithubSource, SkillSet, SkillSource};
 use oblivion_store::Store;
 use oblivion_tools::{normalize_path, SearchBackend, Shell, TodoList, ToolBox};
 use tokio::sync::Notify;
@@ -73,6 +75,18 @@ struct Cli {
     /// Show today's requests and tokens per model, then exit.
     #[arg(long)]
     usage: bool,
+
+    /// List available skills (and any problems loading them), then exit.
+    #[arg(long)]
+    skills: bool,
+
+    /// Install skills from a GitHub folder, e.g. https://github.com/anthropics/skills/tree/main/skills/mcp-builder
+    #[arg(long, value_name = "GITHUB_URL")]
+    install_skill: Option<String>,
+
+    /// Connect to each configured MCP server and list its tools, then exit.
+    #[arg(long)]
+    mcp: bool,
 }
 
 mod style {
@@ -230,6 +244,32 @@ async fn run() -> Result<()> {
     if let Some(p) = &cli.delete_key {
         return keys::delete(p);
     }
+    if let Some(url) = &cli.install_skill {
+        let src = GithubSource::parse(url).map_err(anyhow::Error::msg)?;
+        let dest = home.join("skills");
+        println!(
+            "Downloading {}/{}{} …",
+            src.owner,
+            src.repo,
+            if src.path.is_empty() {
+                String::new()
+            } else {
+                format!("/{}", src.path)
+            }
+        );
+        let installed =
+            oblivion_skills::install_from_github(&src, &dest).map_err(anyhow::Error::msg)?;
+        for i in installed {
+            println!(
+                "  {GREEN}✓{RESET} {}  {DIM}{} · license: {}{RESET}",
+                i.name,
+                i.dir.display(),
+                i.license
+            );
+        }
+        println!("Skills load the next time Oblivion starts.");
+        return Ok(());
+    }
 
     let store = Arc::new(Store::open(&home.join("oblivion.db"))?);
     // Phase 0 kept sessions as JSON files; bring them into the database once.
@@ -356,14 +396,92 @@ async fn run() -> Result<()> {
         cfg.agent.approval
     };
 
+    // Skills: bundled ones are refreshed on every start so updates ship with the binary.
+    let skills = if cfg.skills.enabled {
+        let _ = oblivion_skills::install_bundled(&home.join("bundled-skills"));
+        let roots = SkillSet::standard_roots(&home, dirs_home().as_deref(), &root);
+        Arc::new(SkillSet::discover(&roots))
+    } else {
+        Arc::new(SkillSet::default())
+    };
+    if cli.skills {
+        if skills.is_empty() {
+            println!("No skills found.");
+        }
+        for sk in skills.all() {
+            let src = match sk.source {
+                SkillSource::Bundled => "bundled",
+                SkillSource::User => "user",
+                SkillSource::Project => "project",
+            };
+            let d: String = sk.description.chars().take(90).collect();
+            println!("  {BOLD}{}{RESET} {DIM}[{src}]{RESET} {d}", sk.name);
+        }
+        for w in &skills.warnings {
+            println!("  {YELLOW}! {w}{RESET}");
+        }
+        return Ok(());
+    }
+
+    let mcp_servers = cfg
+        .mcp_servers
+        .iter()
+        .filter(|m| m.enabled)
+        .map(|m| oblivion_mcp::ServerConfig {
+            name: m.name.clone(),
+            description: m.description.clone(),
+            transport: match (&m.command, &m.url) {
+                (Some(cmd), _) => oblivion_mcp::Transport::Stdio {
+                    command: cmd.clone(),
+                    args: m.args.clone(),
+                    env: m.env.clone(),
+                },
+                (None, Some(url)) => oblivion_mcp::Transport::Http {
+                    url: url.clone(),
+                    token: keys::lookup(&format!("mcp-{}", m.name), m.token_env.as_deref())
+                        .map(|(t, _)| t),
+                },
+                (None, None) => unreachable!("validated in Config::validate"),
+            },
+            timeout: std::time::Duration::from_secs(m.timeout_secs),
+        })
+        .collect();
+    let hub = Arc::new(McpHub::new(mcp_servers));
+    if cli.mcp {
+        if hub.is_empty() {
+            println!(
+                "No MCP servers configured. Add [[mcp_servers]] entries to {}.",
+                config_path.display()
+            );
+        }
+        for name in hub.names() {
+            match hub.list_tools(&name).await {
+                Ok(t) => println!("{GREEN}✓{RESET} {t}"),
+                Err(e) => println!("{RED}✗ {name}: {e}{RESET}"),
+            }
+        }
+        hub.shutdown().await;
+        return Ok(());
+    }
+
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-    let system = prompt::build(&root, shell, &today);
+    let sections = [
+        skills.prompt_listing(cfg.skills.prompt_chars),
+        hub.prompt_listing(),
+    ];
+    let system = prompt::build(&root, shell, &today, &sections);
     let mut agent = {
         // Snapshot folder is named per run so undo data never mixes between sessions.
         let snap = home
             .join("snapshots")
             .join(chrono::Local::now().format("%Y%m%d-%H%M%S").to_string());
-        let tools = ToolBox::new(root.clone(), shell, snap).with_search(search);
+        let mut tools = ToolBox::new(root.clone(), shell, snap).with_search(search);
+        if !skills.is_empty() {
+            tools.add_provider(skills.clone());
+        }
+        if !hub.is_empty() {
+            tools.add_provider(hub.clone());
+        }
         Agent::new(
             router,
             tools,
@@ -403,8 +521,16 @@ async fn run() -> Result<()> {
     }
 
     if !cli.prompt.is_empty() {
-        let task = cli.prompt.join(" ");
+        let mut task = cli.prompt.join(" ");
+        // `oblivion "/code-review the last commit"` runs a skill directly.
+        if let Some(cmd) = task.strip_prefix('/') {
+            let (name, arg) = cmd.split_once(' ').unwrap_or((cmd, ""));
+            if skills.get(name).is_some() {
+                task = skill_request(&skills, name, arg);
+            }
+        }
         run_one(&mut agent, &task, &in_turn, &cancel).await;
+        hub.shutdown().await;
         return Ok(());
     }
 
@@ -428,14 +554,39 @@ async fn run() -> Result<()> {
             continue;
         }
         if let Some(cmd) = input.strip_prefix('/') {
-            if handle_command(&mut agent, cmd).await? {
-                break;
+            match handle_command(&mut agent, &skills, &hub, cmd).await? {
+                Command::Quit => break,
+                Command::Done => {}
+                Command::Run(task) => run_one(&mut agent, &task, &in_turn, &cancel).await,
             }
             continue;
         }
         run_one(&mut agent, input, &in_turn, &cancel).await;
     }
+    hub.shutdown().await;
     Ok(())
+}
+
+fn dirs_home() -> Option<PathBuf> {
+    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from)
+}
+
+/// The user message for `/skill-name args`: the skill's instructions are
+/// included directly, saving the model a round trip to load them.
+fn skill_request(skills: &SkillSet, name: &str, arg: &str) -> String {
+    let loaded = skills.load_text(name).unwrap_or_default();
+    let request = if arg.trim().is_empty() {
+        "Follow the skill's instructions."
+    } else {
+        arg.trim()
+    };
+    format!("The user ran the /{name} skill. Its instructions are loaded below; follow them.\n\n{loaded}\n\nRequest: {request}")
+}
+
+enum Command {
+    Quit,
+    Done,
+    Run(String),
 }
 
 async fn run_one(agent: &mut Agent, task: &str, in_turn: &AtomicBool, cancel: &Notify) {
@@ -472,13 +623,41 @@ async fn run_one(agent: &mut Agent, task: &str, in_turn: &AtomicBool, cancel: &N
 }
 
 /// Returns true when the user asked to quit.
-async fn handle_command(agent: &mut Agent, cmd: &str) -> Result<bool> {
+async fn handle_command(
+    agent: &mut Agent,
+    skills: &SkillSet,
+    hub: &McpHub,
+    cmd: &str,
+) -> Result<Command> {
     let (name, arg) = cmd
         .split_once(' ')
         .map(|(a, b)| (a, b.trim()))
         .unwrap_or((cmd, ""));
     match name {
-        "exit" | "quit" | "q" => return Ok(true),
+        "exit" | "quit" | "q" => return Ok(Command::Quit),
+        name if skills.get(name).is_some() => {
+            return Ok(Command::Run(skill_request(skills, name, arg)));
+        }
+        "skills" => {
+            for sk in skills.all() {
+                let d: String = sk.description.chars().take(80).collect();
+                println!("  /{:<16} {DIM}{d}{RESET}", sk.name);
+            }
+            if skills.is_empty() {
+                println!("No skills found.");
+            }
+        }
+        "mcp" => {
+            if hub.is_empty() {
+                println!("No MCP servers configured.");
+            }
+            for name in hub.names() {
+                match hub.list_tools(&name).await {
+                    Ok(t) => println!("{t}"),
+                    Err(e) => println!("{RED}✗ {name}: {e}{RESET}"),
+                }
+            }
+        }
         "help" | "h" => {
             println!("/undo          revert file changes from the last request");
             println!("/models        show models, cooldowns and today's usage");
@@ -488,6 +667,8 @@ async fn handle_command(agent: &mut Agent, cmd: &str) -> Result<bool> {
             println!("/approval <m>  ask | auto-edit | yolo");
             println!("/clear         start a fresh conversation");
             println!("/session       show the session id (resume with --resume <id>)");
+            println!("/skills        list skills; run one with /<skill-name> [request]");
+            println!("/mcp           list MCP servers and their tools");
             println!("/exit          quit (Ctrl+C also quits at the prompt)");
         }
         "undo" => match agent.undo_last_turn()? {
@@ -553,7 +734,7 @@ async fn handle_command(agent: &mut Agent, cmd: &str) -> Result<bool> {
             println!("Conversation cleared.");
         }
         "session" => println!("Session {}", agent.session.id),
-        other => println!("Unknown command /{other}. Try /help."),
+        other => println!("Unknown command /{other}. Try /help or /skills."),
     }
-    Ok(false)
+    Ok(Command::Done)
 }

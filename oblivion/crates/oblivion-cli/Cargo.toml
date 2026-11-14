@@ -19,6 +19,8 @@ oblivion-providers.workspace = true
 oblivion-tools.workspace = true
 oblivion-core.workspace = true
 oblivion-store.workspace = true
+oblivion-skills.workspace = true
+oblivion-mcp.workspace = true
 keyring = "4.2.0"
 rpassword = "7.5.5"
 

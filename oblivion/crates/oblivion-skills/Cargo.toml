@@ -1,0 +1,16 @@
+[package]
+name = "oblivion-skills"
+description = "Agent Skills (SKILL.md) support for Oblivion: discovery, the skill tool, installer, bundled skills"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml = "0.9.34"
+oblivion-providers.workspace = true
+oblivion-tools.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
