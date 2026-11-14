@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::{find_skill_dirs, parse_skill_md};
+use crate::{find_skill_dirs_inner, parse_skill_md};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GithubSource {
@@ -152,7 +152,8 @@ pub fn install_from_github(src: &GithubSource, dest_root: &Path) -> Result<Vec<I
             ));
         }
         let mut dirs = Vec::new();
-        find_skill_dirs(&base, 3, &mut dirs);
+        // Installing is explicit, so look inside hidden folders too (e.g. openai/skills/.curated).
+        find_skill_dirs_inner(&base, 3, false, &mut dirs);
         if dirs.is_empty() {
             return Err(format!(
                 "no SKILL.md found under {}",

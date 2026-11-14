@@ -1489,6 +1489,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "dirs",
+ "futures-util",
  "oblivion-providers",
  "oblivion-tools",
  "serde",

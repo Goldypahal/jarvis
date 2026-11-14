@@ -63,6 +63,7 @@ fn retry_note(secs: Option<u64>) -> String {
     }
 }
 
+#[derive(Clone)]
 pub struct Client {
     http: reqwest::Client,
 }
@@ -266,6 +267,14 @@ impl Accumulator {
         let chunk: Chunk = serde_json::from_str(data)
             .map_err(|e| ProviderError::Protocol(format!("{e}: {}", truncate(data, 200))))?;
         if let Some(err) = chunk.error {
+            // The model produced an invalid tool call (e.g. a tool that does not exist).
+            // That is about this generation, not the provider's health: no cooldown.
+            if err.to_string().contains("tool_use_failed") {
+                return Err(ProviderError::BadRequest {
+                    status: 400,
+                    body: truncate(&err.to_string(), 300),
+                });
+            }
             return Err(ProviderError::Server {
                 status: 200,
                 body: truncate(&err.to_string(), 600),

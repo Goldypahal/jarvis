@@ -153,7 +153,14 @@ fn print_event(e: AgentEvent) {
             let _ = writeln!(out, "{YELLOW}  ✗ declined {name}{RESET}");
         }
         AgentEvent::Fallback { from, reason } => {
-            let short: String = reason.chars().take(160).collect();
+            // "rate limited (retry in 15s): {long provider JSON}" -> "rate limited (retry in 15s)"
+            let short: String = reason
+                .split(": {")
+                .next()
+                .unwrap_or(&reason)
+                .chars()
+                .take(120)
+                .collect();
             let _ = writeln!(
                 out,
                 "{YELLOW}  ↷ {from} failed ({short}); trying next model{RESET}"
@@ -167,6 +174,42 @@ fn print_event(e: AgentEvent) {
                 out,
                 "{YELLOW}  ⏳ all models are at their per-minute limit; waiting {secs}s{RESET}"
             );
+        }
+        AgentEvent::Sub {
+            index,
+            label,
+            event,
+        } => {
+            let tag = format!("{CYAN}  ↳ [{index}] {label}{RESET}");
+            match *event {
+                AgentEvent::ToolStart { summary, .. } => {
+                    let _ = writeln!(out, "{tag} {DIM}{summary}{RESET}");
+                }
+                AgentEvent::ToolEnd {
+                    is_error: true,
+                    preview,
+                    ..
+                } => {
+                    let first = preview.lines().next().unwrap_or("").to_string();
+                    let _ = writeln!(out, "{tag} {RED}{first}{RESET}");
+                }
+                AgentEvent::Model(m) => {
+                    let _ = writeln!(out, "{tag} {DIM}[{m}]{RESET}");
+                }
+                AgentEvent::Waiting(s) => {
+                    let _ = writeln!(out, "{tag} {YELLOW}⏳ waiting {s}s for rate limit{RESET}");
+                }
+                AgentEvent::Fallback { from, .. } => {
+                    let _ = writeln!(
+                        out,
+                        "{tag} {YELLOW}↷ {from} unavailable, trying next{RESET}"
+                    );
+                }
+                AgentEvent::Notice(n) => {
+                    let _ = writeln!(out, "{tag} {DIM}{n}{RESET}");
+                }
+                _ => {}
+            }
         }
         AgentEvent::Notice(n) => {
             let _ = writeln!(out, "{YELLOW}{n}{RESET}");
@@ -410,6 +453,7 @@ async fn run() -> Result<()> {
         }
         for sk in skills.all() {
             let src = match sk.source {
+                SkillSource::External => "shared",
                 SkillSource::Bundled => "bundled",
                 SkillSource::User => "user",
                 SkillSource::Project => "project",
@@ -470,12 +514,18 @@ async fn run() -> Result<()> {
         hub.prompt_listing(),
     ];
     let system = prompt::build(&root, shell, &today, &sections);
+    // Sub-agents get the same environment and skills, but no MCP list (they cannot use MCP).
+    let system_for_subagents = prompt::build(&root, shell, &today, &sections[..1]);
+    let subagent_search = search.clone();
+    let skill_dirs: Vec<PathBuf> = skills.all().map(|s| s.dir.clone()).collect();
     let mut agent = {
         // Snapshot folder is named per run so undo data never mixes between sessions.
         let snap = home
             .join("snapshots")
             .join(chrono::Local::now().format("%Y%m%d-%H%M%S").to_string());
-        let mut tools = ToolBox::new(root.clone(), shell, snap).with_search(search);
+        let mut tools = ToolBox::new(root.clone(), shell, snap)
+            .with_search(search)
+            .allow_reads_in(skill_dirs.clone());
         if !skills.is_empty() {
             tools.add_provider(skills.clone());
         }
@@ -492,6 +542,25 @@ async fn run() -> Result<()> {
         )
     };
     agent.context_tokens = cfg.agent.context_tokens;
+    agent.max_web_calls = cfg.agent.max_web_calls;
+    agent.summary_prefer = cfg.routing.summary.clone();
+    agent.set_subagents(oblivion_core::SubagentFactory {
+        router: agent.router.share(),
+        root: root.clone(),
+        shell,
+        search: subagent_search,
+        read_roots: skill_dirs.clone(),
+        skills: if skills.is_empty() {
+            None
+        } else {
+            Some(skills.clone() as Arc<dyn oblivion_tools::ToolProvider>)
+        },
+        base_prompt: system_for_subagents,
+        context_tokens: cfg.agent.context_tokens,
+        max_steps: cfg.routing.subagent_max_steps,
+        rules: rules.clone(),
+        prefer: cfg.routing.subagent.clone(),
+    });
     agent.set_rules(rules);
     if let Some(id) = &cli.resume {
         agent.resume(store.load_session(id)?);

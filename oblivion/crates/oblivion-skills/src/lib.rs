@@ -27,6 +27,8 @@ pub use install::{install_from_github, GithubSource};
 /// Where a skill was found. Later sources override earlier ones with the same name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SkillSource {
+    /// Shared folders also used by Claude Code, Codex and other agents.
+    External,
     Bundled,
     User,
     Project,
@@ -100,7 +102,25 @@ fn valid_name(name: &str) -> bool {
 }
 
 /// Find `SKILL.md` files up to `depth` folders below `root`.
+/// Folders never searched for skills: hidden folders (Codex keeps its own
+/// system skills in `.system`) and `synced` (the Claude app's cache of skills
+/// written for Claude's own tools, which Oblivion does not have).
+fn skipped_dir(p: &Path) -> bool {
+    p.file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| n.starts_with('.') || n == "synced" || n == "node_modules")
+}
+
 fn find_skill_dirs(root: &Path, depth: usize, out: &mut Vec<PathBuf>) {
+    find_skill_dirs_inner(root, depth, true, out)
+}
+
+pub(crate) fn find_skill_dirs_inner(
+    root: &Path,
+    depth: usize,
+    skip_hidden: bool,
+    out: &mut Vec<PathBuf>,
+) {
     if root.join("SKILL.md").is_file() {
         out.push(root.to_path_buf());
         return;
@@ -114,11 +134,11 @@ fn find_skill_dirs(root: &Path, depth: usize, out: &mut Vec<PathBuf>) {
     let mut dirs: Vec<PathBuf> = rd
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.is_dir())
+        .filter(|p| p.is_dir() && !(skip_hidden && skipped_dir(p)))
         .collect();
     dirs.sort();
     for d in dirs {
-        find_skill_dirs(&d, depth - 1, out);
+        find_skill_dirs_inner(&d, depth - 1, skip_hidden, out);
     }
 }
 
@@ -186,12 +206,16 @@ impl SkillSet {
         user_home: Option<&Path>,
         project: &Path,
     ) -> Vec<(PathBuf, SkillSource)> {
-        let mut roots = vec![(oblivion_home.join("bundled-skills"), SkillSource::Bundled)];
+        // Lowest priority first. Skills in folders shared with other agents come
+        // first so Oblivion's own version of a same-named skill wins: those copies
+        // are often written for another agent's tools.
+        let mut roots = Vec::new();
         if let Some(h) = user_home {
             for sub in [".agents/skills", ".claude/skills", ".codex/skills"] {
-                roots.push((h.join(sub), SkillSource::User));
+                roots.push((h.join(sub), SkillSource::External));
             }
         }
+        roots.push((oblivion_home.join("bundled-skills"), SkillSource::Bundled));
         roots.push((oblivion_home.join("skills"), SkillSource::User));
         for sub in [".agents/skills", ".claude/skills", ".oblivion/skills"] {
             roots.push((project.join(sub), SkillSource::Project));
@@ -392,7 +416,7 @@ mod tests {
         );
         write_skill(
             &user,
-            "nested/.system/review",
+            "nested/team/review",
             "---\nname: review\ndescription: user review\n---\nU",
         );
         write_skill(
@@ -415,6 +439,48 @@ mod tests {
         assert_eq!(set.get("review").unwrap().description, "user review");
         assert_eq!(set.get("review").unwrap().source, SkillSource::User);
         assert_eq!(set.warnings.len(), 1);
+    }
+
+    #[test]
+    fn standard_roots_prefer_oblivion_over_other_agents_and_skip_caches() {
+        let d = tempfile::tempdir().unwrap();
+        let (home, user, proj) = (d.path().join("obl"), d.path().join("u"), d.path().join("p"));
+        write_skill(
+            &user.join(".claude/skills/synced/abc"),
+            "deep-research",
+            "---\nname: deep-research\ndescription: claude app copy\n---\nC",
+        );
+        write_skill(
+            &user.join(".codex/skills/.system"),
+            "skill-creator",
+            "---\nname: skill-creator\ndescription: codex system copy\n---\nX",
+        );
+        write_skill(
+            &user.join(".claude/skills"),
+            "plan",
+            "---\nname: plan\ndescription: claude user plan\n---\nP",
+        );
+        write_skill(
+            &user.join(".claude/skills"),
+            "mine",
+            "---\nname: mine\ndescription: my own claude skill\n---\nM",
+        );
+        write_skill(
+            &home.join("bundled-skills"),
+            "plan",
+            "---\nname: plan\ndescription: oblivion plan\n---\nO",
+        );
+        let set = SkillSet::discover(&SkillSet::standard_roots(&home, Some(&user), &proj));
+        assert_eq!(set.get("plan").unwrap().description, "oblivion plan");
+        assert_eq!(set.get("mine").unwrap().source, SkillSource::External);
+        assert!(
+            set.get("deep-research").is_none(),
+            "Claude app cache must be skipped"
+        );
+        assert!(
+            set.get("skill-creator").is_none(),
+            "hidden folders must be skipped"
+        );
     }
 
     #[test]

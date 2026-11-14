@@ -26,6 +26,7 @@ pub const DEFAULT_CONFIG: &str = r#"# Oblivion configuration
 max_steps = 50          # tool-call rounds per request before stopping
 approval = "ask"        # ask | auto-edit | yolo
 context_tokens = 24000  # shrink the conversation when it grows past about this size
+max_web_calls = 15      # web searches + fetches per request (sub-agents get 8 each)
 # shell = "powershell"  # powershell | cmd | bash | sh (default: powershell on Windows, bash elsewhere)
 
 # Rules are "tool(pattern)"; * matches anything. Deny wins over allow.
@@ -98,18 +99,29 @@ models = ["mistral-small-latest"]
 # url = "https://api.githubcopilot.com/mcp/"
 # token_env = "GITHUB_TOKEN"
 
+# Which models do which jobs. Each value is a filter on "provider/model"; matching
+# models are tried first, the rest stay as fallbacks. Use "ollama" to keep cheap work local.
+[routing]
+summary = ""            # shrinking long conversations, e.g. "ollama"
+subagent = ""           # sub-agents started by the `task` tool, e.g. "groq/openai/gpt-oss-20b"
+subagent_max_steps = 25
+
 # Skills: folders with SKILL.md from ~/.oblivion/skills, ~/.agents/skills, ~/.claude/skills,
 # ~/.codex/skills and the project's .agents/skills (Claude and Codex skills work as-is).
 [skills]
 enabled = true
 prompt_chars = 2500     # space for the skill list in every request (names + descriptions)
 
-# Local models through Ollama (offline, private). Install from https://ollama.com,
-# run `ollama pull qwen3.5:9b`, then set enabled = true.
+# Local models through Ollama (offline, private, no daily limits). Install from
+# https://ollama.com, run `ollama pull qwen3.5:9b`, then set enabled = true.
+# Ollama's default context is small: before starting it, set the environment variable
+# OLLAMA_CONTEXT_LENGTH=16384 (or more), and keep max_input_tokens a bit below that.
+# To use it for summaries and sub-agents, set summary = "ollama" / subagent = "ollama" above.
 [[providers]]
 name = "ollama"
 base_url = "http://localhost:11434/v1"
 models = ["qwen3.5:9b"]
+max_input_tokens = 14000
 enabled = false
 "#;
 
@@ -146,6 +158,8 @@ pub struct AgentSettings {
     pub shell: Option<String>,
     #[serde(default = "default_context_tokens")]
     pub context_tokens: usize,
+    #[serde(default = "default_max_web_calls")]
+    pub max_web_calls: usize,
 }
 
 impl Default for AgentSettings {
@@ -155,12 +169,17 @@ impl Default for AgentSettings {
             approval: ApprovalMode::Ask,
             shell: None,
             context_tokens: default_context_tokens(),
+            max_web_calls: default_max_web_calls(),
         }
     }
 }
 
 fn default_max_steps() -> usize {
     50
+}
+
+fn default_max_web_calls() -> usize {
+    15
 }
 
 fn default_context_tokens() -> usize {
@@ -173,6 +192,30 @@ pub struct Permissions {
     pub allow: Vec<String>,
     #[serde(default)]
     pub deny: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoutingSettings {
+    #[serde(default)]
+    pub summary: String,
+    #[serde(default)]
+    pub subagent: String,
+    #[serde(default = "default_subagent_steps")]
+    pub subagent_max_steps: usize,
+}
+
+impl Default for RoutingSettings {
+    fn default() -> Self {
+        Self {
+            summary: String::new(),
+            subagent: String::new(),
+            subagent_max_steps: default_subagent_steps(),
+        }
+    }
+}
+
+fn default_subagent_steps() -> usize {
+    25
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -290,6 +333,8 @@ pub struct Config {
     pub search: SearchSettings,
     #[serde(default)]
     pub skills: SkillSettings,
+    #[serde(default)]
+    pub routing: RoutingSettings,
     #[serde(default)]
     pub mcp_servers: Vec<McpServerEntry>,
 }

@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use crate::{str_arg, ToolBox};
 
 const MAX_FETCH_BYTES: usize = 5 * 1024 * 1024;
-const DEFAULT_FETCH_CHARS: usize = 20_000;
+const DEFAULT_FETCH_CHARS: usize = 8_000;
 
 /// Which search service `web_search` uses.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,7 +56,7 @@ pub(crate) fn specs() -> Vec<ToolSpec> {
                 "type": "object",
                 "properties": {
                     "url": {"type": "string"},
-                    "max_chars": {"type": "integer", "description": "Max characters to return (default 20000)"}
+                    "max_chars": {"type": "integer", "description": "Max characters to return (default 8000; raise only if needed)"}
                 },
                 "required": ["url"]
             }),

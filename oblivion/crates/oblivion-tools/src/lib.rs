@@ -84,6 +84,10 @@ pub struct ToolBox {
     http: reqwest::Client,
     search: SearchBackend,
     providers: Vec<Arc<dyn ToolProvider>>,
+    /// When set, only these tools are offered and allowed (sub-agents).
+    allowed: Option<Vec<String>>,
+    /// Extra folders that may be read without asking (installed skills).
+    read_roots: Vec<PathBuf>,
 }
 
 impl ToolBox {
@@ -97,7 +101,39 @@ impl ToolBox {
             http: web::http_client(),
             search: SearchBackend::DuckDuckGo,
             providers: Vec::new(),
+            allowed: None,
+            read_roots: Vec::new(),
         }
+    }
+
+    /// Let read_file/glob/grep read these folders without approval (skill folders,
+    /// so a skill can use its own reference files and scripts).
+    pub fn allow_reads_in(mut self, dirs: Vec<PathBuf>) -> Self {
+        self.read_roots = dirs;
+        self
+    }
+
+    /// Inside the workspace or one of the extra readable folders.
+    pub fn readable(&self, path: &Path) -> bool {
+        if self.inside_root(path) {
+            return true;
+        }
+        let p = normalize_path(path);
+        self.read_roots
+            .iter()
+            .any(|r| path_starts_with(&p, &normalize_path(r)))
+    }
+
+    /// Offer and allow only the named tools.
+    pub fn restrict_to(mut self, names: &[&str]) -> Self {
+        self.allowed = Some(names.iter().map(|n| n.to_string()).collect());
+        self
+    }
+
+    fn permitted(&self, name: &str) -> bool {
+        self.allowed
+            .as_ref()
+            .is_none_or(|a| a.iter().any(|n| n == name))
     }
 
     pub fn add_provider(&mut self, p: Arc<dyn ToolProvider>) {
@@ -146,6 +182,7 @@ impl ToolBox {
         for p in &self.providers {
             specs.extend(p.specs());
         }
+        specs.retain(|s| self.permitted(&s.name));
         specs
     }
 
@@ -171,7 +208,7 @@ impl ToolBox {
         match name {
             "read_file" => {
                 let p = self.resolve(path_arg());
-                if self.inside_root(&p) {
+                if self.readable(&p) {
                     Risk::Safe
                 } else {
                     Risk::Ask(format!("read {} (outside the workspace)", p.display()))
@@ -180,7 +217,7 @@ impl ToolBox {
             "write_file" => Risk::Ask(format!("write {}", self.resolve(path_arg()).display())),
             "edit_file" => Risk::Ask(format!("edit {}", self.resolve(path_arg()).display())),
             "glob" | "grep" => match args.get("path").and_then(Value::as_str) {
-                Some(p) if !self.inside_root(&self.resolve(p)) => Risk::Ask(format!(
+                Some(p) if !self.readable(&self.resolve(p)) => Risk::Ask(format!(
                     "search {} (outside the workspace)",
                     self.resolve(p).display()
                 )),
@@ -227,6 +264,16 @@ impl ToolBox {
     }
 
     pub async fn execute(&self, name: &str, args: &Value) -> ToolOutput {
+        if !self.permitted(name) {
+            return ToolOutput::err(format!(
+                "the tool '{name}' is not available here. Available: {}",
+                self.specs()
+                    .iter()
+                    .map(|s| s.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
         let out = match name {
             "read_file" => fs_tools::read_file(self, args).await,
             "write_file" => fs_tools::write_file(self, args).await,
@@ -369,6 +416,46 @@ mod tests {
             tb.risk("shell", &serde_json::json!({"command":"ls"})),
             Risk::Ask(_)
         ));
+    }
+
+    #[test]
+    fn skill_folders_are_readable_without_approval() {
+        let ws = tempfile::tempdir().unwrap();
+        let skill = tempfile::tempdir().unwrap();
+        let tb = ToolBox::new(ws.path(), Shell::Sh, ws.path().join(".snap"))
+            .allow_reads_in(vec![skill.path().to_path_buf()]);
+        let inside = skill
+            .path()
+            .join("references/x.md")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(
+            tb.risk("read_file", &serde_json::json!({"path": inside})),
+            Risk::Safe
+        );
+        assert!(matches!(
+            tb.risk("read_file", &serde_json::json!({"path": "/etc/passwd"})),
+            Risk::Ask(_)
+        ));
+        // Writing there still asks.
+        assert!(matches!(
+            tb.risk("write_file", &serde_json::json!({"path": inside})),
+            Risk::Ask(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn restricted_toolbox_hides_and_refuses_other_tools() {
+        let dir = tempfile::tempdir().unwrap();
+        let tb = ToolBox::new(dir.path(), Shell::Sh, dir.path().join(".snap"))
+            .restrict_to(&["read_file", "grep"]);
+        let names: Vec<String> = tb.specs().into_iter().map(|s| s.name).collect();
+        assert_eq!(names, ["read_file", "grep"]);
+        let out = tb
+            .execute("write_file", &serde_json::json!({"path":"x","content":"y"}))
+            .await;
+        assert!(out.is_error && out.text.contains("not available"));
+        assert!(!dir.path().join("x").exists());
     }
 
     #[test]

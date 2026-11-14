@@ -2,7 +2,7 @@
 
 A personal AI agent in Rust that reads, writes and edits files and runs commands — like Claude Code or Codex — using **free model APIs** with automatic fallback between providers.
 
-Status: **Phase 2** of the Oblivion SRS. Done: agent loop, 9 built-in tools, approvals and permission rules, undo, SQLite sessions and quota tracking, compaction, Windows Credential Manager keys, multi-provider fallback with rate-limit waits, a 10-task eval suite (10/10 on Groq's free tier), **skills** (Claude/Codex `SKILL.md` format, 10 bundled) and **MCP connectors**. Next: full-screen terminal UI, then the knowledge-work features (Phase 3).
+Status: **Phase 2** of the Oblivion SRS. Done: agent loop, 9 built-in tools, approvals and permission rules, undo, SQLite sessions and quota tracking, compaction, Windows Credential Manager keys, multi-provider fallback with rate-limit waits, a 10-task eval suite (10/10 on Groq's free tier), **skills** (Claude/Codex `SKILL.md` format, 11 bundled), **MCP connectors**, **parallel read-only sub-agents** with a deep-research skill, and **Ollama routing** for cheap work. Next: local web UI, pptx skill, full-screen terminal UI.
 
 ## What works today
 
@@ -94,13 +94,37 @@ Skills are folders with a `SKILL.md` (the open format used by Claude Code and Co
 name and description go in the prompt; the model loads the full instructions with the `skill` tool when
 a request matches, so many skills cost few tokens.
 
-- **Bundled (10):** init-project, plan, code-review, fix-tests, debug, git-workflow, docx, xlsx, pdf, skill-creator.
+- **Bundled (11):** init-project, plan, code-review, fix-tests, debug, git-workflow, deep-research, docx, xlsx, pdf, skill-creator.
   The document skills use Python (`pip install python-docx openpyxl pypdf`) and include checker scripts.
 - **Your own / installed:** `~/.oblivion/skills/`, plus `~/.agents/skills`, `~/.claude/skills`, `~/.codex/skills`,
   and a project's `.agents/skills` or `.claude/skills`. Later ones win when names clash.
 - **Install from GitHub:** `oblivion --install-skill https://github.com/anthropics/skills/tree/main/skills/mcp-builder`
   (needs git; prints the skill's licence).
 - **List:** `oblivion --skills` or `/skills`. **Run directly:** `/code-review the last commit`.
+
+## Sub-agents and deep research
+
+The `task` tool starts a sub-agent with a fresh, short context for one job and returns only its report.
+Several `task` calls in one response run **in parallel** (sharing rate-limit state). Small free models do
+much better on narrow jobs, so this is how bigger tasks get done.
+
+Sub-agents are **read-only**: they can read and search the workspace, search and fetch the web, and load
+skills — but cannot edit files, run commands or use MCP, and anything outside the workspace is refused.
+Edits stay with the main agent, under your approval rules.
+
+`/deep-research <question>` splits the question, runs parallel sub-agents, and writes a cited
+`research-<topic>.md`.
+
+## Ollama for cheap work
+
+Enable the `ollama` provider in `oblivion.toml` (set `OLLAMA_CONTEXT_LENGTH=16384` before starting Ollama),
+then route jobs to it:
+
+```toml
+[routing]
+summary = "ollama"     # conversation summaries run locally
+subagent = "ollama"    # sub-agents try the local model first, cloud models as fallback
+```
 
 ## MCP connectors
 

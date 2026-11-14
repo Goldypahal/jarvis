@@ -6,7 +6,7 @@
 //! its daily request allowance (tracked by an optional [`UsageLedger`]).
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::client::{Client, ProviderConfig, ProviderError, StreamEvent};
@@ -57,12 +57,19 @@ pub struct TargetStatus {
     pub max_input_tokens: Option<u32>,
 }
 
-pub struct Router {
-    client: Client,
-    targets: Vec<Target>,
+/// Cooldowns, shared by every router made with [`Router::share`] so parallel
+/// sub-agents do not all hammer a provider that just said "slow down".
+#[derive(Default)]
+struct Health {
     cooldown_until: HashMap<String, Instant>,
     /// Targets whose current cooldown came from a rate limit (worth waiting for).
     rate_limited: HashMap<String, Instant>,
+}
+
+pub struct Router {
+    client: Client,
+    targets: Vec<Target>,
+    health: Arc<Mutex<Health>>,
     default_cooldown: Duration,
     /// Longest single wait when every model is rate-limited; longer waits fail the request.
     max_wait: Duration,
@@ -74,8 +81,7 @@ impl Router {
         Self {
             client: Client::new(),
             targets,
-            cooldown_until: HashMap::new(),
-            rate_limited: HashMap::new(),
+            health: Arc::new(Mutex::new(Health::default())),
             default_cooldown: Duration::from_secs(60),
             max_wait: Duration::from_secs(65),
             ledger: None,
@@ -89,6 +95,33 @@ impl Router {
 
     pub fn with_ledger(mut self, ledger: Arc<dyn UsageLedger>) -> Self {
         self.ledger = Some(ledger);
+        self
+    }
+
+    /// A second router over the same targets that shares cooldowns and the
+    /// usage ledger (for sub-agents and background summaries).
+    pub fn share(&self) -> Router {
+        Router {
+            client: self.client.clone(),
+            targets: self.targets.clone(),
+            health: self.health.clone(),
+            default_cooldown: self.default_cooldown,
+            max_wait: self.max_wait,
+            ledger: self.ledger.clone(),
+        }
+    }
+
+    /// Move targets whose label contains `filter` to the front, keeping the
+    /// rest as fallbacks. An empty filter or no match leaves the order alone.
+    pub fn preferring(mut self, filter: &str) -> Router {
+        if !filter.is_empty() {
+            let (mut first, rest): (Vec<Target>, Vec<Target>) = self
+                .targets
+                .into_iter()
+                .partition(|t| t.label().contains(filter));
+            first.extend(rest);
+            self.targets = first;
+        }
         self
     }
 
@@ -128,6 +161,9 @@ impl Router {
                 let label = t.label();
                 TargetStatus {
                     cooldown: self
+                        .health
+                        .lock()
+                        .unwrap()
                         .cooldown_until
                         .get(&label)
                         .and_then(|u| u.checked_duration_since(now)),
@@ -158,6 +194,9 @@ impl Router {
                     let now = Instant::now();
                     // Only worth waiting if some target is held back by a rate limit alone.
                     let wait = self
+                        .health
+                        .lock()
+                        .unwrap()
                         .rate_limited
                         .iter()
                         .filter(|(label, _)| self.targets.iter().any(|t| &t.label() == *label))
@@ -189,8 +228,15 @@ impl Router {
         let targets = self.targets.clone();
         for target in &targets {
             let label = target.label();
-            if let Some(until) = self.cooldown_until.get(&label) {
-                if *until > now {
+            let cooling = self
+                .health
+                .lock()
+                .unwrap()
+                .cooldown_until
+                .get(&label)
+                .copied();
+            if let Some(until) = cooling {
+                if until > now {
                     let secs = until.duration_since(now).as_secs();
                     failures.push(format!("  {label}: cooling down ({secs}s left)"));
                     continue;
@@ -217,8 +263,11 @@ impl Router {
                 .await
             {
                 Ok(c) => {
-                    self.cooldown_until.remove(&label);
-                    self.rate_limited.remove(&label);
+                    {
+                        let mut h = self.health.lock().unwrap();
+                        h.cooldown_until.remove(&label);
+                        h.rate_limited.remove(&label);
+                    }
                     if let Some(l) = &self.ledger {
                         l.record(&label, c.usage.as_ref());
                     }
@@ -240,15 +289,17 @@ impl Router {
                         }
                         ProviderError::BadRequest { .. } | ProviderError::Protocol(_) => None,
                     };
-                    if let Some(d) = cool {
-                        self.cooldown_until
-                            .insert(label.clone(), Instant::now() + d);
-                    }
-                    if matches!(err, ProviderError::RateLimited { .. }) {
-                        let until = Instant::now() + cool.unwrap_or_default();
-                        self.rate_limited.insert(label.clone(), until);
-                    } else {
-                        self.rate_limited.remove(&label);
+                    {
+                        let mut h = self.health.lock().unwrap();
+                        if let Some(d) = cool {
+                            h.cooldown_until.insert(label.clone(), Instant::now() + d);
+                        }
+                        if matches!(err, ProviderError::RateLimited { .. }) {
+                            let until = Instant::now() + cool.unwrap_or_default();
+                            h.rate_limited.insert(label.clone(), until);
+                        } else {
+                            h.rate_limited.remove(&label);
+                        }
                     }
                     let reason = err.to_string();
                     on_event(StreamEvent::Fallback {
@@ -313,6 +364,28 @@ mod tests {
             .to_string();
         assert!(err.contains("small/m: request too large"), "{err}");
         assert!(err.contains("used/m: daily limit reached (5/5)"), "{err}");
+    }
+
+    #[test]
+    fn preferring_reorders_and_share_keeps_cooldowns() {
+        let r = Router::new(vec![
+            target("groq", None, None),
+            target("ollama", None, None),
+            target("or", None, None),
+        ]);
+        let p = r.share().preferring("ollama");
+        let labels: Vec<String> = p.targets().iter().map(|t| t.label()).collect();
+        assert_eq!(labels, ["ollama/m", "groq/m", "or/m"]);
+        r.health
+            .lock()
+            .unwrap()
+            .cooldown_until
+            .insert("groq/m".into(), Instant::now() + Duration::from_secs(30));
+        assert!(p
+            .status()
+            .iter()
+            .any(|s| s.label == "groq/m" && s.cooldown.is_some()));
+        assert_eq!(r.share().preferring("").targets()[0].label(), "groq/m");
     }
 
     #[test]

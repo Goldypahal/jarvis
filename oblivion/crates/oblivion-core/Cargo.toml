@@ -15,6 +15,7 @@ dirs.workspace = true
 chrono.workspace = true
 oblivion-providers.workspace = true
 oblivion-tools.workspace = true
+futures-util.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

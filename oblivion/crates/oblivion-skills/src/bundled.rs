@@ -1,4 +1,4 @@
-//! Skills shipped inside the binary (SRS 5, first 10). They are written to
+//! Skills shipped inside the binary (SRS 5). They are written to
 //! `~/.oblivion/bundled-skills/` so their scripts exist as real files, and
 //! refreshed whenever a new Oblivion version changes them.
 
@@ -11,6 +11,10 @@ pub const FILES: &[(&str, &str)] = &[
         include_str!("../bundled/code-review/SKILL.md"),
     ),
     ("debug/SKILL.md", include_str!("../bundled/debug/SKILL.md")),
+    (
+        "deep-research/SKILL.md",
+        include_str!("../bundled/deep-research/SKILL.md"),
+    ),
     ("docx/SKILL.md", include_str!("../bundled/docx/SKILL.md")),
     (
         "docx/scripts/docx_tool.py",
@@ -88,6 +92,7 @@ mod tests {
             [
                 "code-review",
                 "debug",
+                "deep-research",
                 "docx",
                 "fix-tests",
                 "git-workflow",

@@ -13,7 +13,7 @@ Rust cargo workspace. Read the SRS (Oblivion project doc) before adding features
 
 - `crates/oblivion-providers` — model client + router. No knowledge of tools or the CLI.
 - `crates/oblivion-tools` — tools. Each tool: a spec, a risk level, an async implementation, unit tests.
-- `crates/oblivion-core` — agent loop, config, prompt, sessions. `tests/e2e.rs` drives the loop against a fake server.
+- `crates/oblivion-core` — agent loop, config, prompt, sessions, sub-agents (`subagent.rs`: read-only tool list, parallel `task` calls). `tests/e2e.rs` drives the loop against a fake server.
 - `crates/oblivion-skills` — SKILL.md support. Bundled skills live in `bundled/` and are embedded by `src/bundled.rs` (regenerate that list when adding files).
 - `crates/oblivion-mcp` — MCP client; `tests/fixtures/echo_server.py` is a stdlib-only MCP server for tests.
 - `crates/oblivion-store` — SQLite (sessions, daily usage ledger). Implements core's `SessionStore` and providers' `UsageLedger`.

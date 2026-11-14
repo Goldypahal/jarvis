@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
-use oblivion_providers::{Message, Role, Router, StreamEvent, Usage};
+use oblivion_providers::{Message, Role, Router, StreamEvent, ToolSpec, Usage};
 use oblivion_tools::{Risk, ToolBox, UndoReport};
 use serde_json::Value;
 
@@ -14,6 +14,7 @@ use crate::compact::{self, Stage};
 use crate::config::ApprovalMode;
 use crate::rules::{Rules, Verdict};
 use crate::session::{JsonDir, Session, SessionStore};
+use crate::subagent::{task_spec, SubagentFactory};
 
 /// What the user said to an approval prompt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,6 +61,12 @@ pub enum AgentEvent {
     Notice(String),
     /// All models are rate-limited for a few seconds; waiting before retrying.
     Waiting(u64),
+    /// Progress from sub-agent number `index` (labelled with its description).
+    Sub {
+        index: usize,
+        label: String,
+        event: Box<AgentEvent>,
+    },
 }
 
 #[derive(Debug, Default, Clone)]
@@ -79,12 +86,18 @@ pub struct Agent {
     pub session: Session,
     /// Conversation size (estimated tokens) at which history is shrunk.
     pub context_tokens: usize,
+    /// Model filter tried first for conversation summaries (e.g. "ollama").
+    pub summary_prefer: String,
+    /// web_search + web_fetch calls allowed per request before the model is told
+    /// to answer with what it has (free tiers allow few tokens per day).
+    pub max_web_calls: usize,
     rules: Rules,
     store: Option<Arc<dyn SessionStore>>,
     approver: Box<dyn Approver>,
     always_allowed: HashSet<String>,
     /// Journal marks at the start of each turn, for `/undo`.
     turn_marks: Vec<usize>,
+    subagents: Option<Arc<SubagentFactory>>,
 }
 
 impl Agent {
@@ -105,11 +118,14 @@ impl Agent {
             max_steps,
             session,
             context_tokens: 24_000,
+            summary_prefer: String::new(),
+            max_web_calls: 15,
             rules: Rules::default(),
             store: None,
             approver,
             always_allowed: HashSet::new(),
             turn_marks: Vec::new(),
+            subagents: None,
         }
     }
 
@@ -121,6 +137,103 @@ impl Agent {
     /// Save the session to `store` after every step.
     pub fn persist_with(&mut self, store: Arc<dyn SessionStore>) {
         self.store = Some(store);
+    }
+
+    /// Enable the `task` tool (sub-agents).
+    pub fn set_subagents(&mut self, factory: SubagentFactory) {
+        self.subagents = Some(Arc::new(factory));
+    }
+
+    fn all_specs(&self) -> Vec<oblivion_providers::ToolSpec> {
+        let mut specs = self.tools.specs();
+        if self.subagents.is_some() {
+            specs.push(task_spec());
+        }
+        specs
+    }
+
+    /// Run every `task` call of one model turn in parallel, forwarding their
+    /// progress as it happens. Returns call id -> tool result text.
+    async fn run_tasks(
+        &self,
+        calls: &[oblivion_providers::ToolCall],
+        on_event: &mut (dyn FnMut(AgentEvent) + Send),
+    ) -> std::collections::HashMap<String, String> {
+        use futures_util::future::join_all;
+        let mut results = std::collections::HashMap::new();
+        let Some(factory) = self.subagents.clone() else {
+            return results;
+        };
+        let jobs: Vec<(usize, String, String, String, Option<String>)> = calls
+            .iter()
+            .filter(|c| c.function.name == "task")
+            .enumerate()
+            .filter_map(|(i, c)| {
+                let v: Value = serde_json::from_str(&c.function.arguments).ok()?;
+                let prompt = v.get("prompt").and_then(Value::as_str)?.to_string();
+                if let Verdict::Deny(_) = self.rules.check("task", &prompt) {
+                    return None; // handled as blocked by the normal loop
+                }
+                let label = v
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or("sub-agent")
+                    .to_string();
+                let model = v.get("model").and_then(Value::as_str).map(str::to_string);
+                Some((i + 1, c.id.clone(), label, prompt, model))
+            })
+            .collect();
+        if jobs.is_empty() {
+            return results;
+        }
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AgentEvent>();
+        let futures = jobs.into_iter().map(|(index, id, label, prompt, model)| {
+            let tx = tx.clone();
+            let factory = factory.clone();
+            async move {
+                let _ = tx.send(AgentEvent::Sub {
+                    index,
+                    label: label.clone(),
+                    event: Box::new(AgentEvent::Notice("started".into())),
+                });
+                let mut forward = |e: AgentEvent| {
+                    // Streaming text of sub-agents would interleave; send the rest.
+                    if !matches!(e, AgentEvent::Text(_) | AgentEvent::TextEnd) {
+                        let _ = tx.send(AgentEvent::Sub {
+                            index,
+                            label: label.clone(),
+                            event: Box::new(e),
+                        });
+                    }
+                };
+                let out = factory.run(&prompt, model.as_deref(), &mut forward).await;
+                let text = match out {
+                    Ok(report) => format!("Report from sub-agent \"{label}\":\n{report}"),
+                    Err(e) => format!("Error: sub-agent \"{label}\" failed: {e}"),
+                };
+                let _ = tx.send(AgentEvent::Sub {
+                    index,
+                    label,
+                    event: Box::new(AgentEvent::Notice("finished".into())),
+                });
+                (id, text)
+            }
+        });
+        let futures: Vec<_> = futures.collect();
+        drop(tx);
+        let all = join_all(futures);
+        tokio::pin!(all);
+        let done = loop {
+            tokio::select! {
+                done = &mut all => break done,
+                Some(e) = rx.recv() => on_event(e),
+            }
+        };
+        while let Ok(e) = rx.try_recv() {
+            on_event(e);
+        }
+        results.extend(done);
+        results
     }
 
     pub fn set_rules(&mut self, rules: Rules) {
@@ -166,7 +279,7 @@ impl Agent {
         force: bool,
         on_event: &mut (dyn FnMut(AgentEvent) + Send),
     ) -> Result<bool> {
-        let specs = self.tools.specs();
+        let specs = self.all_specs();
         let budget = self.budget();
         let stage = if force {
             Stage::NeedsSummary
@@ -197,7 +310,8 @@ impl Agent {
             StreamEvent::Waiting { seconds } => on_event(AgentEvent::Waiting(seconds)),
             StreamEvent::TextDelta(_) => {}
         };
-        let summary = match self.router.complete(&request, &[], &mut quiet).await {
+        let mut summarizer = self.router.share().preferring(&self.summary_prefer);
+        let summary = match summarizer.complete(&request, &[], &mut quiet).await {
             Ok(c) => c.message.content.unwrap_or_default(),
             Err(_) => String::new(),
         };
@@ -282,8 +396,17 @@ impl Agent {
         self.session.messages.push(Message::user(user_text));
         self.save();
 
-        let specs = self.tools.specs();
+        let specs = self.all_specs();
         let mut summary = TurnSummary::default();
+        // Loop guard: free models sometimes forget a result and repeat the exact
+        // same call; refuse the third identical call and stop if it keeps happening.
+        let mut repeats: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        let mut refused_repeats = 0usize;
+        let mut stuck = false;
+        let mut web_calls = 0usize;
+        // Steps before the end at which the model is told to wrap up.
+        let warn_at = if self.max_steps > 8 { self.max_steps - 4 } else { usize::MAX };
 
         loop {
             if summary.steps >= self.max_steps {
@@ -295,6 +418,19 @@ impl Agent {
                 break;
             }
             summary.steps += 1;
+            let last_step = summary.steps == self.max_steps;
+            if summary.steps == warn_at {
+                self.session.messages.push(Message::user(format!(
+                    "[Oblivion] Only {} steps are left for this request. Stop gathering information. \
+                     Finish any file you are writing, then give your final answer with what you already have.",
+                    self.max_steps - warn_at + 1
+                )));
+            } else if last_step {
+                self.session.messages.push(Message::user(
+                    "[Oblivion] This is the last step: tools are switched off. Write your final answer now from \
+                     what you have gathered, and say briefly what is still missing.",
+                ));
+            }
             self.compact(false, on_event).await?;
 
             let completion = {
@@ -305,9 +441,24 @@ impl Agent {
                     }
                     StreamEvent::Waiting { seconds } => on_event(AgentEvent::Waiting(seconds)),
                 };
-                self.router
-                    .complete(&self.session.messages, &specs, &mut forward)
-                    .await?
+                let tools: &[ToolSpec] = if last_step { &[] } else { &specs };
+                match self
+                    .router
+                    .complete(&self.session.messages, tools, &mut forward)
+                    .await
+                {
+                    Ok(c) => c,
+                    Err(e) if last_step => {
+                        summary.hit_step_limit = true;
+                        on_event(AgentEvent::Notice(format!(
+                            "Stopped after {} steps (agent.max_steps); the final summary request failed: {e}. \
+                             Say \"continue\" to keep going.",
+                            self.max_steps
+                        )));
+                        break;
+                    }
+                    Err(e) => return Err(e.into()),
+                }
             };
             if completion.message.content.is_some() {
                 on_event(AgentEvent::TextEnd);
@@ -336,9 +487,38 @@ impl Agent {
             if calls.is_empty() {
                 break;
             }
+            if last_step {
+                // Some models still emit tool calls; answer them so the history stays valid.
+                for call in &calls {
+                    self.session.messages.push(Message::tool_result(
+                        &call.id,
+                        "Not run: the step limit for this request was reached.",
+                    ));
+                }
+                summary.hit_step_limit = true;
+                on_event(AgentEvent::Notice(format!(
+                    "Stopped after {} steps (agent.max_steps). Say \"continue\" to keep going.",
+                    self.max_steps
+                )));
+                break;
+            }
+
+            let mut task_results = self.run_tasks(&calls, on_event).await;
 
             for call in calls {
                 summary.tool_calls += 1;
+                if let Some(text) = task_results.remove(&call.id) {
+                    on_event(AgentEvent::ToolEnd {
+                        name: "task".into(),
+                        preview: first_lines(&text, 2),
+                        is_error: text.starts_with("Error:"),
+                    });
+                    self.session
+                        .messages
+                        .push(Message::tool_result(&call.id, text));
+                    self.save();
+                    continue;
+                }
                 let name = call.function.name.clone();
                 let args: Value = match serde_json::from_str(&call.function.arguments) {
                     Ok(v @ Value::Object(_)) => v,
@@ -359,6 +539,48 @@ impl Agent {
                         continue;
                     }
                 };
+
+                if name == "web_search" || name == "web_fetch" {
+                    web_calls += 1;
+                    if web_calls > self.max_web_calls {
+                        on_event(AgentEvent::Notice(format!(
+                            "  ⊘ skipped {name}: web budget for this request used ({} calls)",
+                            self.max_web_calls
+                        )));
+                        self.session.messages.push(Message::tool_result(
+                            &call.id,
+                            format!(
+                                "Error: the web budget for this request ({} searches/fetches) is used up. Do not search \
+                                 or fetch again. Write your answer now from the pages you already have, cite them, \
+                                 and list what is still unknown.",
+                                self.max_web_calls
+                            ),
+                        ));
+                        continue;
+                    }
+                }
+                if name != "todo" {
+                    let n = repeats.entry(repeat_key(&name, &args)).or_insert(0);
+                    *n += 1;
+                    if *n >= 3 {
+                        refused_repeats += 1;
+                        stuck = refused_repeats >= 3;
+                        on_event(AgentEvent::Notice(format!(
+                            "  ↺ skipped a repeated {name} call (same arguments {} times)",
+                            *n
+                        )));
+                        self.session.messages.push(Message::tool_result(
+                            &call.id,
+                            format!(
+                                "Error: you already made this exact {name} call {} times in this request and its result has not \
+                                 changed. Do not repeat it. Use the earlier result, try a different approach, or give your final \
+                                 answer now with what you have.",
+                                *n - 1
+                            ),
+                        ));
+                        continue;
+                    }
+                }
 
                 let risk = self.tools.risk(&name, &args);
                 let label = match &risk {
@@ -408,13 +630,43 @@ impl Agent {
                     preview: first_lines(&out.text, 3),
                     is_error: out.is_error,
                 });
+                // Keep any single result to about a quarter of the request budget, so
+                // one big web page or log cannot crowd out the rest of the conversation.
+                let cap = (self.budget()).max(2_000);
+                let text = oblivion_tools::truncate_middle(&out.text, cap);
                 self.session
                     .messages
-                    .push(Message::tool_result(&call.id, out.text));
+                    .push(Message::tool_result(&call.id, text));
                 self.save();
+            }
+            if stuck {
+                on_event(AgentEvent::Notice(
+                    "Stopped: the model kept repeating the same actions. Try rephrasing the request, \
+                     adding another provider (more context), or /compact."
+                        .into(),
+                ));
+                break;
             }
         }
         Ok(summary)
+    }
+}
+
+/// Key for the repeat guard. URLs that differ only in query string, fragment or a
+/// trailing slash count as the same page; search queries ignore case and spacing.
+fn repeat_key(name: &str, args: &Value) -> String {
+    let get = |k: &str| args.get(k).and_then(Value::as_str).unwrap_or("").trim();
+    match name {
+        "web_fetch" => {
+            let url = get("url");
+            let base = url.split(['?', '#']).next().unwrap_or(url);
+            format!("web_fetch:{}", base.trim_end_matches('/').to_lowercase())
+        }
+        "web_search" => format!(
+            "web_search:{}",
+            get("query").to_lowercase().split_whitespace().collect::<Vec<_>>().join(" ")
+        ),
+        _ => format!("{name}:{args}"),
     }
 }
 
@@ -431,6 +683,7 @@ fn describe(name: &str, args: &Value) -> String {
         "grep" => format!("search /{}/", get("pattern")),
         "web_search" => format!("search the web: {}", get("query")),
         "todo" => "update task list".into(),
+        "task" => format!("start sub-agent: {}", get("description")),
         "skill" => format!("load skill {}", get("name")),
         "mcp" => format!("list tools on {}", get("server")),
         _ => name.to_string(),

@@ -396,3 +396,224 @@ async fn waits_out_a_short_rate_limit_instead_of_failing() {
         Some("done")
     );
 }
+
+/// A fake provider that answers by looking at each request, and serves
+/// connections concurrently (needed for parallel sub-agents). Tracks the most
+/// sub-agent requests in flight at once.
+async fn smart_server() -> (String, Arc<std::sync::atomic::AtomicUsize>) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let in_flight = Arc::new(AtomicUsize::new(0));
+    let max_seen = Arc::new(AtomicUsize::new(0));
+    let max_out = max_seen.clone();
+    tokio::spawn(async move {
+        loop {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let in_flight = in_flight.clone();
+            let max_seen = max_seen.clone();
+            tokio::spawn(async move {
+                let mut buf = Vec::new();
+                let mut tmp = [0u8; 8192];
+                let (head_end, len) = loop {
+                    let n = sock.read(&mut tmp).await.unwrap();
+                    buf.extend_from_slice(&tmp[..n]);
+                    if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let head = String::from_utf8_lossy(&buf[..pos]).to_ascii_lowercase();
+                        let len = head
+                            .lines()
+                            .find_map(|l| {
+                                l.strip_prefix("content-length:")
+                                    .map(|v| v.trim().parse::<usize>().unwrap())
+                            })
+                            .unwrap_or(0);
+                        break (pos + 4, len);
+                    }
+                };
+                while buf.len() < head_end + len {
+                    let n = sock.read(&mut tmp).await.unwrap();
+                    buf.extend_from_slice(&tmp[..n]);
+                }
+                let req: serde_json::Value =
+                    serde_json::from_slice(&buf[head_end..head_end + len]).unwrap();
+                let msgs = req["messages"].as_array().unwrap();
+                let system = msgs[0]["content"].as_str().unwrap_or("");
+                let has_tool_results = msgs.iter().any(|m| m["role"] == "tool");
+                let body = if system.contains("You are a sub-agent") {
+                    let now = in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+                    max_seen.fetch_max(now, Ordering::SeqCst);
+                    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+                    in_flight.fetch_sub(1, Ordering::SeqCst);
+                    if !has_tool_results {
+                        // A sub-agent trying to write must be refused.
+                        sse(&[
+                            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"w","function":{"name":"write_file","arguments":"{\"path\":\"hacked.txt\",\"content\":\"x\"}"}}]},"finish_reason":"tool_calls"}]}"#,
+                        ])
+                    } else {
+                        let job = msgs.iter().find(|m| m["role"] == "user").unwrap()["content"]
+                            .as_str()
+                            .unwrap()
+                            .to_string();
+                        let text = serde_json::to_string(&format!("REPORT for {job}")).unwrap();
+                        sse(&[&format!(
+                            r#"{{"choices":[{{"delta":{{"content":{text}}},"finish_reason":"stop"}}]}}"#
+                        )])
+                    }
+                } else if msgs.last().unwrap()["role"] == "user" {
+                    sse(&[
+                        r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"t1","function":{"name":"task","arguments":"{\"description\":\"alpha\",\"prompt\":\"alpha job\"}"}},{"index":1,"id":"t2","function":{"name":"task","arguments":"{\"description\":\"beta\",\"prompt\":\"beta job\"}"}}]},"finish_reason":"tool_calls"}]}"#,
+                    ])
+                } else {
+                    sse(&[
+                        r#"{"choices":[{"delta":{"content":"combined"},"finish_reason":"stop"}]}"#,
+                    ])
+                };
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                sock.write_all(resp.as_bytes()).await.unwrap();
+                sock.shutdown().await.ok();
+            });
+        }
+    });
+    (format!("http://{addr}"), max_out)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn task_calls_run_read_only_subagents_in_parallel() {
+    use oblivion_core::SubagentFactory;
+    let (url, max_parallel) = smart_server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let router = Router::new(vec![target("p", &url)]);
+    let factory = SubagentFactory {
+        router: router.share(),
+        root: dir.path().to_path_buf(),
+        shell: Shell::Sh,
+        search: oblivion_tools::SearchBackend::DuckDuckGo,
+        skills: None,
+        read_roots: vec![],
+        base_prompt: "base".into(),
+        context_tokens: 24_000,
+        max_steps: 5,
+        rules: Rules::default(),
+        prefer: String::new(),
+    };
+    let tools = ToolBox::new(dir.path(), Shell::Sh, dir.path().join(".snap"));
+    let mut agent = Agent::new(
+        router,
+        tools,
+        Box::new(NeverAsked),
+        ApprovalMode::Ask,
+        5,
+        "main".into(),
+    );
+    agent.set_subagents(factory);
+
+    let mut events = Vec::new();
+    let mut sink = |e: AgentEvent| events.push(e);
+    agent
+        .run_turn("research two things", &mut sink)
+        .await
+        .unwrap();
+
+    // Both sub-agents ran at the same time.
+    assert_eq!(max_parallel.load(std::sync::atomic::Ordering::SeqCst), 2);
+    // Their write attempt was refused: read-only.
+    assert!(!dir.path().join("hacked.txt").exists());
+    // Each report came back as the matching tool result, in order.
+    let r1 = agent
+        .session
+        .messages
+        .iter()
+        .find(|m| m.tool_call_id.as_deref() == Some("t1"))
+        .unwrap();
+    let r2 = agent
+        .session
+        .messages
+        .iter()
+        .find(|m| m.tool_call_id.as_deref() == Some("t2"))
+        .unwrap();
+    assert!(
+        r1.content
+            .as_ref()
+            .unwrap()
+            .contains("REPORT for alpha job"),
+        "{:?}",
+        r1.content
+    );
+    assert!(
+        r2.content.as_ref().unwrap().contains("REPORT for beta job"),
+        "{:?}",
+        r2.content
+    );
+    assert_eq!(
+        agent.session.messages.last().unwrap().content.as_deref(),
+        Some("combined")
+    );
+    // Progress from sub-agents was forwarded, labelled.
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, AgentEvent::Sub { label, .. } if label == "beta")));
+    // The parent offers the task tool; nothing in the sub-agent list can write.
+    assert!(oblivion_core::subagent::SUBAGENT_TOOLS.iter().all(|t| ![
+        "write_file",
+        "edit_file",
+        "shell",
+        "mcp"
+    ]
+    .contains(t)));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn identical_repeated_calls_are_refused_then_the_turn_stops() {
+    let same = r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"r","function":{"name":"read_file","arguments":"{\"path\":\"a.txt\"}"}}]},"finish_reason":"tool_calls"}]}"#;
+    let script: Vec<(u16, String)> = (0..8).map(|_| (200, sse(&[same]))).collect();
+    let (url, seen) = fake_server(script).await;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "hello").unwrap();
+    let tools = ToolBox::new(dir.path(), Shell::Sh, dir.path().join(".snap"));
+    let mut agent = Agent::new(Router::new(vec![target("p", &url)]), tools, Box::new(AlwaysYes), ApprovalMode::Ask, 20, "s".into());
+    let mut events = Vec::new();
+    let mut sink = |e: AgentEvent| events.push(e);
+    agent.run_turn("loop please", &mut sink).await.unwrap();
+    // 2 real reads, then 3 refusals, then the turn stops (5 requests, not 20).
+    assert_eq!(seen.lock().unwrap().len(), 5);
+    let refused = agent.session.messages.iter().filter(|m| m.content.as_deref().is_some_and(|c| c.contains("exact read_file call"))).count();
+    assert_eq!(refused, 3);
+    assert!(events.iter().any(|e| matches!(e, AgentEvent::Notice(n) if n.starts_with("Stopped: the model kept repeating"))));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn web_calls_past_the_budget_are_refused() {
+    let search = r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"w","function":{"name":"web_search","arguments":"{\"query\":\"rust\"}"}}]},"finish_reason":"tool_calls"}]}"#;
+    let done = r#"{"choices":[{"delta":{"content":"answer"},"finish_reason":"stop"}]}"#;
+    let (url, seen) = fake_server(vec![(200, sse(&[search])), (200, sse(&[done]))]).await;
+    let dir = tempfile::tempdir().unwrap();
+    let tools = ToolBox::new(dir.path(), Shell::Sh, dir.path().join(".snap"));
+    let mut agent = Agent::new(Router::new(vec![target("p", &url)]), tools, Box::new(AlwaysYes), ApprovalMode::Ask, 20, "s".into());
+    agent.max_web_calls = 0;
+    let mut sink = |_e: AgentEvent| {};
+    agent.run_turn("research", &mut sink).await.unwrap();
+    assert_eq!(seen.lock().unwrap().len(), 2);
+    assert!(agent.session.messages.iter().any(|m| m.content.as_deref().is_some_and(|c| c.contains("web budget for this request"))));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_last_step_has_no_tools_and_asks_for_an_answer() {
+    let read = r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"r","function":{"name":"read_file","arguments":"{\"path\":\"a.txt\"}"}}]},"finish_reason":"tool_calls"}]}"#;
+    let done = r#"{"choices":[{"delta":{"content":"final answer"},"finish_reason":"stop"}]}"#;
+    let (url, seen) = fake_server(vec![(200, sse(&[read])), (200, sse(&[done]))]).await;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "hello").unwrap();
+    let tools = ToolBox::new(dir.path(), Shell::Sh, dir.path().join(".snap"));
+    let mut agent = Agent::new(Router::new(vec![target("p", &url)]), tools, Box::new(AlwaysYes), ApprovalMode::Ask, 2, "s".into());
+    let mut sink = |_e: AgentEvent| {};
+    let summary = agent.run_turn("go", &mut sink).await.unwrap();
+    let reqs = seen.lock().unwrap();
+    assert!(reqs[0].get("tools").is_some());
+    assert!(reqs[1].get("tools").is_none(), "last step must not offer tools");
+    assert!(reqs[1].to_string().contains("This is the last step"));
+    assert!(!summary.hit_step_limit);
+    assert_eq!(agent.session.messages.last().unwrap().content.as_deref(), Some("final answer"));
+}

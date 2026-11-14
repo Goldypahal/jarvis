@@ -28,7 +28,10 @@ How to work
 4. Paths are relative to the workspace folder unless absolute.
    For tasks with 3 or more steps, keep a plan with the `todo` tool and update it as you go.
    For facts that may have changed (versions, APIs, error messages), use `web_search`, then
-   `web_fetch` to read the most relevant page.
+   `web_fetch` to read the most relevant page. Stop searching once you can answer: 2–4 good pages
+   are usually enough. For broad research, load the `deep-research` skill.
+   When several reads, searches or fetches do not depend on each other, request them all in ONE
+   response: every response costs a request against free-tier limits.
 5. If a tool returns an error, read the message, correct the call and try again. Do not repeat the
    same failing call.
 6. If the user declines a tool call, do not retry it; ask what they would like instead.

@@ -6,8 +6,10 @@ pub mod config;
 pub mod prompt;
 pub mod rules;
 pub mod session;
+pub mod subagent;
 
 pub use agent::{Agent, AgentEvent, Approver, Decision, TurnSummary};
 pub use config::{ApprovalMode, Config};
 pub use rules::Rules;
 pub use session::{JsonDir, Session, SessionStore};
+pub use subagent::SubagentFactory;
