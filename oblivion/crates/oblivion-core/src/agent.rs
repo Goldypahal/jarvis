@@ -405,8 +405,15 @@ impl Agent {
         let mut refused_repeats = 0usize;
         let mut stuck = false;
         let mut web_calls = 0usize;
+        // Fingerprint of the latest browser page: clicking "Next" (same ref) on a
+        // new page is progress, not a repeat.
+        let mut page_hash = 0u64;
         // Steps before the end at which the model is told to wrap up.
-        let warn_at = if self.max_steps > 8 { self.max_steps - 4 } else { usize::MAX };
+        let warn_at = if self.max_steps > 8 {
+            self.max_steps - 4
+        } else {
+            usize::MAX
+        };
 
         loop {
             if summary.steps >= self.max_steps {
@@ -560,7 +567,11 @@ impl Agent {
                     }
                 }
                 if name != "todo" {
-                    let n = repeats.entry(repeat_key(&name, &args)).or_insert(0);
+                    let mut key = repeat_key(&name, &args);
+                    if name == "browser" {
+                        key.push_str(&format!("#{page_hash}"));
+                    }
+                    let n = repeats.entry(key).or_insert(0);
                     *n += 1;
                     if *n >= 3 {
                         refused_repeats += 1;
@@ -634,6 +645,13 @@ impl Agent {
                 // one big web page or log cannot crowd out the rest of the conversation.
                 let cap = (self.budget()).max(2_000);
                 let text = oblivion_tools::truncate_middle(&out.text, cap);
+                if is_page_view(&text) {
+                    self.forget_old_pages();
+                    use std::hash::{Hash, Hasher};
+                    let mut h = std::collections::hash_map::DefaultHasher::new();
+                    text.hash(&mut h);
+                    page_hash = h.finish();
+                }
                 self.session
                     .messages
                     .push(Message::tool_result(&call.id, text));
@@ -652,6 +670,26 @@ impl Agent {
     }
 }
 
+/// A browser page outline (many element refs). Only the latest one is useful.
+fn is_page_view(text: &str) -> bool {
+    text.matches("[ref=").count() >= 3
+}
+
+impl Agent {
+    /// Replace earlier page outlines with a stub: each browser action returns the
+    /// whole page, and old copies would fill a small free-tier request quickly.
+    fn forget_old_pages(&mut self) {
+        for m in self.session.messages.iter_mut() {
+            if m.role == Role::Tool && m.content.as_deref().is_some_and(is_page_view) {
+                m.content = Some(
+                    "[older page view removed to save space; the newest page view is further down]"
+                        .into(),
+                );
+            }
+        }
+    }
+}
+
 /// Key for the repeat guard. URLs that differ only in query string, fragment or a
 /// trailing slash count as the same page; search queries ignore case and spacing.
 fn repeat_key(name: &str, args: &Value) -> String {
@@ -664,7 +702,11 @@ fn repeat_key(name: &str, args: &Value) -> String {
         }
         "web_search" => format!(
             "web_search:{}",
-            get("query").to_lowercase().split_whitespace().collect::<Vec<_>>().join(" ")
+            get("query")
+                .to_lowercase()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
         ),
         _ => format!("{name}:{args}"),
     }
@@ -685,6 +727,14 @@ fn describe(name: &str, args: &Value) -> String {
         "todo" => "update task list".into(),
         "task" => format!("start sub-agent: {}", get("description")),
         "skill" => format!("load skill {}", get("name")),
+        "browser" => match get("action").as_str() {
+            "open" => format!("browser: open {}", get("url")),
+            "type" => format!("browser: type into {}", get("ref")),
+            "find" => format!("browser: find \"{}\"", get("text")),
+            "press" => format!("browser: press {}", get("key")),
+            a @ ("click" | "select") => format!("browser: {a} {}", get("ref")),
+            a => format!("browser: {a}"),
+        },
         "mcp" => format!("list tools on {}", get("server")),
         _ => name.to_string(),
     }

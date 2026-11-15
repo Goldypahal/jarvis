@@ -22,6 +22,9 @@ use rmcp::{RoleClient, ServiceExt};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 
+mod browser;
+pub use browser::{BrowserMode, BrowserSettings, BrowserTool};
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Transport {
     Stdio {
@@ -225,7 +228,35 @@ impl McpHub {
         Ok(out)
     }
 
+    /// Argument names a server's tool accepts (empty if the tool does not exist).
+    pub async fn tool_params(&self, server: &str, tool: &str) -> Result<Vec<String>, String> {
+        let tools = self
+            .with_client(server, |peer| async move {
+                peer.list_all_tools().await.map_err(|e| e.to_string())
+            })
+            .await?;
+        Ok(tools
+            .iter()
+            .find(|t| t.name == tool)
+            .and_then(|t| t.input_schema.get("properties"))
+            .and_then(Value::as_object)
+            .map(|p| p.keys().cloned().collect())
+            .unwrap_or_default())
+    }
+
     pub async fn call(&self, server: &str, tool: &str, arguments: Value) -> Result<String, String> {
+        self.call_limited(server, tool, arguments, MAX_RESULT_CHARS)
+            .await
+    }
+
+    /// Like [`call`](Self::call), with a custom cap on the result text.
+    pub async fn call_limited(
+        &self,
+        server: &str,
+        tool: &str,
+        arguments: Value,
+        max_chars: usize,
+    ) -> Result<String, String> {
         let args = match arguments {
             Value::Object(m) => Some(m),
             Value::Null => None,
@@ -240,7 +271,7 @@ impl McpHub {
             })
             .await?;
         let v = serde_json::to_value(&result).map_err(|e| e.to_string())?;
-        let text = result_text(&v);
+        let text = result_text_max(&v, max_chars);
         if v.get("isError").and_then(Value::as_bool).unwrap_or(false) {
             return Err(format!("{server}.{tool} reported an error: {text}"));
         }
@@ -260,6 +291,10 @@ impl McpHub {
 /// Text from an MCP tool result: text blocks verbatim, other blocks summarized,
 /// structured content as JSON when there is no text.
 pub fn result_text(v: &Value) -> String {
+    result_text_max(v, MAX_RESULT_CHARS)
+}
+
+fn result_text_max(v: &Value, max_chars: usize) -> String {
     let mut parts = Vec::new();
     for block in v
         .get("content")
@@ -297,8 +332,8 @@ pub fn result_text(v: &Value) -> String {
         }
     }
     let text = parts.join("\n");
-    if text.chars().count() > MAX_RESULT_CHARS {
-        let cut: String = text.chars().take(MAX_RESULT_CHARS).collect();
+    if text.chars().count() > max_chars {
+        let cut: String = text.chars().take(max_chars).collect();
         format!("{cut}\n[... result truncated]")
     } else if text.is_empty() {
         "(no output)".into()

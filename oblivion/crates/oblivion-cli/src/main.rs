@@ -11,8 +11,8 @@ use anyhow::{bail, Context, Result};
 use clap::Parser;
 use oblivion_core::config::{self, Config, DEFAULT_CONFIG};
 use oblivion_core::{prompt, Agent, AgentEvent, ApprovalMode, Approver, Decision, Rules};
-use oblivion_mcp::McpHub;
-use oblivion_providers::{Router, UsageLedger};
+use oblivion_mcp::{BrowserMode, BrowserSettings, BrowserTool, McpHub};
+use oblivion_providers::{Router, Target, UsageLedger};
 use oblivion_skills::{GithubSource, SkillSet, SkillSource};
 use oblivion_store::Store;
 use oblivion_tools::{normalize_path, SearchBackend, Shell, TodoList, ToolBox};
@@ -87,6 +87,11 @@ struct Cli {
     /// Connect to each configured MCP server and list its tools, then exit.
     #[arg(long)]
     mcp: bool,
+
+    /// Turn on the web browser tool and test it, then exit. MODE is "own" (a separate
+    /// browser window that keeps its own logins; default) or "extension" (your Chrome tabs).
+    #[arg(long, value_name = "MODE", num_args = 0..=1, default_missing_value = "own")]
+    setup_browser: Option<String>,
 }
 
 mod style {
@@ -348,6 +353,9 @@ async fn run() -> Result<()> {
         return Ok(());
     }
 
+    if let Some(mode) = &cli.setup_browser {
+        return setup_browser(&config_path, mode.trim(), &home).await;
+    }
     let cfg = Config::load(&config_path)?;
     cfg.validate()?;
     let (targets, skipped) = cfg.targets(&keys::for_provider);
@@ -508,10 +516,20 @@ async fn run() -> Result<()> {
         return Ok(());
     }
 
+    let browser = cfg
+        .browser
+        .enabled
+        .then(|| Arc::new(BrowserTool::new(&browser_settings(&cfg.browser, &home))));
+
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
     let sections = [
         skills.prompt_listing(cfg.skills.prompt_chars),
         hub.prompt_listing(),
+        if browser.is_some() {
+            BROWSER_PROMPT.to_string()
+        } else {
+            String::new()
+        },
     ];
     let system = prompt::build(&root, shell, &today, &sections);
     // Sub-agents get the same environment and skills, but no MCP list (they cannot use MCP).
@@ -531,6 +549,9 @@ async fn run() -> Result<()> {
         }
         if !hub.is_empty() {
             tools.add_provider(hub.clone());
+        }
+        if let Some(b) = &browser {
+            tools.add_provider(b.clone());
         }
         Agent::new(
             router,
@@ -600,6 +621,9 @@ async fn run() -> Result<()> {
         }
         run_one(&mut agent, &task, &in_turn, &cancel).await;
         hub.shutdown().await;
+        if let Some(b) = &browser {
+            b.shutdown().await;
+        }
         return Ok(());
     }
 
@@ -633,7 +657,146 @@ async fn run() -> Result<()> {
         run_one(&mut agent, input, &in_turn, &cancel).await;
     }
     hub.shutdown().await;
+    if let Some(b) = &browser {
+        b.shutdown().await;
+    }
     Ok(())
+}
+
+const BROWSER_PROMPT: &str = "Web browser\nUse the `browser` tool for work on websites: logging in, clicking through \
+pages, filling in forms, reading pages that need JavaScript or a login. For anything longer than a couple of \
+steps, load the `browser` skill first. To simply look something up, web_search and web_fetch are faster and cheaper.\n";
+
+fn browser_settings(b: &config::BrowserSection, home: &std::path::Path) -> BrowserSettings {
+    BrowserSettings {
+        mode: if b.mode == "extension" {
+            BrowserMode::Extension
+        } else {
+            BrowserMode::Own
+        },
+        browser: b.browser.clone(),
+        headless: b.headless,
+        profile_dir: Some(home.join("browser-profile")),
+        command: b.command.clone(),
+        package: b.package.clone(),
+        timeout: std::time::Duration::from_secs(b.timeout_secs),
+    }
+}
+
+/// Run a program and return the first line of its output, if it ran.
+fn program_version(program: &str) -> Option<String> {
+    let out = if cfg!(windows) {
+        std::process::Command::new("cmd")
+            .args(["/C", program, "--version"])
+            .output()
+    } else {
+        std::process::Command::new(program)
+            .arg("--version")
+            .output()
+    }
+    .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .next()
+        .map(|l| l.trim().to_string())
+}
+
+/// `oblivion --setup-browser [own|extension]`: check Node.js, switch the browser on
+/// in the config file, start it once and show what the agent sees.
+async fn setup_browser(config_path: &PathBuf, mode: &str, home: &std::path::Path) -> Result<()> {
+    if !matches!(mode, "own" | "extension") {
+        bail!("--setup-browser takes \"own\" (default) or \"extension\", not \"{mode}\"");
+    }
+    println!("{BOLD}Browser setup{RESET} ({mode} mode)");
+    match program_version("node") {
+        Some(v) => println!("  {GREEN}✓{RESET} Node.js {v}"),
+        None => {
+            println!(
+                "  {RED}✗ Node.js was not found.{RESET} Install the LTS version from https://nodejs.org, \
+                 open a NEW terminal, and run `oblivion --setup-browser` again."
+            );
+            return Ok(());
+        }
+    }
+    if program_version("npx").is_none() {
+        println!("  {RED}✗ npx was not found{RESET} (it comes with Node.js). Reinstall Node.js, open a new terminal and retry.");
+        return Ok(());
+    }
+
+    if !config_path.exists() {
+        init_config(config_path)?;
+    }
+    let text = std::fs::read_to_string(config_path)
+        .with_context(|| format!("reading {}", config_path.display()))?;
+    let updated = config::enable_browser_in(&text, mode);
+    let cfg = Config::parse(&updated)?;
+    cfg.validate()?;
+    if updated != text {
+        std::fs::write(config_path, &updated)?;
+        println!(
+            "  {GREEN}✓{RESET} [browser] turned on in {}",
+            config_path.display()
+        );
+    } else {
+        println!(
+            "  {GREEN}✓{RESET} [browser] already on in {}",
+            config_path.display()
+        );
+    }
+
+    if mode == "extension" {
+        println!(
+            "  {YELLOW}!{RESET} Install the \"Playwright MCP Bridge\" extension in Chrome or Edge:\n    \
+             https://chromewebstore.google.com/detail/playwright-mcp-bridge/mmlmfjhmonkocbjadbfplnigmagldckm\n    \
+             When Oblivion connects, the browser shows a page asking which tab to share: approve it."
+        );
+    }
+
+    println!(
+        "  {DIM}Starting the browser and opening example.com (the first run downloads Playwright MCP; \
+         this can take a minute)…{RESET}"
+    );
+    let browser = BrowserTool::new(&browser_settings(&cfg.browser, home));
+    let result = browser.try_open("https://example.com").await;
+    browser.shutdown().await;
+    match result {
+        Ok(page) => {
+            println!("  {GREEN}✓{RESET} The browser works. The agent sees pages like this:");
+            for l in page.lines().take(12) {
+                println!("    {DIM}{l}{RESET}");
+            }
+        }
+        Err(e) => {
+            println!("  {RED}✗ The browser did not start:{RESET} {e}");
+            println!(
+                "    If it says a browser is missing, run: npx playwright install chrome\n    \
+                 (or set browser = \"msedge\" under [browser] to use Edge, which Windows already has)."
+            );
+            return Ok(());
+        }
+    }
+
+    // Page views are a few thousand tokens; Groq's free tier allows ~7K per request.
+    let (targets, _) = cfg.targets(&keys::for_provider);
+    if !targets.iter().any(roomy) {
+        println!(
+            "  {YELLOW}!{RESET} All your models have small request limits (Groq free tier: about 7K tokens), \
+             and web pages are large.\n    Add a model with a big context so browser tasks work well, e.g. Gemini \
+             (free key at https://aistudio.google.com/apikey):\n    oblivion --set-key gemini"
+        );
+    }
+    println!(
+        "Done. Start `oblivion` and ask, e.g.: open example.com and tell me what the page says"
+    );
+    Ok(())
+}
+
+/// Can this model take a request with a whole web page in it?
+fn roomy(t: &Target) -> bool {
+    t.max_input_tokens.is_none_or(|m| m >= 16_000)
 }
 
 fn dirs_home() -> Option<PathBuf> {

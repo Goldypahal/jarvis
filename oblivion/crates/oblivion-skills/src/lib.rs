@@ -253,12 +253,16 @@ Available skills:\n";
         for limit in [400usize, 250, 160, 100, 60] {
             let mut out = String::from(header);
             for s in self.skills.values() {
-                let d: String = s.description.chars().take(limit).collect();
-                let ell = if s.description.chars().count() > limit {
-                    "…"
-                } else {
-                    ""
-                };
+                let cut = s.description.chars().count() > limit;
+                let mut d: String = s.description.chars().take(limit).collect();
+                if cut {
+                    // End on a whole word so the meaning survives the cut.
+                    if let Some(i) = d.rfind(' ') {
+                        d.truncate(i);
+                    }
+                    d = d.trim_end_matches([',', ';', ':', '-', ' ']).to_string();
+                }
+                let ell = if cut { "…" } else { "" };
                 out.push_str(&format!("- {}: {d}{ell}\n", s.name));
             }
             if out.len() <= max_chars {

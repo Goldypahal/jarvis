@@ -110,7 +110,7 @@ subagent_max_steps = 25
 # ~/.codex/skills and the project's .agents/skills (Claude and Codex skills work as-is).
 [skills]
 enabled = true
-prompt_chars = 2500     # space for the skill list in every request (names + descriptions)
+prompt_chars = 3200     # space for the skill list in every request (names + descriptions)
 
 # Local models through Ollama (offline, private, no daily limits). Install from
 # https://ollama.com, run `ollama pull qwen3.5:9b`, then set enabled = true.
@@ -236,7 +236,7 @@ impl Default for SkillSettings {
 }
 
 fn default_skill_chars() -> usize {
-    2500
+    3200
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -337,6 +337,121 @@ pub struct Config {
     pub routing: RoutingSettings,
     #[serde(default)]
     pub mcp_servers: Vec<McpServerEntry>,
+    #[serde(default)]
+    pub browser: BrowserSection,
+}
+
+/// `[browser]`: a real web browser through Playwright MCP (needs Node.js).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrowserSection {
+    #[serde(default)]
+    pub enabled: bool,
+    /// "own": a separate browser window with its own saved logins.
+    /// "extension": your Chrome/Edge tabs via the Playwright MCP Bridge extension.
+    #[serde(default = "default_browser_mode")]
+    pub mode: String,
+    /// chrome (default), msedge, firefox, webkit
+    #[serde(default)]
+    pub browser: Option<String>,
+    #[serde(default)]
+    pub headless: bool,
+    #[serde(default = "default_browser_command")]
+    pub command: String,
+    #[serde(default = "default_browser_package")]
+    pub package: String,
+    #[serde(default = "default_browser_timeout")]
+    pub timeout_secs: u64,
+}
+
+impl Default for BrowserSection {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            mode: default_browser_mode(),
+            browser: None,
+            headless: false,
+            command: default_browser_command(),
+            package: default_browser_package(),
+            timeout_secs: default_browser_timeout(),
+        }
+    }
+}
+
+/// Turn the browser on in a config file's text: edit an existing `[browser]`
+/// section in place (keeping comments), or append a new one.
+pub fn enable_browser_in(text: &str, mode: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let Some(start) = lines.iter().position(|l| l.trim() == "[browser]") else {
+        let mut out = text.trim_end().to_string();
+        out.push('\n');
+        out.push_str(&browser_config_block(mode));
+        return out;
+    };
+    let end = lines[start + 1..]
+        .iter()
+        .position(|l| l.trim_start().starts_with('['))
+        .map(|i| start + 1 + i)
+        .unwrap_or(lines.len());
+    let key_of = |l: &str| l.split('=').next().unwrap_or("").trim().to_string();
+    let mut out: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
+    let mut have_enabled = false;
+    let mut have_mode = false;
+    for line in out.iter_mut().take(end).skip(start + 1) {
+        match key_of(line).as_str() {
+            "enabled" => {
+                *line = "enabled = true".into();
+                have_enabled = true;
+            }
+            "mode" => {
+                *line = format!("mode = \"{mode}\"");
+                have_mode = true;
+            }
+            _ => {}
+        }
+    }
+    let mut insert = Vec::new();
+    if !have_enabled {
+        insert.push("enabled = true".to_string());
+    }
+    if !have_mode {
+        insert.push(format!("mode = \"{mode}\""));
+    }
+    for (i, l) in insert.into_iter().enumerate() {
+        out.insert(start + 1 + i, l);
+    }
+    let mut joined = out.join("\n");
+    joined.push('\n');
+    joined
+}
+
+fn default_browser_mode() -> String {
+    "own".into()
+}
+fn default_browser_command() -> String {
+    "npx".into()
+}
+fn default_browser_package() -> String {
+    "@playwright/mcp@latest".into()
+}
+fn default_browser_timeout() -> u64 {
+    90
+}
+
+/// The `[browser]` block `oblivion --setup-browser` adds to the config file.
+pub fn browser_config_block(mode: &str) -> String {
+    format!(
+        r#"
+# Web browser for the agent (Playwright MCP; needs Node.js). Set up with `oblivion --setup-browser`.
+# mode "own": a separate browser window with its own saved logins (log in once, it remembers).
+# mode "extension": your normal Chrome/Edge tabs; install the "Playwright MCP Bridge" extension.
+# Clicking anything that submits, sends, pays or deletes always asks you first.
+[browser]
+enabled = true
+mode = "{mode}"
+# browser = "msedge"   # chrome (default) | msedge | firefox
+# headless = false     # true = no visible window (own mode only)
+"#
+    )
 }
 
 /// Why a provider was left out, for `oblivion --models`.
@@ -419,6 +534,12 @@ impl Config {
     pub fn validate(&self) -> Result<()> {
         if self.agent.max_steps == 0 {
             bail!("agent.max_steps must be at least 1");
+        }
+        if !matches!(self.browser.mode.as_str(), "own" | "extension") {
+            bail!(
+                "[browser] mode must be \"own\" or \"extension\", not \"{}\"",
+                self.browser.mode
+            );
         }
         for m in &self.mcp_servers {
             match (&m.command, &m.url) {
@@ -514,5 +635,29 @@ models = ["openai/gpt-oss-120b"]
         assert!(c.permissions.allow.is_empty());
         let (t, _) = c.targets(&|_| Some("k".into()));
         assert_eq!(t[0].max_input_tokens, Some(7000));
+    }
+
+    #[test]
+    fn browser_section_is_added_or_edited_in_place() {
+        let base = "[agent]\nmax_steps = 50\n";
+        let added = enable_browser_in(base, "own");
+        let cfg = Config::parse(&added).unwrap();
+        assert!(cfg.browser.enabled);
+        assert_eq!(cfg.browser.mode, "own");
+        assert_eq!(cfg.agent.max_steps, 50);
+
+        let existing = "[browser]\n# keep me\nenabled = false\nbrowser = \"msedge\"\n\n[skills]\nenabled = true\n";
+        let edited = enable_browser_in(existing, "extension");
+        assert!(edited.contains("# keep me"));
+        let cfg = Config::parse(&edited).unwrap();
+        assert!(cfg.browser.enabled);
+        assert_eq!(cfg.browser.mode, "extension");
+        assert_eq!(cfg.browser.browser.as_deref(), Some("msedge"));
+        assert!(cfg.skills.enabled);
+        assert!(!Config::parse("").unwrap().browser.enabled);
+        assert!(Config::parse("[browser]\nmode = \"chrome\"\n")
+            .unwrap()
+            .validate()
+            .is_err());
     }
 }

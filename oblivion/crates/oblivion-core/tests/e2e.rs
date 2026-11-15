@@ -573,15 +573,33 @@ async fn identical_repeated_calls_are_refused_then_the_turn_stops() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("a.txt"), "hello").unwrap();
     let tools = ToolBox::new(dir.path(), Shell::Sh, dir.path().join(".snap"));
-    let mut agent = Agent::new(Router::new(vec![target("p", &url)]), tools, Box::new(AlwaysYes), ApprovalMode::Ask, 20, "s".into());
+    let mut agent = Agent::new(
+        Router::new(vec![target("p", &url)]),
+        tools,
+        Box::new(AlwaysYes),
+        ApprovalMode::Ask,
+        20,
+        "s".into(),
+    );
     let mut events = Vec::new();
     let mut sink = |e: AgentEvent| events.push(e);
     agent.run_turn("loop please", &mut sink).await.unwrap();
     // 2 real reads, then 3 refusals, then the turn stops (5 requests, not 20).
     assert_eq!(seen.lock().unwrap().len(), 5);
-    let refused = agent.session.messages.iter().filter(|m| m.content.as_deref().is_some_and(|c| c.contains("exact read_file call"))).count();
+    let refused = agent
+        .session
+        .messages
+        .iter()
+        .filter(|m| {
+            m.content
+                .as_deref()
+                .is_some_and(|c| c.contains("exact read_file call"))
+        })
+        .count();
     assert_eq!(refused, 3);
-    assert!(events.iter().any(|e| matches!(e, AgentEvent::Notice(n) if n.starts_with("Stopped: the model kept repeating"))));
+    assert!(events.iter().any(
+        |e| matches!(e, AgentEvent::Notice(n) if n.starts_with("Stopped: the model kept repeating"))
+    ));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -591,12 +609,22 @@ async fn web_calls_past_the_budget_are_refused() {
     let (url, seen) = fake_server(vec![(200, sse(&[search])), (200, sse(&[done]))]).await;
     let dir = tempfile::tempdir().unwrap();
     let tools = ToolBox::new(dir.path(), Shell::Sh, dir.path().join(".snap"));
-    let mut agent = Agent::new(Router::new(vec![target("p", &url)]), tools, Box::new(AlwaysYes), ApprovalMode::Ask, 20, "s".into());
+    let mut agent = Agent::new(
+        Router::new(vec![target("p", &url)]),
+        tools,
+        Box::new(AlwaysYes),
+        ApprovalMode::Ask,
+        20,
+        "s".into(),
+    );
     agent.max_web_calls = 0;
     let mut sink = |_e: AgentEvent| {};
     agent.run_turn("research", &mut sink).await.unwrap();
     assert_eq!(seen.lock().unwrap().len(), 2);
-    assert!(agent.session.messages.iter().any(|m| m.content.as_deref().is_some_and(|c| c.contains("web budget for this request"))));
+    assert!(agent.session.messages.iter().any(|m| m
+        .content
+        .as_deref()
+        .is_some_and(|c| c.contains("web budget for this request"))));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -607,13 +635,74 @@ async fn the_last_step_has_no_tools_and_asks_for_an_answer() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("a.txt"), "hello").unwrap();
     let tools = ToolBox::new(dir.path(), Shell::Sh, dir.path().join(".snap"));
-    let mut agent = Agent::new(Router::new(vec![target("p", &url)]), tools, Box::new(AlwaysYes), ApprovalMode::Ask, 2, "s".into());
+    let mut agent = Agent::new(
+        Router::new(vec![target("p", &url)]),
+        tools,
+        Box::new(AlwaysYes),
+        ApprovalMode::Ask,
+        2,
+        "s".into(),
+    );
     let mut sink = |_e: AgentEvent| {};
     let summary = agent.run_turn("go", &mut sink).await.unwrap();
     let reqs = seen.lock().unwrap();
     assert!(reqs[0].get("tools").is_some());
-    assert!(reqs[1].get("tools").is_none(), "last step must not offer tools");
+    assert!(
+        reqs[1].get("tools").is_none(),
+        "last step must not offer tools"
+    );
     assert!(reqs[1].to_string().contains("This is the last step"));
     assert!(!summary.hit_step_limit);
-    assert_eq!(agent.session.messages.last().unwrap().content.as_deref(), Some("final answer"));
+    assert_eq!(
+        agent.session.messages.last().unwrap().content.as_deref(),
+        Some("final answer")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn only_the_newest_page_view_is_kept() {
+    let read = |id: &str, path: &str| {
+        format!(
+            r#"{{"choices":[{{"delta":{{"tool_calls":[{{"index":0,"id":"{id}","function":{{"name":"read_file","arguments":"{{\"path\":\"{path}\"}}"}}}}]}},"finish_reason":"tool_calls"}}]}}"#
+        )
+    };
+    let done = r#"{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}"#;
+    let (url, _seen) = fake_server(vec![
+        (200, sse(&[&read("1", "p1.txt")])),
+        (200, sse(&[&read("2", "p2.txt")])),
+        (200, sse(&[done])),
+    ])
+    .await;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("p1.txt"),
+        "- button \"A\" [ref=e1]\n- link [ref=e2]\n- radio [ref=e3]\nFIRST",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("p2.txt"),
+        "- button \"B\" [ref=e4]\n- link [ref=e5]\n- radio [ref=e6]\nSECOND",
+    )
+    .unwrap();
+    let tools = ToolBox::new(dir.path(), Shell::Sh, dir.path().join(".snap"));
+    let mut agent = Agent::new(
+        Router::new(vec![target("p", &url)]),
+        tools,
+        Box::new(AlwaysYes),
+        ApprovalMode::Ask,
+        20,
+        "s".into(),
+    );
+    let mut sink = |_e: AgentEvent| {};
+    agent.run_turn("browse", &mut sink).await.unwrap();
+    let all: String = agent
+        .session
+        .messages
+        .iter()
+        .filter_map(|m| m.content.clone())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(!all.contains("FIRST"), "old page view should be gone");
+    assert!(all.contains("SECOND"));
+    assert!(all.contains("older page view removed"));
 }

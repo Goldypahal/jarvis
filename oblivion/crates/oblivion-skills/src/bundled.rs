@@ -7,8 +7,20 @@ use std::path::Path;
 /// (path inside the skills folder, file contents)
 pub const FILES: &[(&str, &str)] = &[
     (
+        "browser/SKILL.md",
+        include_str!("../bundled/browser/SKILL.md"),
+    ),
+    (
         "code-review/SKILL.md",
         include_str!("../bundled/code-review/SKILL.md"),
+    ),
+    (
+        "data-analysis/SKILL.md",
+        include_str!("../bundled/data-analysis/SKILL.md"),
+    ),
+    (
+        "data-analysis/scripts/profile_data.py",
+        include_str!("../bundled/data-analysis/scripts/profile_data.py"),
     ),
     ("debug/SKILL.md", include_str!("../bundled/debug/SKILL.md")),
     (
@@ -21,8 +33,16 @@ pub const FILES: &[(&str, &str)] = &[
         include_str!("../bundled/docx/scripts/docx_tool.py"),
     ),
     (
+        "explain-codebase/SKILL.md",
+        include_str!("../bundled/explain-codebase/SKILL.md"),
+    ),
+    (
         "fix-tests/SKILL.md",
         include_str!("../bundled/fix-tests/SKILL.md"),
+    ),
+    (
+        "frontend-design/SKILL.md",
+        include_str!("../bundled/frontend-design/SKILL.md"),
     ),
     (
         "git-workflow/SKILL.md",
@@ -32,15 +52,36 @@ pub const FILES: &[(&str, &str)] = &[
         "init-project/SKILL.md",
         include_str!("../bundled/init-project/SKILL.md"),
     ),
+    (
+        "mcp-builder/SKILL.md",
+        include_str!("../bundled/mcp-builder/SKILL.md"),
+    ),
     ("pdf/SKILL.md", include_str!("../bundled/pdf/SKILL.md")),
     (
         "pdf/scripts/pdf_tool.py",
         include_str!("../bundled/pdf/scripts/pdf_tool.py"),
     ),
     ("plan/SKILL.md", include_str!("../bundled/plan/SKILL.md")),
+    ("pptx/SKILL.md", include_str!("../bundled/pptx/SKILL.md")),
+    (
+        "pptx/scripts/pptx_tool.py",
+        include_str!("../bundled/pptx/scripts/pptx_tool.py"),
+    ),
+    (
+        "refactor/SKILL.md",
+        include_str!("../bundled/refactor/SKILL.md"),
+    ),
+    (
+        "security-review/SKILL.md",
+        include_str!("../bundled/security-review/SKILL.md"),
+    ),
     (
         "skill-creator/SKILL.md",
         include_str!("../bundled/skill-creator/SKILL.md"),
+    ),
+    (
+        "write-tests/SKILL.md",
+        include_str!("../bundled/write-tests/SKILL.md"),
     ),
     ("xlsx/SKILL.md", include_str!("../bundled/xlsx/SKILL.md")),
     (
@@ -90,20 +131,38 @@ mod tests {
         assert_eq!(
             names,
             [
+                "browser",
                 "code-review",
+                "data-analysis",
                 "debug",
                 "deep-research",
                 "docx",
+                "explain-codebase",
                 "fix-tests",
+                "frontend-design",
                 "git-workflow",
                 "init-project",
+                "mcp-builder",
                 "pdf",
                 "plan",
+                "pptx",
+                "refactor",
+                "security-review",
                 "skill-creator",
+                "write-tests",
                 "xlsx"
             ]
         );
-        // All ten together stay small enough for free-tier request limits.
-        assert!(set.prompt_listing(4000).len() < 4000);
+        // The default listing budget still names every skill with a usable description.
+        let listing = set.prompt_listing(3200);
+        assert!(listing.len() <= 3200, "{}", listing.len());
+        assert!(
+            set.all()
+                .all(|s| listing.contains(&format!("- {}: ", s.name))),
+            "{listing}"
+        );
+        assert!(!listing.contains(" -…") && !listing.contains(",…"));
+        // Roomy enough to keep about 100 characters of each description.
+        assert!(listing.contains("- browser: Do a task on a website in a real browser - log in, click through pages, fill in"), "{listing}");
     }
 }
