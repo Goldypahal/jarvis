@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Oblivion</title>
+<style>
+:root {
+  --bg: #0e1116; --panel: #151a21; --panel-2: #1b212a; --line: #262e39;
+  --text: #dfe5ec; --muted: #8a96a6; --faint: #5d6877;
+  --accent: #7cc4ff; --accent-ink: #06243a; --ok: #6fd39a; --warn: #f2c26b; --err: #ff7a7a;
+  --add: rgba(111, 211, 154, .14); --del: rgba(255, 122, 122, .14);
+  --mono: "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, ui-monospace, monospace;
+  --sans: "Inter", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --r: 10px;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --panel-2: #f0f2f5; --line: #e2e6eb;
+    --text: #1d2430; --muted: #5f6b7a; --faint: #98a2af;
+    --accent: #1667c9; --accent-ink: #ffffff; --ok: #1a8f55; --warn: #a86b00; --err: #c62f2f;
+    --add: rgba(26, 143, 85, .10); --del: rgba(198, 47, 47, .10);
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--text); font: 14.5px/1.55 var(--sans); display: grid; grid-template-rows: auto 1fr; }
+button, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+header { display: flex; align-items: center; gap: 14px; padding: 10px 18px; border-bottom: 1px solid var(--line); background: var(--panel); min-width: 0; }
+.brand { font-weight: 700; letter-spacing: .02em; display: flex; align-items: center; gap: 8px; }
+.brand .orb { width: 14px; height: 14px; border-radius: 50%; background: conic-gradient(var(--accent) 0 50%, transparent 50%); border: 2px solid var(--accent); }
+.root { color: var(--muted); font-family: var(--mono); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+.pill { font-family: var(--mono); font-size: 12px; padding: 3px 9px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.status { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); white-space: nowrap; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+.busy .dot { background: var(--accent); animation: pulse 1.1s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+select.mode { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; }
+.btn { border: 1px solid var(--line); background: var(--panel-2); border-radius: 8px; padding: 5px 12px; }
+.btn:hover { border-color: var(--faint); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
+.btn.danger { color: var(--err); }
+.btn[hidden] { display: none; }
+
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; min-height: 0; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } aside { display: none; } }
+.chat { display: grid; grid-template-rows: 1fr auto; min-height: 0; }
+#log { overflow-y: auto; padding: 22px max(18px, calc((100% - 860px) / 2)) 30px; scroll-behavior: smooth; }
+.empty { color: var(--muted); text-align: center; margin-top: 18vh; }
+.empty h1 { font-size: 22px; color: var(--text); margin: 0 0 6px; font-weight: 650; }
+.empty .tips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 18px; }
+.empty .tips button { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 6px 13px; color: var(--muted); }
+.empty .tips button:hover { color: var(--text); border-color: var(--faint); }
+
+.msg { margin: 0 0 16px; }
+.user { background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r); padding: 10px 14px; white-space: pre-wrap; word-break: break-word; }
+.user::before { content: "You"; display: block; font-size: 11.5px; font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 2px; }
+.bot { padding: 0 2px; word-break: break-word; }
+.bot p { margin: 0 0 10px; }
+.bot h1, .bot h2, .bot h3 { margin: 16px 0 8px; line-height: 1.3; }
+.bot h1 { font-size: 19px; } .bot h2 { font-size: 17px; } .bot h3 { font-size: 15px; }
+.bot ul, .bot ol { margin: 0 0 10px; padding-left: 22px; }
+.bot code { font-family: var(--mono); font-size: 12.5px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; }
+.bot pre { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; overflow-x: auto; margin: 0 0 12px; }
+.bot pre code { background: none; border: 0; padding: 0; }
+.bot a { color: var(--accent); }
+.bot table { border-collapse: collapse; margin: 0 0 12px; font-size: 13.5px; }
+.bot th, .bot td { border: 1px solid var(--line); padding: 5px 9px; text-align: left; }
+.cursor::after { content: "▍"; color: var(--accent); animation: pulse 1s steps(1) infinite; }
+
+.tool { border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); margin: 0 0 8px; overflow: hidden; }
+.tool > summary { list-style: none; display: flex; align-items: center; gap: 9px; padding: 7px 12px; cursor: pointer; font-size: 13px; }
+.tool > summary::-webkit-details-marker { display: none; }
+.tool .icon { width: 16px; text-align: center; color: var(--muted); }
+.tool.running .icon { color: var(--accent); }
+.tool.ok .icon { color: var(--ok); }
+.tool.err .icon { color: var(--err); }
+.tool .name { font-family: var(--mono); font-weight: 600; }
+.tool .sum { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; font-family: var(--mono); font-size: 12.5px; }
+.tool .badge { font-family: var(--mono); font-size: 11.5px; }
+.badge .a { color: var(--ok); } .badge .d { color: var(--err); }
+.tool .body { border-top: 1px solid var(--line); }
+.tool pre { margin: 0; padding: 9px 12px; font: 12px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; max-height: 360px; overflow: auto; }
+.tool .diff div { padding: 0 12px; white-space: pre-wrap; word-break: break-word; font: 12px/1.55 var(--mono); }
+.tool .diff .add { background: var(--add); }
+.tool .diff .del { background: var(--del); }
+.tool .label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); padding: 7px 12px 0; }
+
+.note { color: var(--muted); font-size: 12.5px; margin: 0 0 8px; display: flex; gap: 7px; }
+.note.warn { color: var(--warn); } .note.err { color: var(--err); }
+.end { color: var(--faint); font-size: 12px; margin: 4px 0 22px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.info { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); margin: 0 0 14px; }
+.info pre { margin: 0; padding: 10px 12px; font: 12.5px/1.55 var(--mono); white-space: pre-wrap; }
+
+.helpers { border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); margin: 0 0 10px; padding: 8px 12px; }
+.helpers .h { font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); margin-bottom: 4px; }
+.lane { display: grid; grid-template-columns: 22px minmax(0, 220px) minmax(0, 1fr); gap: 8px; align-items: baseline; font-size: 12.5px; padding: 3px 0; }
+.lane .n { font-family: var(--mono); color: var(--muted); }
+.lane .t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lane .s { color: var(--muted); font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lane.run .n { color: var(--accent); } .lane.done .n { color: var(--ok); }
+
+.composer { padding: 10px max(18px, calc((100% - 860px) / 2)) 16px; position: relative; }
+.approval { border: 1px solid var(--warn); background: color-mix(in srgb, var(--warn) 9%, var(--panel)); border-radius: var(--r); padding: 11px 14px; margin-bottom: 10px; display: grid; gap: 9px; }
+.approval .q { font-weight: 600; }
+.approval .q small { display: block; font-weight: 400; color: var(--muted); font-family: var(--mono); font-size: 12px; }
+.approval .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.approval kbd { font-family: var(--mono); font-size: 11px; opacity: .7; margin-left: 4px; }
+.box { display: flex; gap: 8px; align-items: flex-end; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 8px; }
+.box:focus-within { border-color: var(--accent); }
+textarea { flex: 1; border: 0; background: transparent; resize: none; outline: none; max-height: 220px; min-height: 24px; padding: 4px 6px; line-height: 1.5; }
+.hint { color: var(--faint); font-size: 11.5px; margin: 6px 4px 0; }
+.suggest { position: absolute; bottom: calc(100% - 4px); left: max(18px, calc((100% - 860px) / 2)); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 28px rgba(0,0,0,.25); min-width: 260px; max-height: 260px; overflow: auto; padding: 4px; }
+.suggest div { padding: 5px 10px; border-radius: 6px; font-family: var(--mono); font-size: 12.5px; cursor: pointer; }
+.suggest div.on, .suggest div:hover { background: var(--panel-2); color: var(--accent); }
+
+aside { border-left: 1px solid var(--line); background: var(--panel); overflow-y: auto; padding: 14px 16px; }
+aside .lane { grid-template-columns: 18px minmax(0, 1fr); }
+aside .lane .s { grid-column: 2; }
+aside h2 { font-size: 11.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--faint); margin: 18px 0 8px; font-weight: 650; }
+aside h2:first-child { margin-top: 2px; }
+.todo { display: flex; gap: 8px; font-size: 13px; padding: 3px 0; }
+.todo .m { width: 14px; flex: none; color: var(--faint); }
+.todo.in_progress .m { color: var(--accent); } .todo.in_progress { font-weight: 600; }
+.todo.completed { color: var(--faint); text-decoration: line-through; } .todo.completed .m { color: var(--ok); }
+.model { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; font-family: var(--mono); padding: 3px 0; }
+.model .l { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model .u { color: var(--faint); white-space: nowrap; }
+.model.cool .l { color: var(--warn); }
+.model.current .l::before { content: "● "; color: var(--accent); }
+.kv { font-size: 12px; color: var(--muted); display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; }
+.kv b { font-weight: 500; color: var(--text); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.actions .btn { font-size: 12.5px; padding: 4px 10px; }
+.muted { color: var(--faint); font-size: 12.5px; }
+.offline { position: fixed; top: 58px; left: 50%; transform: translateX(-50%); background: var(--err); color: #fff; padding: 6px 14px; border-radius: 999px; font-size: 12.5px; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="orb"></span>Oblivion</div>
+  <div class="root" id="root" title=""></div>
+  <span class="pill" id="model" title="Model answering now">no model yet</span>
+  <select class="mode" id="mode" title="When to ask before acting">
+    <option value="ask">Ask before changes</option>
+    <option value="auto-edit">Auto-edit files</option>
+    <option value="yolo">Never ask (yolo)</option>
+  </select>
+  <div class="status" id="status"><span class="dot"></span><span id="statusText">Ready</span></div>
+  <button class="btn danger" id="stop" hidden title="Stop the running request (Esc)">Stop</button>
+</header>
+
+<div class="layout">
+  <section class="chat">
+    <div id="log">
+      <div class="empty" id="empty">
+        <h1>What should we work on?</h1>
+        <div>Oblivion can read and edit this folder, run commands, search the web and use skills.</div>
+        <div class="tips">
+          <button data-fill="Explain how this project is organised">Explain this project</button>
+          <button data-fill="/code-review the uncommitted changes">Review my changes</button>
+          <button data-fill="/deep-research ">Research a topic</button>
+          <button data-fill="/help">Commands</button>
+        </div>
+      </div>
+    </div>
+    <div class="composer">
+      <div id="approvals"></div>
+      <div class="suggest" id="suggest" hidden></div>
+      <div class="box">
+        <textarea id="input" rows="1" placeholder="Ask Oblivion, or type / for commands and skills" autofocus></textarea>
+        <button class="btn primary" id="send">Send</button>
+      </div>
+      <div class="hint">Enter to send · Shift+Enter for a new line · Esc stops a running request</div>
+    </div>
+  </section>
+
+  <aside>
+    <h2>Tasks</h2>
+    <div id="todos"><div class="muted">No task list yet.</div></div>
+    <h2>Helpers</h2>
+    <div id="lanes"><div class="muted">Sub-agents appear here when the agent splits work.</div></div>
+    <h2>Models</h2>
+    <div id="models"></div>
+    <h2>Session</h2>
+    <div class="kv" id="session"></div>
+    <h2>Quick actions</h2>
+    <div class="actions">
+      <button class="btn" data-cmd="/undo" title="Revert file changes from the last request">Undo</button>
+      <button class="btn" data-cmd="/compact" title="Summarize older turns to free space">Compact</button>
+      <button class="btn" data-cmd="/models">Models</button>
+      <button class="btn" data-cmd="/skills">Skills</button>
+      <button class="btn" data-cmd="/clear" title="Start a fresh conversation">Clear</button>
+    </div>
+  </aside>
+</div>
+<div class="offline" id="offline" hidden>Disconnected — reconnecting…</div>
+
+<script>
+"use strict";
+const token = new URLSearchParams(location.hash.slice(1)).get("t") || new URLSearchParams(location.search).get("t") || "";
+const $ = (id) => document.getElementById(id);
+const log = $("log"), input = $("input");
+const COMMANDS = ["help", "undo", "models", "todo", "compact", "model ", "approval ", "clear", "session", "skills", "mcp"];
+
+let lastSeq = 0, opened = false, state = null, busy = false, busySince = 0;
+let bot = null, botText = "";            // the assistant message being streamed
+let tools = [];                          // open tool cards, oldest first
+let helpers = null;                      // helper lanes card for this turn
+const lanes = new Map();                 // index -> {label, status, last}
+const approvals = new Map();             // id -> element
+
+function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }
+function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; }
+function nearBottom() { return log.scrollHeight - log.scrollTop - log.clientHeight < 120; }
+function add(node) { const stick = nearBottom(); $("empty")?.remove(); log.appendChild(node); if (stick) log.scrollTop = log.scrollHeight; return node; }
+function keepBottom(fn) { const stick = nearBottom(); fn(); if (stick) log.scrollTop = log.scrollHeight; }
+function fmtK(n) { return n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "K" : String(n); }
+
+// ---- small, safe Markdown renderer (input is escaped first) ----
+function inline(s) {
+  return s
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[\s(])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+}
+function md(src) {
+  const lines = esc(src).split("\n"); let out = "", i = 0;
+  while (i < lines.length) {
+    const l = lines[i];
+    if (/^```/.test(l)) {
+      const body = []; i++;
+      while (i < lines.length && !/^```/.test(lines[i])) body.push(lines[i++]);
+      i++; out += "<pre><code>" + body.join("\n") + "</code></pre>"; continue;
+    }
+    let m;
+    if ((m = l.match(/^(#{1,3})\s+(.*)/))) { out += `<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`; i++; continue; }
+    if (/^\s*\|.*\|\s*$/.test(l) && i + 1 < lines.length && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
+      const row = (r) => r.trim().replace(/^\||\|$/g, "").split("|").map((c) => inline(c.trim()));
+      out += "<table><tr>" + row(l).map((c) => `<th>${c}</th>`).join("") + "</tr>"; i += 2;
+      while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) out += "<tr>" + row(lines[i++]).map((c) => `<td>${c}</td>`).join("") + "</tr>";
+      out += "</table>"; continue;
+    }
+    if (/^\s*([-*+]|\d+[.)])\s+/.test(l)) {
+      const ordered = /^\s*\d/.test(l); out += ordered ? "<ol>" : "<ul>";
+      while (i < lines.length && /^\s*([-*+]|\d+[.)])\s+/.test(lines[i])) out += "<li>" + inline(lines[i++].replace(/^\s*([-*+]|\d+[.)])\s+/, "")) + "</li>";
+      out += ordered ? "</ol>" : "</ul>"; continue;
+    }
+    if (!l.trim()) { i++; continue; }
+    const para = [];
+    while (i < lines.length && lines[i].trim() && !/^(```|#{1,3}\s|\s*([-*+]|\d+[.)])\s)/.test(lines[i])) para.push(lines[i++]);
+    out += "<p>" + inline(para.join("<br>")) + "</p>";
+  }
+  return out;
+}
+
+// ---- transcript ----
+function endBot() { if (bot) { bot.classList.remove("cursor"); bot = null; botText = ""; } }
+function onText(t) {
+  if (!bot) { bot = add(el("div", "msg bot cursor")); botText = ""; }
+  botText += t; keepBottom(() => { bot.innerHTML = md(botText); });
+}
+function diffCounts(detail) {
+  let a = 0, d = 0; for (const l of detail.split("\n")) { if (l.startsWith("+ ")) a++; else if (l.startsWith("- ")) d++; }
+  return { a, d };
+}
+function toolStart(e) {
+  endBot();
+  const card = el("details", "tool running");
+  const { a, d } = diffCounts(e.detail || "");
+  const badge = (a || d) ? `<span class="badge"><span class="a">+${a}</span> <span class="d">−${d}</span></span>` : "";
+  card.innerHTML = `<summary><span class="icon">◌</span><span class="name">${esc(e.name)}</span><span class="sum">${esc(e.summary)}</span>${badge}</summary><div class="body"></div>`;
+  const body = card.querySelector(".body");
+  if (e.detail) {
+    if (e.name === "shell") body.appendChild(el("pre", "", esc(e.detail)));
+    else {
+      body.appendChild(el("div", "label", e.name === "write_file" ? "New content" : "Change"));
+      const diff = el("div", "diff");
+      for (const l of e.detail.split("\n")) diff.appendChild(el("div", l.startsWith("+ ") ? "add" : l.startsWith("- ") ? "del" : "", esc(l)));
+      body.appendChild(diff);
+    }
+  }
+  if (e.name === "edit_file" || e.name === "write_file") card.open = (a + d) <= 24;
+  tools.push(card); add(card);
+}
+function toolEnd(e) {
+  const card = tools.find((c) => c.classList.contains("running") && c.querySelector(".name").textContent === e.name) || tools.find((c) => c.classList.contains("running"));
+  if (!card) return;
+  card.classList.remove("running"); card.classList.add(e.is_error ? "err" : "ok");
+  card.querySelector(".icon").textContent = e.is_error ? "✗" : "✓";
+  if (e.output && e.name !== "todo") {
+    const body = card.querySelector(".body");
+    body.appendChild(el("div", "label", e.is_error ? "Error" : "Result"));
+    body.appendChild(el("pre", "", esc(e.output)));
+  }
+  if (e.is_error) card.open = true;
+  tools = tools.filter((c) => c !== card);
+}
+function note(text, cls = "", icon = "·") { endBot(); add(el("div", "note " + cls, `<span>${icon}</span><span>${esc(text)}</span>`)); }
+
+function sub(e) {
+  if (!helpers) { helpers = add(el("div", "helpers", '<div class="h">Helpers working in parallel</div>')); }
+  let lane = lanes.get(e.index);
+  if (!lane) {
+    const row = el("div", "lane run", `<span class="n">${e.index + 1}</span><span class="t">${esc(e.label)}</span><span class="s">starting…</span>`);
+    keepBottom(() => helpers.appendChild(row));
+    lane = { row, label: e.label, status: "run", last: "starting…" }; lanes.set(e.index, lane);
+  }
+  const ev = e.event; let s = null;
+  if (ev.type === "tool_start") { s = `${ev.name} ${ev.summary}`; lane.status = "run"; }
+  else if (ev.type === "tool_end" && ev.is_error) s = "✗ " + (ev.preview || "").split("\n")[0];
+  else if (ev.type === "waiting") s = `waiting ${ev.secs}s (rate limit)`;
+  else if (ev.type === "model") s = "using " + ev.label;
+  else if (ev.type === "text_end") { s = "finished"; lane.status = "done"; }
+  if (s) { lane.last = s; lane.row.querySelector(".s").textContent = s; }
+  lane.row.className = "lane " + lane.status;
+  renderLanes();
+}
+function renderLanes() {
+  const box = $("lanes");
+  if (!lanes.size) { box.innerHTML = '<div class="muted">Sub-agents appear here when the agent splits work.</div>'; return; }
+  box.innerHTML = "";
+  for (const [i, l] of lanes) box.appendChild(el("div", "lane " + l.status, `<span class="n">${i + 1}</span><span class="t" title="${esc(l.label)}">${esc(l.label)}</span><span class="s" title="${esc(l.last)}">${esc(l.last)}</span>`));
+}
+
+function approval(e) {
+  const card = el("div", "approval");
+  card.innerHTML = `<div class="q">Allow ${esc(e.summary)}?<small>${esc(e.tool)} wants to do this</small></div>
+    <div class="acts"><button class="btn primary" data-a="yes">Allow once<kbd>Y</kbd></button>
+    <button class="btn" data-a="always">Always allow ${esc(e.tool)}<kbd>A</kbd></button>
+    <button class="btn danger" data-a="no">Deny<kbd>N</kbd></button></div>`;
+  card.querySelectorAll("button").forEach((b) => b.onclick = () => answer(e.id, b.dataset.a));
+  approvals.set(e.id, card); $("approvals").appendChild(card);
+  card.querySelector(".primary").focus();
+}
+function approvalDone(e) {
+  approvals.get(e.id)?.remove(); approvals.delete(e.id);
+  input.focus();
+}
+async function answer(id, a) { await api("/approve", { id, answer: a }); }
+
+function setBusy(b) {
+  busy = b; busySince = b ? Date.now() : 0;
+  $("status").classList.toggle("busy", b); $("stop").hidden = !b; tick();
+}
+function tick() {
+  $("statusText").textContent = busy ? `Working · ${Math.floor((Date.now() - busySince) / 1000)}s` : "Ready";
+}
+setInterval(() => busy && tick(), 1000);
+
+function renderState(s) {
+  state = s;
+  $("root").textContent = s.root; $("root").title = s.root;
+  $("mode").value = s.approval;
+  $("session").innerHTML = `<span>Session</span><b title="${esc(s.session)}">${esc(s.session)}</b><span>Version</span><b>${esc(s.version)}</b><span>Browser</span><b>${s.browser ? "on" : "off"}</b><span>Skills</span><b>${s.skills.length}</b>`;
+  const current = $("model").textContent;
+  $("models").innerHTML = s.models.map((m) => {
+    const use = m.used_today != null ? `${m.used_today}${m.per_day ? "/" + m.per_day : ""}` : "";
+    const cool = m.cooldown_secs ? `cooling ${m.cooldown_secs}s` : use;
+    return `<div class="model ${m.cooldown_secs ? "cool" : ""} ${m.label === current ? "current" : ""}"><span class="l" title="${esc(m.label)}">${esc(m.label)}</span><span class="u">${esc(cool)}</span></div>`;
+  }).join("") || '<div class="muted">No models.</div>';
+  renderTodos(s.todos);
+}
+function renderTodos(items) {
+  $("todos").innerHTML = items.length ? items.map((t) => `<div class="todo ${t.status}"><span class="m">${t.status === "completed" ? "✓" : t.status === "in_progress" ? "▸" : "○"}</span><span>${esc(t.text)}</span></div>`).join("") : '<div class="muted">No task list yet.</div>';
+}
+
+function handle(e) {
+  switch (e.type) {
+    case "user": endBot(); helpers = null; add(el("div", "msg user", esc(e.text))); break;
+    case "text": onText(e.text); break;
+    case "text_end": endBot(); break;
+    case "tool_start": toolStart(e); break;
+    case "tool_end": toolEnd(e); break;
+    case "declined": {
+      const card = tools.find((c) => c.classList.contains("running") && c.querySelector(".name").textContent === e.name);
+      if (card) { card.classList.remove("running"); card.classList.add("err"); card.querySelector(".icon").textContent = "✗"; card.querySelector(".sum").textContent += " — denied"; tools = tools.filter((c) => c !== card); }
+      break;
+    }
+    case "blocked": note(`${e.name} blocked by rule ${e.rule}`, "err", "⛔"); break;
+    case "fallback": note(`${e.from} failed (${e.reason}); trying the next model`, "", "↷"); break;
+    case "model": $("model").textContent = e.label; if (state) renderState(state); break;
+    case "notice": note(e.text, "warn", "!"); break;
+    case "waiting": note(`All models are at their per-minute limit; waiting ${e.secs}s`, "", "⏳"); break;
+    case "sub": sub(e); break;
+    case "turn_end": {
+      endBot();
+      for (const c of tools) { c.classList.remove("running"); c.querySelector(".icon").textContent = "–"; } tools = [];
+      for (const l of lanes.values()) if (l.status === "run") l.status = "done";
+      renderLanes();
+      const t = e.outcome === "cancelled" ? "Stopped. File changes so far are kept; Undo reverts them."
+        : e.outcome === "error" ? "✗ " + (e.error || "error")
+        : `${e.steps} step(s) · ${e.tool_calls} tool call(s)` + (e.prompt_tokens + e.completion_tokens ? ` · ${fmtK(e.prompt_tokens)} in / ${fmtK(e.completion_tokens)} out tokens` : "");
+      add(el("div", "end" + (e.outcome === "error" ? " note err" : ""), esc(t)));
+      break;
+    }
+    case "approval": approval(e); break;
+    case "approval_done": approvalDone(e); break;
+    case "info": endBot(); add(el("div", "info", `<pre>${esc(e.text)}</pre>`)); break;
+    case "todos": renderTodos(e.items); break;
+    case "busy": setBusy(e.busy); if (e.busy) { lanes.clear(); renderLanes(); } break;
+    case "state": renderState(e); break;
+    case "quit": note("Oblivion was closed. You can close this tab.", "warn", "■"); break;
+  }
+}
+
+function reset() {
+  log.innerHTML = ""; bot = null; botText = ""; tools = []; helpers = null; lanes.clear(); renderLanes();
+  approvals.forEach((c) => c.remove()); approvals.clear(); lastSeq = 0;
+}
+
+function connect() {
+  const es = new EventSource("/events?t=" + encodeURIComponent(token));
+  es.onopen = () => { $("offline").hidden = true; if (opened) reset(); opened = true; };
+  es.onmessage = (m) => {
+    const e = JSON.parse(m.data);
+    if (e.seq <= lastSeq) return;
+    lastSeq = e.seq; handle(e);
+  };
+  es.onerror = () => { $("offline").hidden = false; };
+}
+
+async function api(path, body) {
+  const r = await fetch(path, { method: "POST", headers: { "content-type": "application/json", "x-oblivion-token": token }, body: body ? JSON.stringify(body) : "{}" });
+  if (r.status === 401) note("This page has an old or missing access token. Open the link Oblivion printed in the terminal.", "err", "✗");
+  return r.ok;
+}
+function send(text) {
+  text = (text ?? input.value).trim(); if (!text) return;
+  api("/send", { text }); input.value = ""; autosize(); hideSuggest();
+}
+
+// ---- composer: autosize, slash suggestions, keys ----
+function autosize() { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 220) + "px"; }
+let sugg = [], suggOn = 0;
+function showSuggest() {
+  const v = input.value;
+  if (!v.startsWith("/") || v.includes(" ") && !COMMANDS.some((c) => c.endsWith(" ") && v.startsWith("/" + c))) return hideSuggest();
+  const q = v.slice(1).toLowerCase();
+  const all = [...COMMANDS.map((c) => c.trim()), ...(state?.skills || [])];
+  sugg = [...new Set(all)].filter((c) => c.startsWith(q)).slice(0, 12);
+  if (!sugg.length || (sugg.length === 1 && sugg[0] === q)) return hideSuggest();
+  suggOn = Math.min(suggOn, sugg.length - 1);
+  const box = $("suggest"); box.hidden = false;
+  box.innerHTML = sugg.map((c, i) => `<div class="${i === suggOn ? "on" : ""}" data-i="${i}">/${esc(c)}</div>`).join("");
+  box.querySelectorAll("div").forEach((d) => d.onmousedown = (ev) => { ev.preventDefault(); pick(+d.dataset.i); });
+}
+function hideSuggest() { $("suggest").hidden = true; sugg = []; suggOn = 0; }
+function pick(i) { input.value = "/" + sugg[i] + " "; hideSuggest(); input.focus(); }
+
+input.addEventListener("input", () => { autosize(); showSuggest(); });
+input.addEventListener("keydown", (ev) => {
+  if (sugg.length && !$("suggest").hidden) {
+    if (ev.key === "ArrowDown") { suggOn = (suggOn + 1) % sugg.length; showSuggest(); ev.preventDefault(); return; }
+    if (ev.key === "ArrowUp") { suggOn = (suggOn - 1 + sugg.length) % sugg.length; showSuggest(); ev.preventDefault(); return; }
+    if (ev.key === "Tab") { pick(suggOn); ev.preventDefault(); return; }
+  }
+  if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); send(); }
+});
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") { if (!$("suggest").hidden) hideSuggest(); else if (busy) api("/cancel"); return; }
+  if (approvals.size && document.activeElement !== input) {
+    const id = [...approvals.keys()][0], k = ev.key.toLowerCase();
+    if (k === "y") answer(id, "yes"); else if (k === "a") answer(id, "always"); else if (k === "n") answer(id, "no");
+  }
+});
+$("send").onclick = () => send();
+$("stop").onclick = () => api("/cancel");
+$("mode").onchange = (ev) => send("/approval " + ev.target.value);
+document.querySelectorAll("[data-cmd]").forEach((b) => b.onclick = () => send(b.dataset.cmd));
+document.querySelectorAll("[data-fill]").forEach((b) => b.onclick = () => { input.value = b.dataset.fill; autosize(); input.focus(); showSuggest(); });
+
+if (!token) note("No access token in the address. Open the link Oblivion printed in the terminal.", "err", "✗");
+else connect();
+</script>
+</body>
+</html>

@@ -1,6 +1,12 @@
 //! `oblivion` command-line interface (SRS FR-70/71).
 
+mod app;
+mod commands;
 mod keys;
+#[cfg(test)]
+mod testkit;
+mod tui;
+mod web;
 
 use std::io::{BufRead, IsTerminal, Write};
 use std::path::PathBuf;
@@ -9,13 +15,14 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
+use commands::{handle_command, skill_request, Command};
 use oblivion_core::config::{self, Config, DEFAULT_CONFIG};
 use oblivion_core::{prompt, Agent, AgentEvent, ApprovalMode, Approver, Decision, Rules};
 use oblivion_mcp::{BrowserMode, BrowserSettings, BrowserTool, McpHub};
 use oblivion_providers::{Router, Target, UsageLedger};
 use oblivion_skills::{GithubSource, SkillSet, SkillSource};
 use oblivion_store::Store;
-use oblivion_tools::{normalize_path, SearchBackend, Shell, TodoList, ToolBox};
+use oblivion_tools::{normalize_path, SearchBackend, Shell, ToolBox};
 use tokio::sync::Notify;
 
 #[derive(Parser, Debug)]
@@ -92,6 +99,22 @@ struct Cli {
     /// browser window that keeps its own logins; default) or "extension" (your Chrome tabs).
     #[arg(long, value_name = "MODE", num_args = 0..=1, default_missing_value = "own")]
     setup_browser: Option<String>,
+
+    /// Open Oblivion in your web browser (a local page on 127.0.0.1).
+    #[arg(long, conflicts_with = "tui")]
+    web: bool,
+
+    /// Port for --web (another free port is used if it is taken).
+    #[arg(long, default_value_t = 7878)]
+    port: u16,
+
+    /// With --web: print the link instead of opening the browser.
+    #[arg(long)]
+    no_open: bool,
+
+    /// Full-screen terminal interface (chat, task list and helpers side by side).
+    #[arg(long)]
+    tui: bool,
 }
 
 mod style {
@@ -140,7 +163,7 @@ fn print_event(e: AgentEvent) {
         AgentEvent::TextEnd => {
             let _ = writeln!(out);
         }
-        AgentEvent::ToolStart { name, summary } => {
+        AgentEvent::ToolStart { name, summary, .. } => {
             let _ = writeln!(out, "{CYAN}● {name}{RESET} {DIM}{summary}{RESET}");
         }
         AgentEvent::ToolEnd {
@@ -536,6 +559,15 @@ async fn run() -> Result<()> {
     let system_for_subagents = prompt::build(&root, shell, &today, &sections[..1]);
     let subagent_search = search.clone();
     let skill_dirs: Vec<PathBuf> = skills.all().map(|s| s.dir.clone()).collect();
+    // The web page and full-screen UI answer approvals through the worker's channel.
+    let interactive_ui = cli.web || cli.tui;
+    let (ev_tx, ev_rx) = app::channels();
+    let approvals = app::Approvals::new(ev_tx.clone());
+    let approver: Box<dyn Approver> = if interactive_ui {
+        approvals.approver()
+    } else {
+        Box::new(TerminalApprover)
+    };
     let mut agent = {
         // Snapshot folder is named per run so undo data never mixes between sessions.
         let snap = home
@@ -556,7 +588,7 @@ async fn run() -> Result<()> {
         Agent::new(
             router,
             tools,
-            Box::new(TerminalApprover),
+            approver,
             approval,
             cfg.agent.max_steps,
             system,
@@ -591,6 +623,31 @@ async fn run() -> Result<()> {
         );
     }
     agent.persist_with(store.clone());
+
+    if interactive_ui {
+        let (worker, controls) = app::Worker::new(
+            agent,
+            skills.clone(),
+            hub.clone(),
+            browser.is_some(),
+            ev_tx,
+            approvals,
+        );
+        if !cli.prompt.is_empty() {
+            controls.send(cli.prompt.join(" "));
+        }
+        let result = if cli.web {
+            run_web(worker, controls, ev_rx, cli.port, !cli.no_open).await
+        } else {
+            tui::run(worker, controls, ev_rx).await
+        };
+        hub.shutdown().await;
+        if let Some(b) = &browser {
+            b.shutdown().await;
+        }
+        return result;
+    }
+    drop((ev_tx, ev_rx, approvals));
 
     // Ctrl+C cancels the running request; at the prompt it exits.
     let in_turn = Arc::new(AtomicBool::new(false));
@@ -647,9 +704,10 @@ async fn run() -> Result<()> {
             continue;
         }
         if let Some(cmd) = input.strip_prefix('/') {
-            match handle_command(&mut agent, &skills, &hub, cmd).await? {
+            let mut sink = print_event;
+            match handle_command(&mut agent, &skills, &hub, cmd, &mut sink).await? {
                 Command::Quit => break,
-                Command::Done => {}
+                Command::Done(text) => println!("{text}"),
                 Command::Run(task) => run_one(&mut agent, &task, &in_turn, &cancel).await,
             }
             continue;
@@ -660,6 +718,62 @@ async fn run() -> Result<()> {
     if let Some(b) = &browser {
         b.shutdown().await;
     }
+    Ok(())
+}
+
+/// `oblivion --web`: serve the page, then run the agent until Ctrl+C or /exit.
+async fn run_web(
+    worker: app::Worker,
+    controls: app::Controls,
+    events: tokio::sync::mpsc::UnboundedReceiver<app::UiEvent>,
+    port: u16,
+    open: bool,
+) -> Result<()> {
+    let bus = Arc::new(web::Bus::default());
+    let token = web::new_token();
+    let (listener, addr) = web::bind(port)
+        .await
+        .context("could not open a local port for the web page")?;
+    let url = format!("http://{addr}/#t={token}");
+    let state = web::WebState {
+        token: token.into(),
+        controls: controls.clone(),
+        bus: bus.clone(),
+    };
+    tokio::spawn(web::pump(events, bus));
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, web::router(state)).await;
+    });
+    println!("{BOLD}Oblivion web{RESET} is running. Open this link (it contains your access key):");
+    println!("  {CYAN}{url}{RESET}");
+    println!("{DIM}Press Ctrl+C here to stop.{RESET}");
+    if open {
+        web::open_browser(&url);
+    }
+    // Ctrl+C: stop a running request first; a second press (or an idle one) quits.
+    let ctrl_c = {
+        let controls = controls.clone();
+        async move {
+            loop {
+                if tokio::signal::ctrl_c().await.is_err() {
+                    return;
+                }
+                if controls.busy() {
+                    controls.cancel();
+                    println!("{YELLOW}Stopping the running request (Ctrl+C again to quit).{RESET}");
+                } else {
+                    return;
+                }
+            }
+        }
+    };
+    tokio::select! {
+        _ = worker.run() => {}
+        _ = ctrl_c => {}
+    }
+    // Release an approval that is still waiting, or the process could not exit.
+    controls.cancel();
+    println!("{DIM}Oblivion web stopped.{RESET}");
     Ok(())
 }
 
@@ -803,24 +917,6 @@ fn dirs_home() -> Option<PathBuf> {
     std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from)
 }
 
-/// The user message for `/skill-name args`: the skill's instructions are
-/// included directly, saving the model a round trip to load them.
-fn skill_request(skills: &SkillSet, name: &str, arg: &str) -> String {
-    let loaded = skills.load_text(name).unwrap_or_default();
-    let request = if arg.trim().is_empty() {
-        "Follow the skill's instructions."
-    } else {
-        arg.trim()
-    };
-    format!("The user ran the /{name} skill. Its instructions are loaded below; follow them.\n\n{loaded}\n\nRequest: {request}")
-}
-
-enum Command {
-    Quit,
-    Done,
-    Run(String),
-}
-
 async fn run_one(agent: &mut Agent, task: &str, in_turn: &AtomicBool, cancel: &Notify) {
     in_turn.store(true, Ordering::SeqCst);
     let mut on_event = print_event;
@@ -852,121 +948,4 @@ async fn run_one(agent: &mut Agent, task: &str, in_turn: &AtomicBool, cancel: &N
             );
         }
     }
-}
-
-/// Returns true when the user asked to quit.
-async fn handle_command(
-    agent: &mut Agent,
-    skills: &SkillSet,
-    hub: &McpHub,
-    cmd: &str,
-) -> Result<Command> {
-    let (name, arg) = cmd
-        .split_once(' ')
-        .map(|(a, b)| (a, b.trim()))
-        .unwrap_or((cmd, ""));
-    match name {
-        "exit" | "quit" | "q" => return Ok(Command::Quit),
-        name if skills.get(name).is_some() => {
-            return Ok(Command::Run(skill_request(skills, name, arg)));
-        }
-        "skills" => {
-            for sk in skills.all() {
-                let d: String = sk.description.chars().take(80).collect();
-                println!("  /{:<16} {DIM}{d}{RESET}", sk.name);
-            }
-            if skills.is_empty() {
-                println!("No skills found.");
-            }
-        }
-        "mcp" => {
-            if hub.is_empty() {
-                println!("No MCP servers configured.");
-            }
-            for name in hub.names() {
-                match hub.list_tools(&name).await {
-                    Ok(t) => println!("{t}"),
-                    Err(e) => println!("{RED}✗ {name}: {e}{RESET}"),
-                }
-            }
-        }
-        "help" | "h" => {
-            println!("/undo          revert file changes from the last request");
-            println!("/models        show models, cooldowns and today's usage");
-            println!("/todo          show the agent's task list");
-            println!("/compact       summarize older turns now to free up space");
-            println!("/model <text>  only use models whose label contains <text>");
-            println!("/approval <m>  ask | auto-edit | yolo");
-            println!("/clear         start a fresh conversation");
-            println!("/session       show the session id (resume with --resume <id>)");
-            println!("/skills        list skills; run one with /<skill-name> [request]");
-            println!("/mcp           list MCP servers and their tools");
-            println!("/exit          quit (Ctrl+C also quits at the prompt)");
-        }
-        "undo" => match agent.undo_last_turn()? {
-            Some(r) => println!(
-                "Restored {} file(s), removed {} new file(s).",
-                r.restored, r.removed
-            ),
-            None => println!("Nothing to undo."),
-        },
-        "models" => {
-            for st in agent.router.status() {
-                let used = match (st.used_today, st.requests_per_day) {
-                    (Some(u), Some(d)) => format!("{u}/{d} today"),
-                    (Some(u), None) => format!("{u} today"),
-                    _ => String::new(),
-                };
-                match st.cooldown {
-                    Some(d) => println!(
-                        "  {YELLOW}…{RESET} {} {DIM}(cooling down {}s) {used}{RESET}",
-                        st.label,
-                        d.as_secs()
-                    ),
-                    None => println!("  {GREEN}✓{RESET} {} {DIM}{used}{RESET}", st.label),
-                }
-            }
-        }
-        "todo" => println!("{}", TodoList::render(&agent.tools.todos().items())),
-        "compact" => {
-            let mut sink = print_event;
-            if agent.compact(true, &mut sink).await? {
-                println!("Earlier turns summarized.");
-            } else {
-                println!("Nothing to compact yet.");
-            }
-        }
-        "model" => {
-            if arg.is_empty() {
-                println!("Usage: /model <text>");
-            } else if agent.router.pin(arg) {
-                println!(
-                    "Using: {}",
-                    agent
-                        .router
-                        .targets()
-                        .iter()
-                        .map(|t| t.label())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                );
-            } else {
-                println!("No model matches '{arg}'.");
-            }
-        }
-        "approval" => match ApprovalMode::parse(arg) {
-            Some(m) => {
-                agent.approval = m;
-                println!("Approval mode: {m:?}");
-            }
-            None => println!("Usage: /approval ask | auto-edit | yolo"),
-        },
-        "clear" => {
-            agent.clear();
-            println!("Conversation cleared.");
-        }
-        "session" => println!("Session {}", agent.session.id),
-        other => println!("Unknown command /{other}. Try /help or /skills."),
-    }
-    Ok(Command::Done)
 }

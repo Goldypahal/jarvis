@@ -80,7 +80,7 @@ pub struct ToolBox {
     shell: Shell,
     journal: Journal,
     max_output_chars: usize,
-    todos: TodoList,
+    todos: std::sync::Arc<TodoList>,
     http: reqwest::Client,
     search: SearchBackend,
     providers: Vec<Arc<dyn ToolProvider>>,
@@ -97,7 +97,7 @@ impl ToolBox {
             shell,
             journal: Journal::new(snapshot_dir.into()),
             max_output_chars: 30_000,
-            todos: TodoList::default(),
+            todos: Default::default(),
             http: web::http_client(),
             search: SearchBackend::DuckDuckGo,
             providers: Vec::new(),
@@ -151,6 +151,11 @@ impl ToolBox {
 
     pub fn todos(&self) -> &TodoList {
         &self.todos
+    }
+
+    /// A handle to the task list that stays readable while the agent runs.
+    pub fn todos_shared(&self) -> std::sync::Arc<TodoList> {
+        self.todos.clone()
     }
 
     pub(crate) fn http(&self) -> &reqwest::Client {

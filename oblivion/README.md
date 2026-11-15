@@ -61,11 +61,30 @@ oblivion -m groq "explain src/main.rs"    # only use Groq models
 oblivion --approval auto-edit             # don't ask for file edits
 oblivion --sessions                       # list saved sessions
 oblivion --resume 20261113-201500         # continue one
+oblivion --tui                            # full-screen terminal interface
+oblivion --web                            # open Oblivion in your web browser
+oblivion --setup-browser                  # let the agent use a real web browser
 ```
 
 Commands inside the chat: `/undo`, `/models`, `/model <text>`, `/todo`, `/compact`, `/skills`, `/<skill-name> [request]`, `/mcp`, `/approval <mode>`, `/clear`, `/session`, `/help`, `/exit`.
 
 Use Windows Terminal (not the old console window) so colours display correctly.
+
+### Full-screen terminal (`--tui`)
+Conversation on the left; task list, helper agents and models on the right; input at the bottom.
+Edits show their diff inline. When the agent needs approval a pop-up appears: **y** allow once,
+**a** always allow that tool, **n** deny. Keys: Enter send · Shift+Enter (or Alt+Enter) new line ·
+Tab complete a `/command` · Up/Down history · PgUp/PgDn scroll · Esc stop the running request ·
+Ctrl+C stop, then quit. Narrow windows (under 100 columns) hide the side panel.
+
+### Web page (`--web`)
+Starts a local page at `http://127.0.0.1:7878` and opens it (`--port` to change, `--no-open` to only
+print the link). It shows streamed answers with formatting, tool cards with before/after diffs,
+helper agents working in parallel, the task list, model limits and cooldowns, approve/deny buttons
+(also keys Y / A / N), an approval-mode switch and quick actions (Undo, Compact, Clear).
+The server only listens on your own computer, and every request must carry the random key in the
+printed link, so other websites open in your browser cannot control the agent. Reloading the page
+keeps the conversation. Ctrl+C in the terminal stops a running request; press it again to quit.
 
 ## Phase 0 acceptance test
 

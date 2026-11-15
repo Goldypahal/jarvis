@@ -483,9 +483,7 @@ fn is_filler(t: &str) -> bool {
     let Some(rest) = t.strip_prefix("- ") else {
         return false;
     };
-    let role_end = rest
-        .find([' ', ':'])
-        .unwrap_or(rest.len());
+    let role_end = rest.find([' ', ':']).unwrap_or(rest.len());
     let (role, tail) = rest.split_at(role_end);
     if !FILLER_ROLES.contains(&role) {
         return false;

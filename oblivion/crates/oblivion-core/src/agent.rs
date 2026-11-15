@@ -39,11 +39,16 @@ pub enum AgentEvent {
     ToolStart {
         name: String,
         summary: String,
+        /// What the call will change, for interfaces that show it: removed/added
+        /// lines for edit_file, the content for write_file, the command for shell.
+        detail: String,
     },
     ToolEnd {
         name: String,
         preview: String,
         is_error: bool,
+        /// The result text (capped), for interfaces that can expand it.
+        output: String,
     },
     Declined {
         name: String,
@@ -519,6 +524,7 @@ impl Agent {
                         name: "task".into(),
                         preview: first_lines(&text, 2),
                         is_error: text.starts_with("Error:"),
+                        output: truncate(&text, EVENT_OUTPUT_CHARS),
                     });
                     self.session
                         .messages
@@ -539,6 +545,7 @@ impl Agent {
                             name: name.clone(),
                             preview: "invalid JSON arguments".into(),
                             is_error: true,
+                            output: msg.clone(),
                         });
                         self.session
                             .messages
@@ -610,6 +617,13 @@ impl Agent {
                     ));
                     continue;
                 }
+                // Announce the call first, so an interface can show the change
+                // (diff, command) while the user decides whether to allow it.
+                on_event(AgentEvent::ToolStart {
+                    name: name.clone(),
+                    summary: label,
+                    detail: change_detail(&name, &args),
+                });
                 let pre_approved = matches!(verdict, Verdict::Allow(_));
                 if let Some(question) = self.needs_approval(&name, &risk).filter(|_| !pre_approved)
                 {
@@ -631,15 +645,12 @@ impl Agent {
                     }
                 }
 
-                on_event(AgentEvent::ToolStart {
-                    name: name.clone(),
-                    summary: label,
-                });
                 let out = self.tools.execute(&name, &args).await;
                 on_event(AgentEvent::ToolEnd {
                     name: name.clone(),
                     preview: first_lines(&out.text, 3),
                     is_error: out.is_error,
+                    output: truncate(&out.text, EVENT_OUTPUT_CHARS),
                 });
                 // Keep any single result to about a quarter of the request budget, so
                 // one big web page or log cannot crowd out the rest of the conversation.
@@ -745,6 +756,37 @@ fn truncate(s: &str, n: usize) -> String {
         s.to_string()
     } else {
         s.chars().take(n).collect::<String>() + "…"
+    }
+}
+
+/// Longest tool output carried in an event (interfaces show it on demand).
+const EVENT_OUTPUT_CHARS: usize = 6_000;
+const DETAIL_LINES: usize = 80;
+
+/// What a tool call will change, as diff-style lines ("- old", "+ new").
+pub fn change_detail(name: &str, args: &Value) -> String {
+    let get = |k: &str| args.get(k).and_then(Value::as_str).unwrap_or("");
+    let prefixed = |text: &str, mark: &str| -> Vec<String> {
+        let mut lines: Vec<String> = text
+            .lines()
+            .take(DETAIL_LINES)
+            .map(|l| format!("{mark} {l}"))
+            .collect();
+        let more = text.lines().count().saturating_sub(DETAIL_LINES);
+        if more > 0 {
+            lines.push(format!("  … {more} more lines"));
+        }
+        lines
+    };
+    match name {
+        "edit_file" => {
+            let mut lines = prefixed(get("old_string"), "-");
+            lines.extend(prefixed(get("new_string"), "+"));
+            lines.join("\n")
+        }
+        "write_file" => prefixed(get("content"), "+").join("\n"),
+        "shell" => format!("$ {}", get("command")),
+        _ => String::new(),
     }
 }
 
