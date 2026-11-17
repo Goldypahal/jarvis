@@ -65,6 +65,8 @@ Jarvis/
 
 ## Installation
 
+Supported Python version: **Python 3.12** (3.12.x).
+
 1. Clone or copy this repository to your local machine
 2. Install required dependencies: `pip install -r requirements.txt`
 3. Install the package: `pip install -e .` (for development) or `pip install .`
