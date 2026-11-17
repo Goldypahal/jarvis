@@ -13,10 +13,12 @@ Settings (environment variables, all optional):
 """
 
 import atexit
+import hmac
 import http.client
 import json
 import os
 import re
+import secrets
 import subprocess
 import sys
 import threading
@@ -211,13 +213,16 @@ def is_valid_host(host_header, allowed_port=None):
     return True
 
 
-def register(app, bridge=None, allowed_port=None):
+def register(app, bridge=None, allowed_port=None, token=None):
     """Add the /api/oblivion/* routes to a Flask app."""
     from flask import Response, jsonify, request, stream_with_context
 
     bridge = bridge or OblivionBridge()
     app.config["OBLIVION_BRIDGE"] = bridge
     configured_port = allowed_port or app.config.get("JARVIS_PORT")
+
+    token = token or app.config.get("JARVIS_TOKEN") or secrets.token_hex(32)
+    app.config["JARVIS_TOKEN"] = token
 
     def check_security():
         host = request.headers.get("Host") or request.host
@@ -227,6 +232,16 @@ def register(app, bridge=None, allowed_port=None):
         origin = request.headers.get("Origin")
         if origin is not None and origin.rstrip("/") != request.host_url.rstrip("/"):
             return jsonify({"error": "cross-site request refused"}), 403
+
+        client_token = (
+            request.headers.get("X-Jarvis-Token")
+            or request.args.get("t")
+            or request.args.get("token")
+        )
+        if not client_token or not hmac.compare_digest(
+            str(client_token), str(token)
+        ):
+            return jsonify({"error": "unauthorized: invalid or missing token"}), 403
 
         return None
 

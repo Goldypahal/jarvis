@@ -40,7 +40,7 @@ def run_async(coro):
 @app.route('/')
 def index():
     """Serve the main UI page"""
-    return render_template('index.html')
+    return render_template('index.html', jarvis_token=app.config.get('JARVIS_TOKEN', ''))
 
 @app.route('/api/chat', methods=['POST'])
 def chat():

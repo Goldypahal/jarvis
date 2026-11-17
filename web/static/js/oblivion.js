@@ -24,6 +24,10 @@
     let bot = null, botText = "", tools = [], helpers = null;
     const lanes = new Map(), approvals = new Map();
 
+    function getToken() {
+        return document.querySelector('meta[name="jarvis-token"]')?.content || window.JARVIS_TOKEN || "";
+    }
+
     // ---------- helpers ----------
     function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }
     function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; }
@@ -105,7 +109,11 @@
             log.innerHTML = '<div class="ob-wait"><div class="ob-spinner"></div><div class="ob-center">Starting Oblivion…</div></div>';
         }
         try {
-            const r = await fetch("/api/oblivion/start", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+            const r = await fetch("/api/oblivion/start", {
+                method: "POST",
+                headers: { "content-type": "application/json", "x-jarvis-token": getToken() },
+                body: "{}"
+            });
             const st = await r.json();
             if (st.running) connect();
             else showSetup(st.error || "Oblivion did not start.");
@@ -126,7 +134,8 @@
 
     function connect() {
         if (es) es.close();
-        es = new EventSource("/api/oblivion/events");
+        const tok = getToken();
+        es = new EventSource("/api/oblivion/events" + (tok ? "?t=" + encodeURIComponent(tok) : ""));
         es.onopen = () => {
             setPhase("connected");
             if (everOpened) reset();   // a reconnect replays everything; start clean
@@ -141,7 +150,9 @@
             es.close(); es = null;
             await new Promise((r) => setTimeout(r, 1500));
             try {
-                const st = await (await fetch("/api/oblivion/status")).json();
+                const st = await (await fetch("/api/oblivion/status", {
+                    headers: { "x-jarvis-token": getToken() }
+                })).json();
                 if (st.running) connect(); else showSetup(st.error || "Oblivion stopped.");
             } catch { showSetup("Lost contact with the Jarvis server."); }
         };
@@ -154,7 +165,11 @@
 
     async function post(path, body) {
         try {
-            const r = await fetch("/api/oblivion/" + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) });
+            const r = await fetch("/api/oblivion/" + path, {
+                method: "POST",
+                headers: { "content-type": "application/json", "x-jarvis-token": getToken() },
+                body: JSON.stringify(body || {})
+            });
             if (r.status === 503) showSetup("Oblivion stopped. Press Try again to restart it.");
             return r.ok;
         } catch { return false; }
