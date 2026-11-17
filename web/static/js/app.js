@@ -84,6 +84,19 @@ async function fetchWeather(lat, lon, cityName, nameElId, tempElId, condElId) {
 }
 
 function initWeatherWidget() {
+    const btn = document.getElementById('enable-weather-btn');
+    const optIn = document.getElementById('weather-opt-in');
+    const dataBox = document.getElementById('weather-data');
+    if (!btn) return;
+
+    btn.addEventListener('click', () => {
+        if (optIn) optIn.style.display = 'none';
+        if (dataBox) dataBox.style.display = 'grid';
+        loadWeather();
+    });
+}
+
+function loadWeather() {
     // Column 1: CHANDIGARH (Default & Reference)
     fetchWeather(30.7333, 76.7794, 'CHANDIGARH', 'city-1-name', 'city-1-temp', 'city-1-cond');
 

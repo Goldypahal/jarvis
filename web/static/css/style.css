@@ -351,9 +351,51 @@ a, button, .desktop-icon-item, .dock-app-btn, .theme-circle {
 
 /* Weather Widget */
 .weather-widget {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 8px;
+    min-height: 82px;
+}
+
+.weather-data {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 8px;
+    width: 100%;
+}
+
+.weather-opt-in {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 6px 4px;
+    text-align: center;
+}
+
+.weather-opt-in-text {
+    font-size: 0.65rem;
+    font-family: "JetBrains Mono", monospace;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.enable-weather-btn {
+    background: rgba(0, 242, 254, 0.12);
+    border: 1px solid rgba(0, 242, 254, 0.35);
+    color: #00f2fe;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.68rem;
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+}
+
+.enable-weather-btn:hover {
+    background: rgba(0, 242, 254, 0.22);
+    border-color: #00f2fe;
 }
 
 .city-name { font-size: 0.65rem; font-family: "JetBrains Mono", monospace; color: rgba(255,255,255,0.7); }

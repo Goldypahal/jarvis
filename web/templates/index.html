@@ -158,17 +158,23 @@
                 </div>
             </div>
 
-            <!-- Dynamic Weather Widget (Chandigarh Default / Geolocation) -->
+            <!-- Dynamic Weather Widget (Opt-in only, S8) -->
             <div class="widget-box weather-widget" id="weather-widget">
-                <div class="weather-col">
-                    <div class="city-name" id="city-1-name">CHANDIGARH ▾</div>
-                    <div class="temp-deg" id="city-1-temp">--°C</div>
-                    <div class="cond-text" id="city-1-cond">Loading...</div>
+                <div class="weather-opt-in" id="weather-opt-in">
+                    <div class="weather-opt-in-text">Weather &amp; location are off</div>
+                    <button class="enable-weather-btn" id="enable-weather-btn">Enable weather</button>
                 </div>
-                <div class="weather-col">
-                    <div class="city-name" id="city-2-name">NEW DELHI ▾</div>
-                    <div class="temp-deg" id="city-2-temp">--°C</div>
-                    <div class="cond-text" id="city-2-cond">Loading...</div>
+                <div class="weather-data" id="weather-data" style="display: none;">
+                    <div class="weather-col">
+                        <div class="city-name" id="city-1-name">CHANDIGARH ▾</div>
+                        <div class="temp-deg" id="city-1-temp">--°C</div>
+                        <div class="cond-text" id="city-1-cond">--</div>
+                    </div>
+                    <div class="weather-col">
+                        <div class="city-name" id="city-2-name">NEW DELHI ▾</div>
+                        <div class="temp-deg" id="city-2-temp">--°C</div>
+                        <div class="cond-text" id="city-2-cond">--</div>
+                    </div>
                 </div>
             </div>
 
