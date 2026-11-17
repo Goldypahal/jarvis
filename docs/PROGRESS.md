@@ -14,8 +14,8 @@ Current milestone: **v0.5 "One brain"** · Branch: `roadmap/m1`
 - [x] Baseline: run all gates on `main`, record results and test counts in the Log below — 2026-11-17, e729edc, cargo test: 89 passed; pytest: 10 passed; clippy: 0 warnings
 - [x] Baseline: measure `oblivion --version` start time and idle RAM of `oblivion --web`; record in Log — 2026-11-17, e729edc, start: 24.5ms median; idle RAM: 30.66 MB RSS
 - [ ] BLOCKED (needs user): PC specs (RAM, GPU, VRAM, free disk) — write them under "Notes"
-- [x] S4: `web_fetch` refuses loopback, private, link-local and `.local` addresses, including after redirects and DNS resolution; tests for each range — 2026-11-17, HEAD, cargo test: 92 passed; evals: 1/1 passed
-- [ ] S6: bridge checks the `Host` header (only `localhost` / `127.0.0.1` with the right port); tests
+- [x] S4: `web_fetch` refuses loopback, private, link-local and `.local` addresses, including after redirects and DNS resolution; tests for each range — 2026-11-17, 6252000, cargo test: 92 passed; evals: 1/1 passed
+- [x] S6: bridge checks the `Host` header (only `localhost` / `127.0.0.1` with the right port); tests — 2026-11-17, HEAD, pytest: 11 passed
 - [ ] S6: per-start random secret issued by Flask, required as a header on every `/api/oblivion/*` call; panel sends it; tests
 - [ ] S8: bundle the fonts locally under `web/static/fonts`; remove Google Fonts links
 - [ ] S8: weather and location only after the user clicks "Enable weather"; no request on page load

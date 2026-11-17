@@ -172,24 +172,68 @@ class OblivionBridge:
             conn.close()
 
 
-def register(app, bridge=None):
+ALLOWED_HOSTNAMES = {"localhost", "127.0.0.1", "[::1]"}
+
+
+def is_valid_host(host_header, allowed_port=None):
+    if not host_header:
+        return False
+    host_str = host_header.strip().lower()
+    if host_str.startswith("["):
+        bracket_end = host_str.find("]")
+        if bracket_end == -1:
+            return False
+        hostname = host_str[: bracket_end + 1]
+        rest = host_str[bracket_end + 1 :]
+        if rest.startswith(":"):
+            port_str = rest[1:]
+        elif rest == "":
+            port_str = None
+        else:
+            return False
+    else:
+        if ":" in host_str:
+            hostname, port_str = host_str.split(":", 1)
+        else:
+            hostname, port_str = host_str, None
+
+    if hostname not in ALLOWED_HOSTNAMES:
+        return False
+
+    if port_str is not None:
+        try:
+            port = int(port_str)
+        except ValueError:
+            return False
+        if allowed_port is not None and port != allowed_port:
+            return False
+
+    return True
+
+
+def register(app, bridge=None, allowed_port=None):
     """Add the /api/oblivion/* routes to a Flask app."""
     from flask import Response, jsonify, request, stream_with_context
 
     bridge = bridge or OblivionBridge()
     app.config["OBLIVION_BRIDGE"] = bridge
+    configured_port = allowed_port or app.config.get("JARVIS_PORT")
 
-    def same_origin():
-        # Block other websites open in the browser from driving the agent:
-        # a cross-site request carries an Origin that is not this server.
+    def check_security():
+        host = request.headers.get("Host") or request.host
+        if not is_valid_host(host, allowed_port=configured_port):
+            return jsonify({"error": "invalid Host header"}), 403
+
         origin = request.headers.get("Origin")
-        if origin is None:
-            return True
-        return origin.rstrip("/") == request.host_url.rstrip("/")
+        if origin is not None and origin.rstrip("/") != request.host_url.rstrip("/"):
+            return jsonify({"error": "cross-site request refused"}), 403
+
+        return None
 
     def forward(path):
-        if not same_origin():
-            return jsonify({"error": "cross-site request refused"}), 403
+        sec = check_security()
+        if sec:
+            return sec
         body = request.get_json(silent=True)
         if body is None:
             return jsonify({"error": "expected a JSON body"}), 400
@@ -198,18 +242,23 @@ def register(app, bridge=None):
 
     @app.get("/api/oblivion/status")
     def oblivion_status():
+        sec = check_security()
+        if sec:
+            return sec
         return jsonify(bridge.status())
 
     @app.post("/api/oblivion/start")
     def oblivion_start():
-        if not same_origin():
-            return jsonify({"error": "cross-site request refused"}), 403
+        sec = check_security()
+        if sec:
+            return sec
         return jsonify(bridge.start())
 
     @app.get("/api/oblivion/events")
     def oblivion_events():
-        if not same_origin():
-            return jsonify({"error": "cross-site request refused"}), 403
+        sec = check_security()
+        if sec:
+            return sec
         return Response(
             stream_with_context(bridge.events()),
             mimetype="text/event-stream",

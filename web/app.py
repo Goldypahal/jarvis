@@ -21,7 +21,9 @@ from nexus_adapter import NexusCore  # Our local adapter
 import oblivion_bridge  # Runs the Oblivion agent for the right-side panel
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
-oblivion_bridge.register(app)
+jarvis_port = int(os.environ.get('JARVIS_PORT', '5000'))
+app.config['JARVIS_PORT'] = jarvis_port
+oblivion_bridge.register(app, allowed_port=jarvis_port)
 
 # Initialize NEXUS core (we'll create a singleton instance)
 nexus_core = None
