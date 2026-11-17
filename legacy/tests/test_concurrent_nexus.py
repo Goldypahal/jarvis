@@ -4,22 +4,27 @@ import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-WEB_DIR = os.path.abspath(os.path.join(HERE, "..", "web"))
+WEB_DIR = os.path.abspath(os.path.join(HERE, "..", "..", "web"))
+LEGACY_DIR = os.path.abspath(os.path.join(HERE, ".."))
 if WEB_DIR not in sys.path:
     sys.path.insert(0, WEB_DIR)
+if LEGACY_DIR not in sys.path:
+    sys.path.insert(1, LEGACY_DIR)
 
-import app as web_app
+import nexus_adapter
 
 
-def test_nexus_lock_exists():
-    assert hasattr(web_app, "nexus_lock"), "web/app.py must define nexus_lock"
+import asyncio
+
+def test_nexus_adapter_exists():
+    assert hasattr(nexus_adapter, "NexusCore"), "nexus_adapter must define NexusCore"
 
 
 def test_two_concurrent_nexus_requests():
-    nexus = web_app.get_nexus_core()
+    nexus = nexus_adapter.NexusCore()
 
     def send_query(msg):
-        return web_app.run_async(nexus.process_query(msg))
+        return asyncio.run(nexus.process_query(msg))
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         f1 = executor.submit(send_query, "Hello from thread 1")

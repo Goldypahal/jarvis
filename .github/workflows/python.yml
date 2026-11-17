@@ -4,14 +4,14 @@ on:
   push:
     paths:
       - "web/**"
-      - "nexus/**"
+      - "legacy/**"
       - "tests/**"
       - "requirements.txt"
       - ".github/workflows/python.yml"
   pull_request:
     paths:
       - "web/**"
-      - "nexus/**"
+      - "legacy/**"
       - "tests/**"
       - "requirements.txt"
       - ".github/workflows/python.yml"
