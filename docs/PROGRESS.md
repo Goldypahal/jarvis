@@ -21,8 +21,8 @@ Current milestone: **v0.5 "One brain"** · Branch: `roadmap/m1`
 - [x] S8: weather and location only after the user clicks "Enable weather"; no request on page load — 2026-11-17, ca9f795, pytest: 16 passed; node check: clean; browser UI verified
 - [x] B6: replace root `requirements.txt` with what is actually imported; pin Flask 3.x; one supported Python version stated in README — 2026-11-17, ed3754c, pytest: 18 passed
 - [x] B4: one lock around all NEXUS calls in `web/app.py` (temporary until week 2); test with two concurrent requests — 2026-11-17, 61d6218, pytest: 20 passed
-- [x] Q2: `git mv` the eight summary files and `DONE.txt` to `legacy/notes/`; delete stray `.db` files from the working tree (they are git-ignored) — 2026-11-17, HEAD, git mv 9 files to legacy/notes/; deleted 6 stray .db files; pytest: 20 passed
-- [ ] Python CI: add a workflow that runs `pytest` on Windows and Ubuntu
+- [x] Q2: `git mv` the eight summary files and `DONE.txt` to `legacy/notes/`; delete stray `.db` files from the working tree (they are git-ignored) — 2026-11-17, 2b9023d, git mv 9 files to legacy/notes/; deleted 6 stray .db files; pytest: 20 passed
+- [x] Python CI: add a workflow that runs `pytest` on Windows and Ubuntu — 2026-11-17, 44963a4, .github/workflows/python.yml: windows-latest & ubuntu-latest; pytest: 20 passed
 
 ### Week 2 — one brain
 - [ ] B1: `/api/chat` forwards to Oblivion through the bridge (send + read events until `turn_end`); test with a fake Oblivion
