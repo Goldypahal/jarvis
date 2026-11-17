@@ -8,12 +8,20 @@ import asyncio
 import sys
 import os
 
-# Add the current directory to the path so we can import our local adapter module
-sys.path.insert(0, os.path.dirname(__file__))
+# Add the current directory and project root to the path so we can import our local adapter and core modules
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(current_dir, '..'))
+
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+if project_root not in sys.path:
+    sys.path.insert(1, project_root)
 
 from nexus_adapter import NexusCore  # Our local adapter
+import oblivion_bridge  # Runs the Oblivion agent for the right-side panel
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
+oblivion_bridge.register(app)
 
 # Initialize NEXUS core (we'll create a singleton instance)
 nexus_core = None
@@ -117,5 +125,11 @@ def activate_mode():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    # Run the Flask app
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # Only this computer can open the desktop: the Oblivion panel can edit files and
+    # run commands, so it must not be reachable from the network. Debug mode stays
+    # off because its in-browser console would let a visitor run code.
+    # Set JARVIS_HOST=0.0.0.0 only if you understand that risk.
+    host = os.environ.get('JARVIS_HOST', '127.0.0.1')
+    port = int(os.environ.get('JARVIS_PORT', '5000'))
+    print(f"Jarvis desktop: http://{'localhost' if host == '127.0.0.1' else host}:{port}")
+    app.run(host=host, port=port, debug=False, threaded=True)

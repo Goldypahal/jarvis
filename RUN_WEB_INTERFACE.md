@@ -80,3 +80,31 @@ If you encounter issues:
 - All NEXUS core functionality (reasoning, memory, context, etc.) is preserved
 - The interface can run simultaneously with the console version if desired
 - The RAG system path is set to `D:\Desktop\RAG` as specified in your requirements
+## Oblivion panel (the coding agent, on the right)
+
+Oblivion is the Rust agent in `oblivion/`. In the desktop it lives in a panel that slides in
+from the right edge. Open it with the dock's 💬 icon, the **Oblivion** item in the menu bar,
+or **Ctrl+J** (Cmd+J on a Mac).
+
+1. Build Oblivion once (and again after updates):
+   ```
+   cd D:\Jarvis\oblivion
+   cargo build --release
+   ```
+2. Start the desktop as usual: `cd D:\Jarvis\web` then `python app.py`, and open
+   http://localhost:5000. The first time the panel opens, Jarvis starts Oblivion in the
+   background (takes a few seconds); it stops when `app.py` stops.
+
+In the panel: answers stream in, every file change shows its diff, helpers working in
+parallel and the task list appear as they run, and an Allow / Always / Deny sheet appears
+before edits or commands (keys Y / A / N). The segmented control switches between asking
+first, editing freely, or never asking. ••• has Undo last changes, New conversation and
+today's model usage. Esc stops a running request.
+
+Settings (environment variables, optional):
+- `OBLIVION_WORKDIR`: the folder Oblivion works in (default `D:\Jarvis`).
+- `OBLIVION_BIN`: path to `oblivion.exe` if it is not in `oblivion\target\release`.
+
+The desktop now only listens on this computer (127.0.0.1) with Flask debug mode off,
+because the panel can edit files and run commands. `JARVIS_HOST=0.0.0.0` opens it to your
+network again; only do that on a network you trust.

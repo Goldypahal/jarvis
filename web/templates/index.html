@@ -11,6 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@300;400;500;700&family=Instrument+Serif:ital@0;1&family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 
     <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/oblivion.css">
 </head>
 <body data-theme="blue">
 
@@ -65,6 +66,8 @@
                 <span class="social-icon">💼</span>
                 <span class="social-icon">𝕏</span>
             </div>
+            <span class="menu-sep hide-mobile">|</span>
+            <button class="menu-oblivion" id="ob-menubar" title="Oblivion assistant (Ctrl+J)"><span class="dot" id="ob-menubar-dot"></span>Oblivion</button>
             <span class="menu-sep hide-mobile">|</span>
             <span class="menu-date">Aug 12</span>
             <span id="menu-clock" class="menu-clock">05:47 AM</span>
@@ -248,8 +251,9 @@
                     </button>
                     
                     <!-- Chat Icon (i / Message Icon for Opening 30/70 Split Window) -->
-                    <button class="dock-app-btn chat-dock-btn active" id="open-chat-dock-btn" title="Open Jarvis Interactive Workspace (30/70 Split)">
+                    <button class="dock-app-btn chat-dock-btn active" id="open-chat-dock-btn" title="Oblivion assistant (Ctrl+J)">
                         <div class="app-icon chat-icon">💬</div>
+                        <span class="ob-badge" id="ob-dock-badge" hidden></span>
                     </button>
                 </div>
             </div>
@@ -357,6 +361,47 @@
         </div>
     </div>
 
+    <!-- ==========================================================================
+         6. Oblivion panel (slides in from the right; see static/js/oblivion.js)
+         ========================================================================== -->
+    <aside id="ob-panel" class="ob-panel" aria-label="Oblivion assistant" aria-hidden="true">
+        <header class="ob-head">
+            <div class="ob-title">
+                <span class="ob-orb"></span>
+                <div>
+                    <div class="ob-name">Oblivion</div>
+                    <div class="ob-sub" id="ob-sub">Not started</div>
+                </div>
+            </div>
+            <div class="ob-head-actions">
+                <button class="ob-icon-btn stop" id="ob-stop" title="Stop (Esc)" hidden>■</button>
+                <button class="ob-icon-btn" id="ob-more-btn" title="More">•••</button>
+                <button class="ob-icon-btn" id="ob-close" title="Close (Ctrl+J)">✕</button>
+            </div>
+        </header>
+        <div class="ob-seg" id="ob-seg" role="radiogroup" aria-label="When to ask before acting">
+            <button data-mode="ask" class="on" title="Ask before editing files or running commands">Ask</button>
+            <button data-mode="auto-edit" title="Edit files freely; ask before commands">Auto-edit</button>
+            <button data-mode="yolo" title="Never ask">Never ask</button>
+        </div>
+        <div class="ob-more" id="ob-more" hidden></div>
+        <details class="ob-tasks" id="ob-tasks" hidden>
+            <summary><span>Tasks</span><span class="bar"><i id="ob-tasks-bar" style="width:0%"></i></span><span class="count" id="ob-tasks-count">0/0</span></summary>
+            <ul id="ob-tasks-list"></ul>
+        </details>
+        <div class="ob-log" id="ob-log"></div>
+        <div class="ob-sheets" id="ob-sheets"></div>
+        <div class="ob-compose">
+            <div class="ob-suggest" id="ob-suggest" hidden></div>
+            <div class="ob-field">
+                <textarea id="ob-input" rows="1" placeholder="Ask Oblivion, or type / for skills"></textarea>
+                <button class="ob-send" id="ob-send" title="Send (Enter)" disabled>↑</button>
+            </div>
+            <div class="ob-hint"><span>Enter to send · Shift+Enter new line</span><span>Esc stops · Ctrl+J hides</span></div>
+        </div>
+    </aside>
+
     <script src="/static/js/app.js"></script>
+    <script src="/static/js/oblivion.js"></script>
 </body>
 </html>

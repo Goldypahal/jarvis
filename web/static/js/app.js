@@ -196,7 +196,9 @@ function initSplitModal() {
     const closeBtn = document.getElementById('close-split-modal-btn');
     const chatDockBtn = document.getElementById('open-chat-dock-btn');
 
-    if (chatDockBtn) {
+    // The dock's chat icon opens the Oblivion panel (static/js/oblivion.js);
+    // without it, it falls back to the 30/70 workspace window.
+    if (chatDockBtn && !window.OblivionPanel) {
         chatDockBtn.addEventListener('click', openSplitModal);
     }
 

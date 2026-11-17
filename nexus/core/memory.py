@@ -9,7 +9,7 @@ import asyncio
 import logging
 import json
 import sqlite3
-import os
+import math
 from dataclasses import dataclass, asdict, field
 from enum import Enum
 
@@ -26,7 +26,7 @@ class MemoryType(Enum):
 
 @dataclass
 class MemoryEntry:
-    """Base class for memory entries"""
+    """Base class for memory entries with cognitive decay and evolution tracking"""
     id: str
     memory_type: MemoryType
     content: Dict[str, Any]
@@ -36,6 +36,17 @@ class MemoryEntry:
     importance_score: float = 0.5  # 0.0 to 1.0
     tags: List[str] = field(default_factory=list)
     expires_at: Optional[datetime] = None
+    evolution_history: List[Dict[str, Any]] = field(default_factory=list)
+
+    def calculate_effective_importance(self, decay_rate: float = 0.05) -> float:
+        """
+        Calculates time-decayed effective importance score:
+        effective = importance * exp(-decay_rate * delta_days) + min(0.3, 0.05 * access_count)
+        """
+        delta_days = max(0.0, (datetime.now() - self.last_accessed).total_seconds() / 86400.0)
+        decay_factor = math.exp(-decay_rate * delta_days)
+        frequency_boost = min(0.3, 0.05 * self.access_count)
+        return round(min(1.0, (self.importance_score * decay_factor) + frequency_boost), 4)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for storage"""
@@ -55,6 +66,8 @@ class MemoryEntry:
         data['last_accessed'] = datetime.fromisoformat(data['last_accessed'])
         if data.get('expires_at'):
             data['expires_at'] = datetime.fromisoformat(data['expires_at'])
+        if 'evolution_history' not in data:
+            data['evolution_history'] = []
         return cls(**data)
 
 
@@ -68,6 +81,7 @@ class MemorySystem:
         self.db_path = db_path
         self.connection: Optional[sqlite3.Connection] = None
         self._cache: Dict[str, MemoryEntry] = {}
+        self.working_memory: Dict[str, Any] = {}
         self._initialize_database()
 
     def _initialize_database(self) -> None:
@@ -124,16 +138,18 @@ class MemorySystem:
             tags_val, expires_at_val
         ) = row
 
+        content_dict = json.loads(content_val)
         entry = MemoryEntry(
             id=id_val,
             memory_type=MemoryType(memory_type_val),
-            content=json.loads(content_val),
+            content=content_dict,
             timestamp=datetime.fromisoformat(timestamp_val),
             last_accessed=datetime.fromisoformat(last_accessed_val),
             access_count=access_count_val,
             importance_score=importance_score_val,
             tags=json.loads(tags_val) if tags_val else [],
-            expires_at=datetime.fromisoformat(expires_at_val) if expires_at_val else None
+            expires_at=datetime.fromisoformat(expires_at_val) if expires_at_val else None,
+            evolution_history=content_dict.get("evolution_history", [])
         )
         return entry
 
@@ -431,6 +447,88 @@ class MemorySystem:
         except Exception as e:
             logger.error(f"Failed to get memory stats: {e}")
             return {"error": str(e)}
+
+    def update_working_memory(self, key: str, value: Any) -> None:
+        """Update working memory buffer for active session."""
+        self.working_memory[key] = value
+
+    def get_working_memory(self) -> Dict[str, Any]:
+        """Retrieve copy of active working memory."""
+        return self.working_memory.copy()
+
+    def clear_working_memory(self) -> None:
+        """Clear active working memory."""
+        self.working_memory.clear()
+
+    async def get_memories(
+        self,
+        memory_type: Optional[MemoryType] = None,
+        limit: int = 50,
+        min_importance: float = 0.0
+    ) -> List[MemoryEntry]:
+        """Convenience alias for search_memories."""
+        return await self.search_memories(memory_type=memory_type, limit=limit, min_importance=min_importance)
+
+    async def get_ranked_memories(
+        self,
+        memory_type: Optional[MemoryType] = None,
+        limit: int = 10,
+        decay_rate: float = 0.05
+    ) -> List[MemoryEntry]:
+        """
+        Fetch memories ranked dynamically by time-decayed effective importance.
+        """
+        all_memories = await self.get_memories(memory_type=memory_type, limit=limit * 3)
+        all_memories.sort(
+            key=lambda m: m.calculate_effective_importance(decay_rate=decay_rate),
+            reverse=True
+        )
+        return all_memories[:limit]
+
+    async def record_preference_evolution(
+        self,
+        preference_key: str,
+        new_value: Any,
+        reason: str = ""
+    ) -> MemoryEntry:
+        """
+        Detects existing preferences and appends historical shift rather than blind overwrite.
+        """
+        existing_memories = await self.get_memories(memory_type=MemoryType.SEMANTIC, limit=50)
+        target_entry = None
+        for entry in existing_memories:
+            if entry.content.get("preference_key") == preference_key:
+                target_entry = entry
+                break
+
+        now = datetime.now()
+        if target_entry:
+            old_val = target_entry.content.get("value")
+            target_entry.evolution_history.append({
+                "previous_value": old_val,
+                "timestamp": now.isoformat(),
+                "reason": reason
+            })
+            target_entry.content["evolution_history"] = target_entry.evolution_history
+            target_entry.content["value"] = new_value
+            target_entry.last_accessed = now
+            target_entry.access_count += 1
+            target_entry.importance_score = min(1.0, target_entry.importance_score + 0.1)
+            await self.store_memory(target_entry)
+            logger.info(f"Updated evolved preference '{preference_key}': {old_val} -> {new_value}")
+            return target_entry
+        else:
+            entry_id = f"pref_{preference_key}"
+            new_entry = MemoryEntry(
+                id=entry_id,
+                memory_type=MemoryType.SEMANTIC,
+                content={"preference_key": preference_key, "value": new_value},
+                timestamp=now,
+                importance_score=0.8,
+                tags=["preference", preference_key]
+            )
+            await self.store_memory(new_entry)
+            return new_entry
 
 
 # Example usage

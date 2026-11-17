@@ -4,12 +4,16 @@ This adapter wraps the existing NEXUS components to provide a simple API for the
 """
 
 import asyncio
+import os
+import sys
+import time
 from typing import Optional, Dict, List
 
 # Import NEXUS components
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(current_dir, '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 from nexus.core.reasoning import ReasoningEngine
 from nexus.core.context import ContextManager
@@ -51,7 +55,7 @@ class NexusCore:
         )
 
         # Initialize context
-        self.session_id = f"web_{asyncio.get_event_loop().time() if asyncio.get_event_loop().is_running() else 0}"
+        self.session_id = f"web_{int(time.time())}"
 
     async def process_query(self, user_input: str, mode: Optional[str] = None) -> Dict[str, str]:
         """
