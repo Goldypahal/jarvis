@@ -3,6 +3,7 @@
 //! Search works with no key through DuckDuckGo's HTML page; Tavily (free
 //! monthly credits) or a SearXNG server can be configured instead.
 
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, ToSocketAddrs};
 use std::time::Duration;
 
 use oblivion_providers::ToolSpec;
@@ -64,11 +65,216 @@ pub(crate) fn specs() -> Vec<ToolSpec> {
     ]
 }
 
+pub fn is_blocked_ipv4(ip: &Ipv4Addr) -> bool {
+    let octets = ip.octets();
+    // 0.0.0.0/8 (unspecified / broadcast this host)
+    if octets[0] == 0 {
+        return true;
+    }
+    // 127.0.0.0/8 (loopback)
+    if octets[0] == 127 {
+        return true;
+    }
+    // 10.0.0.0/8 (RFC 1918 private)
+    if octets[0] == 10 {
+        return true;
+    }
+    // 172.16.0.0/12 (RFC 1918 private)
+    if octets[0] == 172 && (16..=31).contains(&octets[1]) {
+        return true;
+    }
+    // 192.168.0.0/16 (RFC 1918 private)
+    if octets[0] == 192 && octets[1] == 168 {
+        return true;
+    }
+    // 169.254.0.0/16 (link-local RFC 3927)
+    if octets[0] == 169 && octets[1] == 254 {
+        return true;
+    }
+    // 100.64.0.0/10 (Carrier-grade NAT RFC 6598)
+    if octets[0] == 100 && (64..=127).contains(&octets[1]) {
+        return true;
+    }
+    // 192.0.0.0/24 (IETF protocol assignments)
+    if octets[0] == 192 && octets[1] == 0 && octets[2] == 0 {
+        return true;
+    }
+    // 192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24 (TEST-NET documentation)
+    if (octets[0] == 192 && octets[1] == 0 && octets[2] == 2)
+        || (octets[0] == 198 && octets[1] == 51 && octets[2] == 100)
+        || (octets[0] == 203 && octets[1] == 0 && octets[2] == 113)
+    {
+        return true;
+    }
+    // 198.18.0.0/15 (benchmarking)
+    if octets[0] == 198 && (18..=19).contains(&octets[1]) {
+        return true;
+    }
+    // 224.0.0.0/4 (multicast)
+    if octets[0] >= 224 {
+        return true;
+    }
+    // 255.255.255.255 (broadcast)
+    if ip.is_broadcast() {
+        return true;
+    }
+    false
+}
+
+pub fn is_blocked_ipv6(ip: &Ipv6Addr) -> bool {
+    if ip.is_loopback() || ip.is_unspecified() {
+        return true;
+    }
+    let segments = ip.segments();
+    // IPv4-mapped (::ffff:a.b.c.d) or IPv4-compatible (::a.b.c.d)
+    if segments[0] == 0
+        && segments[1] == 0
+        && segments[2] == 0
+        && segments[3] == 0
+        && segments[4] == 0
+        && (segments[5] == 0xffff || segments[5] == 0)
+    {
+        let v4 = Ipv4Addr::new(
+            (segments[6] >> 8) as u8,
+            segments[6] as u8,
+            (segments[7] >> 8) as u8,
+            segments[7] as u8,
+        );
+        return is_blocked_ipv4(&v4);
+    }
+    // Unique local address fc00::/7 (first byte & 0xfe == 0xfc)
+    if (segments[0] & 0xfe00) == 0xfc00 {
+        return true;
+    }
+    // Link-local address fe80::/10 (first byte & 0xffc0 == 0xfe80)
+    if (segments[0] & 0xffc0) == 0xfe80 {
+        return true;
+    }
+    // Discard prefix 100::/64
+    if segments[0] == 0x0100 && segments[1] == 0 && segments[2] == 0 && segments[3] == 0 {
+        return true;
+    }
+    // Documentation 2001:db8::/32
+    if segments[0] == 0x2001 && segments[1] == 0x0db8 {
+        return true;
+    }
+    // Multicast ff00::/8
+    if (segments[0] & 0xff00) == 0xff00 {
+        return true;
+    }
+    false
+}
+
+pub fn is_blocked_ip(ip: &IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ipv4) => is_blocked_ipv4(ipv4),
+        IpAddr::V6(ipv6) => is_blocked_ipv6(ipv6),
+    }
+}
+
+pub fn is_blocked_hostname(host: &str) -> bool {
+    let lower = host.trim_end_matches('.').to_ascii_lowercase();
+    lower == "localhost"
+        || lower.ends_with(".localhost")
+        || lower == "local"
+        || lower.ends_with(".local")
+        || lower == "internal"
+        || lower.ends_with(".internal")
+        || lower == "lan"
+        || lower.ends_with(".lan")
+        || lower.ends_with(".home.arpa")
+}
+
+pub fn check_host_str(host_str: &str) -> Result<(), String> {
+    let clean = host_str.trim_start_matches('[').trim_end_matches(']');
+    if let Ok(ip) = clean.parse::<IpAddr>() {
+        if is_blocked_ip(&ip) {
+            return Err(format!(
+                "blocked IP address {ip} (loopback, private, or link-local)"
+            ));
+        }
+    } else if is_blocked_hostname(host_str) {
+        return Err(format!(
+            "blocked host '{host_str}' (.local, localhost, or internal domain)"
+        ));
+    }
+    Ok(())
+}
+
+pub async fn validate_fetch_url(raw_url: &str) -> Result<reqwest::Url, String> {
+    let parsed =
+        reqwest::Url::parse(raw_url).map_err(|e| format!("invalid URL '{raw_url}': {e}"))?;
+    let scheme = parsed.scheme();
+    if scheme != "http" && scheme != "https" {
+        return Err("only http:// and https:// URLs can be fetched".into());
+    }
+    let host_str = parsed
+        .host_str()
+        .ok_or_else(|| format!("URL '{raw_url}' has no host"))?;
+    check_host_str(host_str)
+        .map_err(|reason| format!("refusing to fetch '{raw_url}': {reason}"))?;
+
+    let clean = host_str.trim_start_matches('[').trim_end_matches(']');
+    if clean.parse::<IpAddr>().is_err() {
+        let port = parsed.port_or_known_default().unwrap_or(80);
+        let addrs = tokio::net::lookup_host((clean, port)).await.map_err(|e| {
+            format!("refusing to fetch '{raw_url}': cannot resolve host '{clean}': {e}")
+        })?;
+        for addr in addrs {
+            if is_blocked_ip(&addr.ip()) {
+                return Err(format!(
+                    "refusing to fetch '{raw_url}': host '{clean}' resolves to blocked address {} (loopback, private, or link-local)",
+                    addr.ip()
+                ));
+            }
+        }
+    }
+    Ok(parsed)
+}
+
+pub fn validate_redirect_url(url: &reqwest::Url) -> Result<(), String> {
+    let scheme = url.scheme();
+    if scheme != "http" && scheme != "https" {
+        return Err(format!("redirect to non-http/https URL scheme '{scheme}'"));
+    }
+    let host_str = url
+        .host_str()
+        .ok_or_else(|| "redirect URL has no host".to_string())?;
+    check_host_str(host_str).map_err(|reason| format!("redirect to {reason}"))?;
+
+    let clean = host_str.trim_start_matches('[').trim_end_matches(']');
+    if clean.parse::<IpAddr>().is_err() {
+        let port = url.port_or_known_default().unwrap_or(80);
+        if let Ok(addrs) = (clean, port).to_socket_addrs() {
+            for addr in addrs {
+                if is_blocked_ip(&addr.ip()) {
+                    return Err(format!(
+                        "redirect host '{clean}' resolves to blocked address {}",
+                        addr.ip()
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn http_client() -> reqwest::Client {
     reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(15))
         .timeout(Duration::from_secs(40))
-        .redirect(reqwest::redirect::Policy::limited(8))
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() >= 8 {
+                return attempt.error(std::io::Error::other("too many redirects (limit 8)"));
+            }
+            if let Err(err) = validate_redirect_url(attempt.url()) {
+                return attempt.error(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    err,
+                ));
+            }
+            attempt.follow()
+        }))
         // Some sites refuse requests without a browser-like agent.
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Oblivion/0.1")
         .build()
@@ -149,18 +355,20 @@ pub(crate) async fn web_fetch(tb: &ToolBox, args: &Value) -> Result<String, Stri
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return Err("only http:// and https:// URLs can be fetched".into());
     }
+    let validated = validate_fetch_url(url).await?;
     let max_chars = args
         .get("max_chars")
         .and_then(Value::as_u64)
         .map(|n| n as usize)
         .unwrap_or(DEFAULT_FETCH_CHARS)
         .clamp(500, 100_000);
-    let resp = tb
-        .http()
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| format!("fetch failed: {e}"))?;
+    let resp = tb.http().get(validated).send().await.map_err(|e| {
+        if let Some(src) = std::error::Error::source(&e) {
+            format!("fetch failed: {e}: {src}")
+        } else {
+            format!("fetch failed: {e}")
+        }
+    })?;
     let status = resp.status();
     let final_url = resp.url().to_string();
     let ctype = resp
@@ -446,6 +654,145 @@ mod tests {
                 url: "https://u".into(),
                 snippet: "C".into()
             }]
+        );
+    }
+
+    #[tokio::test]
+    async fn web_fetch_refuses_blocked_ranges() {
+        let tb = ToolBox::new(
+            std::path::PathBuf::from("."),
+            crate::Shell::Sh,
+            std::path::PathBuf::from(".snap"),
+        );
+        let blocked = [
+            // Loopback IPv4
+            "http://127.0.0.1:8080/secret",
+            "http://127.0.0.2:8080/",
+            "http://127.255.255.255/",
+            // Loopback IPv6
+            "http://[::1]:8080/",
+            // Localhost hostnames
+            "http://localhost:8080/",
+            "http://sub.localhost:3000/",
+            // Private IPv4 (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+            "http://10.0.0.1/admin",
+            "http://10.255.255.254/",
+            "http://172.16.0.1/",
+            "http://172.24.1.1/",
+            "http://172.31.255.254/",
+            "http://192.168.0.1/router",
+            "http://192.168.1.254/",
+            // Private IPv6 (fc00::/7)
+            "http://[fc00::1]/",
+            "http://[fd12:3456:789a::1]/",
+            // Link-local IPv4 (169.254.0.0/16)
+            "http://169.254.169.254/latest/meta-data/",
+            "http://169.254.1.1/",
+            // Link-local IPv6 (fe80::/10)
+            "http://[fe80::1]/",
+            // .local and internal hostnames
+            "http://printer.local/",
+            "http://my-service.local:8080/",
+            "http://nas.internal/",
+            "http://router.lan/",
+            "http://gateway.home.arpa/",
+            // Unspecified / broadcast
+            "http://0.0.0.0:8000/",
+            "http://[::]:8000/",
+        ];
+        for url in blocked {
+            let res = web_fetch(&tb, &json!({"url": url})).await;
+            assert!(
+                res.is_err(),
+                "URL '{url}' must be refused by web_fetch, but was accepted: {res:?}"
+            );
+            let err = res.unwrap_err();
+            assert!(
+                err.contains("blocked")
+                    || err.contains("refusing")
+                    || err.contains("private")
+                    || err.contains("loopback"),
+                "Error for '{url}' should describe why it is refused: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn redirect_validation_refuses_blocked_ranges() {
+        let blocked = [
+            // Loopback
+            "http://127.0.0.1:8080/secret",
+            "http://[::1]:8080/",
+            "http://localhost:8080/",
+            // Private
+            "http://10.0.0.1/admin",
+            "http://172.16.0.1/",
+            "http://192.168.1.1/",
+            "http://[fc00::1]/",
+            // Link-local
+            "http://169.254.169.254/latest/meta-data/",
+            "http://[fe80::1]/",
+            // .local / internal
+            "http://printer.local/",
+            "http://nas.internal/",
+            "http://router.lan/",
+            // Schemes
+            "file:///etc/passwd",
+            "ftp://example.com/file",
+        ];
+        for target in blocked {
+            let parsed = reqwest::Url::parse(target).unwrap();
+            let res = validate_redirect_url(&parsed);
+            assert!(
+                res.is_err(),
+                "Redirect to '{target}' must be refused, but got Ok"
+            );
+        }
+
+        // Public URLs must be allowed
+        let allowed = [
+            "https://example.com/page",
+            "http://93.184.216.34/test",
+            "https://docs.rs/tokio",
+        ];
+        for target in allowed {
+            let parsed = reqwest::Url::parse(target).unwrap();
+            assert!(
+                validate_redirect_url(&parsed).is_ok(),
+                "Public URL '{target}' should be allowed as redirect"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn live_redirect_to_blocked_target_is_rejected() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        tokio::spawn(async move {
+            if let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = [0u8; 1024];
+                let _ = socket.read(&mut buf).await;
+                let response = "HTTP/1.1 302 Found\r\nLocation: http://192.168.1.1/secret\r\nContent-Length: 0\r\n\r\n";
+                let _ = socket.write_all(response.as_bytes()).await;
+            }
+        });
+
+        let client = http_client();
+        let res = client
+            .get(format!("http://127.0.0.1:{port}/redirect"))
+            .send()
+            .await;
+        assert!(res.is_err(), "Redirect to 192.168.1.1 must fail");
+        let err = res.unwrap_err();
+        let src = std::error::Error::source(&err)
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+        let full = format!("{err}: {src}");
+        assert!(
+            full.contains("blocked") || full.contains("192.168.1.1"),
+            "Error should mention blocked address: {full}"
         );
     }
 }
