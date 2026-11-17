@@ -11,8 +11,8 @@ Current milestone: **v0.5 "One brain"** · Branch: `roadmap/m1`
 ## Month 1 — one brain, safe by default → v0.5
 
 ### Week 1 — clean and safe
-- [ ] Baseline: run all gates on `main`, record results and test counts in the Log below
-- [ ] Baseline: measure `oblivion --version` start time and idle RAM of `oblivion --web`; record in Log
+- [x] Baseline: run all gates on `main`, record results and test counts in the Log below — 2026-11-17, HEAD, cargo test: 89 passed; pytest: 10 passed; clippy: 0 warnings
+- [x] Baseline: measure `oblivion --version` start time and idle RAM of `oblivion --web`; record in Log — 2026-11-17, HEAD, start: 24.5ms median; idle RAM: 30.66 MB RSS
 - [ ] BLOCKED (needs user): PC specs (RAM, GPU, VRAM, free disk) — write them under "Notes"
 - [ ] S4: `web_fetch` refuses loopback, private, link-local and `.local` addresses, including after redirects and DNS resolution; tests for each range
 - [ ] S6: bridge checks the `Host` header (only `localhost` / `127.0.0.1` with the right port); tests
@@ -122,6 +122,15 @@ Current milestone: **v0.5 "One brain"** · Branch: `roadmap/m1`
 
 ## Log
 <!-- The agent adds a dated entry at the end of each week section. -->
+### Baseline (2026-11-17)
+- Quality gates:
+  - `cargo fmt --all`: clean
+  - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings
+  - `cargo test --workspace`: 89 passed, 0 failed (fixed Windows MCP handshake error string containing server name)
+  - `python -m pytest -q tests`: 10 passed, 0 failed
+- Performance measurements:
+  - `oblivion --version` start time: 24.5 ms median (samples: 28.2ms, 24.9ms, 24.5ms, 20.2ms, 19.4ms)
+  - `oblivion --web` idle RSS RAM: 30.66 MB (well under 100 MB target)
 
 ## Notes for next session
 <!-- Surprises about the code, environment quirks, things the next session must know. -->
@@ -129,3 +138,4 @@ Current milestone: **v0.5 "One brain"** · Branch: `roadmap/m1`
 - Smart App Control has blocked Rust build scripts before; if a build fails with an
   "Application Control policy" error, mark the item BLOCKED (needs user) instead of retrying.
 - Groq free tier: about 8K tokens/minute and ~7K tokens per request; keep prompts small.
+- Detected PC specs (pending user verification): RAM: 16 GB, GPU: Intel Iris Xe Graphics (~1 GB VRAM / shared), Free disk D: ~673.5 GB.

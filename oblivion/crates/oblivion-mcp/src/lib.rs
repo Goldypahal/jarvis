@@ -135,7 +135,7 @@ impl McpHub {
                         .map_err(|e| format!("could not start '{command}': {e}"))?;
                     ().serve(transport)
                         .await
-                        .map_err(|e| format!("MCP handshake failed: {e}"))
+                        .map_err(|e| format!("MCP server '{}' handshake failed: {e}", config.name))
                 }
                 Transport::Http { url, token } => {
                     let mut cfg = StreamableHttpClientTransportConfig::with_uri(url.as_str());
