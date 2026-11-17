@@ -16,8 +16,8 @@ Current milestone: **v0.5 "One brain"** · Branch: `roadmap/m1`
 - [ ] BLOCKED (needs user): PC specs (RAM, GPU, VRAM, free disk) — write them under "Notes"
 - [x] S4: `web_fetch` refuses loopback, private, link-local and `.local` addresses, including after redirects and DNS resolution; tests for each range — 2026-11-17, 6252000, cargo test: 92 passed; evals: 1/1 passed
 - [x] S6: bridge checks the `Host` header (only `localhost` / `127.0.0.1` with the right port); tests — 2026-11-17, c26b24b, pytest: 11 passed
-- [x] S6: per-start random secret issued by Flask, required as a header on every `/api/oblivion/*` call; panel sends it; tests — 2026-11-17, HEAD, pytest: 12 passed; node check: passed
-- [ ] S8: bundle the fonts locally under `web/static/fonts`; remove Google Fonts links
+- [x] S6: per-start random secret issued by Flask, required as a header on every `/api/oblivion/*` call; panel sends it; tests — 2026-11-17, 8e4736c, pytest: 12 passed; node check: passed
+- [x] S8: bundle the fonts locally under `web/static/fonts`; remove Google Fonts links — 2026-11-17, HEAD, pytest: 14 passed
 - [ ] S8: weather and location only after the user clicks "Enable weather"; no request on page load
 - [ ] B6: replace root `requirements.txt` with what is actually imported; pin Flask 3.x; one supported Python version stated in README
 - [ ] B4: one lock around all NEXUS calls in `web/app.py` (temporary until week 2); test with two concurrent requests
