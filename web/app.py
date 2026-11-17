@@ -25,17 +25,22 @@ jarvis_port = int(os.environ.get('JARVIS_PORT', '5000'))
 app.config['JARVIS_PORT'] = jarvis_port
 oblivion_bridge.register(app, allowed_port=jarvis_port)
 
-# Initialize NEXUS core (we'll create a singleton instance)
+import threading
+
+# Initialize NEXUS core (we'll create a singleton instance protected by nexus_lock)
 nexus_core = None
+nexus_lock = threading.Lock()
 
 def get_nexus_core():
     global nexus_core
-    if nexus_core is None:
-        nexus_core = NexusCore()
-    return nexus_core
+    with nexus_lock:
+        if nexus_core is None:
+            nexus_core = NexusCore()
+        return nexus_core
 
 def run_async(coro):
-    return asyncio.run(coro)
+    with nexus_lock:
+        return asyncio.run(coro)
 
 @app.route('/')
 def index():
