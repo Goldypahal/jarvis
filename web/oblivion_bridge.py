@@ -48,6 +48,7 @@ class OblivionBridge:
         self.error = None
         self.output = deque(maxlen=60)  # last lines Oblivion printed, for error messages
         self._lock = threading.Lock()
+        self._send_lock = threading.Lock()
         atexit.register(self.stop)
 
     # ---------- lifecycle ----------
@@ -172,6 +173,141 @@ class OblivionBridge:
             return
         finally:
             conn.close()
+
+    def send_and_wait(self, text, timeout=60):
+        """Send text to Oblivion and wait for the turn to complete.
+
+        Reads events from the SSE stream until turn_end (or an instant command info).
+        Returns a dict with {'response': str, 'outcome': str, 'error': Optional[str]}.
+        """
+        if not text or not str(text).strip():
+            raise ValueError("text must not be empty")
+
+        text = str(text).strip()
+
+        if not self.running():
+            st = self.start()
+            if not st.get("running"):
+                raise RuntimeError(st.get("error") or "Oblivion is not running")
+
+        with self._send_lock:
+            conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=timeout)
+            try:
+                conn.request("GET", f"/events?t={self.token}", headers={"accept": "text/event-stream"})
+                res = conn.getresponse()
+                if res.status != 200:
+                    raise RuntimeError(f"Oblivion refused event stream ({res.status})")
+
+                events_q = deque()
+                q_lock = threading.Lock()
+                reader_running = [True]
+
+                def _reader():
+                    try:
+                        while reader_running[0]:
+                            line = res.readline()
+                            if not line:
+                                break
+                            line_str = line.decode("utf-8", "replace").strip()
+                            if line_str.startswith("data:"):
+                                payload = line_str[5:].strip()
+                                if payload:
+                                    try:
+                                        ev = json.loads(payload)
+                                        with q_lock:
+                                            events_q.append(ev)
+                                    except json.JSONDecodeError:
+                                        pass
+                    except Exception:
+                        pass
+                    finally:
+                        reader_running[0] = False
+
+                t = threading.Thread(target=_reader, daemon=True)
+                t.start()
+
+                # Drain backlog items that arrived before our new /send
+                prior_seq = 0
+                time.sleep(0.03)
+                with q_lock:
+                    while events_q:
+                        ev = events_q.popleft()
+                        if isinstance(ev, dict) and "seq" in ev:
+                            prior_seq = max(prior_seq, ev["seq"])
+
+                # Send the message
+                code, resp_text = self.post("/send", {"text": text})
+                if code not in (200, 204):
+                    reader_running[0] = False
+                    conn.close()
+                    raise RuntimeError(f"Oblivion /send failed ({code}): {resp_text}")
+
+                # Read events until turn_end (or info for slash commands)
+                deadline = time.time() + timeout
+                response_chunks = []
+                turn_outcome = "done"
+                turn_error = None
+                finished = False
+
+                while time.time() < deadline and not finished:
+                    ev = None
+                    with q_lock:
+                        if events_q:
+                            ev = events_q.popleft()
+                    if ev is None:
+                        if not reader_running[0] and not events_q:
+                            break
+                        time.sleep(0.01)
+                        continue
+
+                    ev_seq = ev.get("seq", 0)
+                    if ev_seq and ev_seq <= prior_seq:
+                        continue
+
+                    ev_type = ev.get("type")
+                    if ev_type == "text":
+                        response_chunks.append(ev.get("text", ""))
+                    elif ev_type == "info":
+                        response_chunks.append(ev.get("text", ""))
+                        finished = True
+                    elif ev_type == "turn_end":
+                        turn_outcome = ev.get("outcome", "done")
+                        turn_error = ev.get("error")
+                        finished = True
+
+                reader_running[0] = False
+                conn.close()
+
+                if not finished and time.time() >= deadline:
+                    try:
+                        self.post("/cancel", {})
+                    except Exception:
+                        pass
+                    raise TimeoutError(f"Timed out waiting for Oblivion turn after {timeout}s")
+
+                full_text = "".join(response_chunks).strip()
+                if not full_text:
+                    if turn_outcome == "error":
+                        full_text = turn_error or "An error occurred during processing."
+                    elif turn_outcome == "cancelled":
+                        full_text = "Request was cancelled."
+                    else:
+                        full_text = "I apologize, but I encountered an error processing your request."
+
+                return {
+                    "response": full_text,
+                    "outcome": turn_outcome,
+                    "error": turn_error,
+                }
+            except Exception:
+                try:
+                    self.post("/cancel", {})
+                except Exception:
+                    pass
+                raise
+
+    def chat(self, text, timeout=60):
+        return self.send_and_wait(text, timeout=timeout)
 
 
 ALLOWED_HOSTNAMES = {"localhost", "127.0.0.1", "[::1]"}

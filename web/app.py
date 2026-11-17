@@ -49,18 +49,21 @@ def index():
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
-    """Handle chat messages from the UI"""
+    """Handle chat messages from the UI (forwards to Oblivion through the bridge)."""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         message = data.get('message', '')
-        mode = data.get('mode', None)
+        if not message or not str(message).strip():
+            return jsonify({'response': 'Please enter a message.'}), 400
 
-        nexus = get_nexus_core()
-        result = run_async(nexus.process_query(message, mode=mode))
+        bridge = app.config.get('OBLIVION_BRIDGE')
+        if not bridge:
+            return jsonify({'response': 'Oblivion bridge is not configured.'}), 500
 
-        return jsonify({
-            'response': result.get('response', 'I apologize, but I encountered an error processing your request.')
-        })
+        result = bridge.send_and_wait(message)
+        return jsonify(result)
+    except TimeoutError:
+        return jsonify({'response': 'Oblivion request timed out.'}), 504
     except Exception as e:
         print(f"Error in chat endpoint: {e}")
         return jsonify({'response': 'Sorry, I encountered an error. Please try again.'}), 500

@@ -15,19 +15,17 @@ def test_nexus_lock_exists():
     assert hasattr(web_app, "nexus_lock"), "web/app.py must define nexus_lock"
 
 
-def test_two_concurrent_chat_requests():
-    client = web_app.app.test_client()
+def test_two_concurrent_nexus_requests():
+    nexus = web_app.get_nexus_core()
 
-    def send_chat(msg):
-        return client.post("/api/chat", json={"message": msg})
+    def send_query(msg):
+        return web_app.run_async(nexus.process_query(msg))
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-        f1 = executor.submit(send_chat, "Hello from thread 1")
-        f2 = executor.submit(send_chat, "Hello from thread 2")
+        f1 = executor.submit(send_query, "Hello from thread 1")
+        f2 = executor.submit(send_query, "Hello from thread 2")
         r1 = f1.result(timeout=10)
         r2 = f2.result(timeout=10)
 
-    assert r1.status_code == 200
-    assert r2.status_code == 200
-    assert "response" in r1.get_json()
-    assert "response" in r2.get_json()
+    assert "response" in r1
+    assert "response" in r2

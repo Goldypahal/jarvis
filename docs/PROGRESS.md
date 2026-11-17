@@ -25,7 +25,7 @@ Current milestone: **v0.5 "One brain"** · Branch: `roadmap/m1`
 - [x] Python CI: add a workflow that runs `pytest` on Windows and Ubuntu — 2026-11-17, 44963a4, .github/workflows/python.yml: windows-latest & ubuntu-latest; pytest: 20 passed
 
 ### Week 2 — one brain
-- [ ] B1: `/api/chat` forwards to Oblivion through the bridge (send + read events until `turn_end`); test with a fake Oblivion
+- [x] B1: `/api/chat` forwards to Oblivion through the bridge (send + read events until `turn_end`); test with a fake Oblivion — 2026-11-17, 72ab777, pytest tests/test_chat_bridge.py: 5 passed; total pytest: 25 passed; cargo test: 92 passed
 - [ ] B1/B3: the 30/70 workspace window uses the same live event stream as the panel (chat left, tool cards/diffs/tasks right) and has working approve/deny buttons
 - [ ] Move `nexus/`, `web/nexus_adapter.py`, `examples/`, `benchmarks/` and NEXUS tests to `legacy/`; the web app no longer imports them; all remaining tests pass
 - [ ] Remove now-dead routes and UI controls that only served NEXUS (modes, fake skill learning)
