@@ -8,7 +8,6 @@ document.addEventListener('DOMContentLoaded', () => {
     initDesktopIcons();
     initCustomIconAdd();
     initSplitModal();
-    initSplitChat();
 });
 
 // ==========================================================================
@@ -232,94 +231,21 @@ function initSplitModal() {
 
 function openSplitModal() {
     const modal = document.getElementById('splitModal');
-    if (modal) modal.classList.add('active');
+    if (modal) {
+        modal.classList.add('active');
+        if (window.Oblivion?.ensureStarted) window.Oblivion.ensureStarted();
+        const input = document.getElementById('split-user-input');
+        if (input) setTimeout(() => input.focus(), 200);
+    }
 }
 
 function openSplitModalWithContext(actionName) {
     openSplitModal();
-
-    const taskNameEl = document.getElementById('exec-task-name');
-    const logEl = document.getElementById('exec-terminal-log');
-
-    if (taskNameEl) {
-        taskNameEl.textContent = `Active Workspace: ${actionName}`;
-    }
-
-    if (logEl) {
-        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
-        logEl.textContent += `\n[${timeStr}] Focused node: ${actionName}. Fetching assets...`;
-        logEl.scrollTop = logEl.scrollHeight;
-    }
-}
-
-// ==========================================================================
-// 8. 30% Left Chat & 70% Right Execution Workspace Sync
-// ==========================================================================
-function initSplitChat() {
-    const form = document.getElementById('split-chat-form');
     const input = document.getElementById('split-user-input');
-
-    if (form) {
-        form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const message = input.value.trim();
-            if (!message) return;
-
-            appendSplitChatMsg('User', message, 'user-msg');
-            input.value = '';
-
-            const taskNameEl = document.getElementById('exec-task-name');
-            const progressFill = document.getElementById('exec-progress-fill');
-            const logEl = document.getElementById('exec-terminal-log');
-
-            const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
-
-            if (taskNameEl) taskNameEl.textContent = `Executing: "${message.slice(0, 35)}..."`;
-            if (progressFill) progressFill.style.width = '35%';
-
-            if (logEl) {
-                logEl.textContent += `\n[${nowStr}] [JARVIS CORE] Processing query: "${message}"`;
-                logEl.textContent += `\n[${nowStr}] [REASONING] Evaluating System 1 heuristics & System 2 logic...`;
-                logEl.scrollTop = logEl.scrollHeight;
-            }
-
-            try {
-                const res = await fetch('/api/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: message })
-                });
-                const data = await res.json();
-
-                appendSplitChatMsg('Jarvis AI', data.response, 'jarvis-msg');
-
-                if (progressFill) progressFill.style.width = '100%';
-                if (logEl) {
-                    const doneStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
-                    logEl.textContent += `\n[${doneStr}] [SUCCESS] Task completed. Output generated.`;
-                    logEl.scrollTop = logEl.scrollHeight;
-                }
-            } catch (err) {
-                appendSplitChatMsg('Jarvis AI', 'Error executing request.', 'jarvis-msg');
-                if (progressFill) progressFill.style.width = '100%';
-            }
-        });
+    if (input) {
+        input.value = `Explain the ${actionName} workflow`;
+        input.focus();
     }
-}
-
-function appendSplitChatMsg(author, text, msgClass) {
-    const container = document.getElementById('split-chat-messages');
-    if (!container) return;
-
-    const div = document.createElement('div');
-    div.className = `msg-bubble ${msgClass}`;
-    div.innerHTML = `
-        <div class="msg-author">${author}</div>
-        <div class="msg-text">${escapeHtml(text)}</div>
-    `;
-
-    container.appendChild(div);
-    container.scrollTop = container.scrollHeight;
 }
 
 function escapeHtml(str) {
@@ -333,3 +259,7 @@ function escapeHtml(str) {
         }[m];
     });
 }
+
+window.openSplitModal = openSplitModal;
+window.openSplitModalWithContext = openSplitModalWithContext;
+window.escapeHtml = escapeHtml;

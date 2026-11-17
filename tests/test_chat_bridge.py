@@ -57,6 +57,16 @@ class FakeOblivionHandler(http.server.BaseHTTPRequestHandler):
             self.server.cancelled = True
             self.send_response(204)
             self.end_headers()
+        elif self.path == "/approve":
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length).decode("utf-8"))
+            self.server.last_approval = body
+            self.send_response(204)
+            self.end_headers()
+            self.server.emit_event({
+                "type": "approval_done",
+                "id": body.get("id"),
+            })
         else:
             self.send_response(404)
             self.end_headers()
@@ -69,8 +79,10 @@ class FakeOblivionServer:
         self.server.running = True
         self.server.seq = 1
         self.server.cancelled = False
+        self.server.last_approval = None
         self.server.custom_turn = None
         self.server.emit_turn = self._emit_turn
+        self.server.emit_event = self.emit_event
         self.port = self.server.server_address[1]
         self.token = "fake-token-" + secrets.token_hex(16)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -223,3 +235,53 @@ def test_chat_concurrent_requests(test_client):
     d2 = r2.get_json()
     assert d1["response"] == "Oblivion response to: Alpha request"
     assert d2["response"] == "Oblivion response to: Beta request"
+
+
+def test_approve_and_deny_endpoints_forward_to_oblivion(test_client, fake_oblivion):
+    client, _ = test_client
+    token = app.config.get("JARVIS_TOKEN")
+    headers = {"X-Jarvis-Token": token}
+
+    # Test Allow (yes)
+    r = client.post("/api/oblivion/approve", json={"id": 101, "answer": "yes"}, headers=headers)
+    assert r.status_code == 204
+    assert fake_oblivion.server.last_approval == {"id": 101, "answer": "yes"}
+
+    # Test Always
+    r = client.post("/api/oblivion/approve", json={"id": 102, "answer": "always"}, headers=headers)
+    assert r.status_code == 204
+    assert fake_oblivion.server.last_approval == {"id": 102, "answer": "always"}
+
+    # Test Deny (no)
+    r = client.post("/api/oblivion/approve", json={"id": 103, "answer": "no"}, headers=headers)
+    assert r.status_code == 204
+    assert fake_oblivion.server.last_approval == {"id": 103, "answer": "no"}
+
+
+def test_split_workspace_dom_elements_present(test_client):
+    client, _ = test_client
+    r = client.get("/")
+    assert r.status_code == 200
+    html = r.get_data(as_text=True)
+
+    # Core 30/70 window structure
+    assert 'id="splitModal"' in html
+    assert 'id="split-chat-messages"' in html
+    assert 'id="split-chat-form"' in html
+    assert 'id="split-user-input"' in html
+    assert 'id="split-approvals"' in html
+    assert 'id="split-tasks-card"' in html
+    assert 'id="split-task-name"' in html
+    assert 'id="split-tasks-bar"' in html
+    assert 'id="split-tasks-list"' in html
+    assert 'id="split-tools-card"' in html
+    assert 'id="split-tools-stream"' in html
+
+    # Verify no fake stub data remains inside the workspace modal
+    modal_start = html.find('id="splitModal"')
+    assert modal_start != -1
+    modal_end = html.find('<!--', modal_start)
+    modal_html = html[modal_start:modal_end if modal_end != -1 else modal_start + 3000]
+    assert "nexus_web_memory.db" not in modal_html
+    assert "RAG Knowledge Vault Loaded" not in modal_html
+    assert "System 1/2 Reasoning" not in modal_html

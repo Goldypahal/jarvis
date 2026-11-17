@@ -381,6 +381,9 @@ def register(app, bridge=None, allowed_port=None, token=None):
 
         return None
 
+    def get_bridge():
+        return app.config.get("OBLIVION_BRIDGE", bridge)
+
     def forward(path):
         sec = check_security()
         if sec:
@@ -388,7 +391,8 @@ def register(app, bridge=None, allowed_port=None, token=None):
         body = request.get_json(silent=True)
         if body is None:
             return jsonify({"error": "expected a JSON body"}), 400
-        code, text = bridge.post(path, body)
+        b = get_bridge()
+        code, text = b.post(path, body)
         return Response(text, status=code, mimetype="text/plain")
 
     @app.get("/api/oblivion/status")
@@ -396,14 +400,14 @@ def register(app, bridge=None, allowed_port=None, token=None):
         sec = check_security()
         if sec:
             return sec
-        return jsonify(bridge.status())
+        return jsonify(get_bridge().status())
 
     @app.post("/api/oblivion/start")
     def oblivion_start():
         sec = check_security()
         if sec:
             return sec
-        return jsonify(bridge.start())
+        return jsonify(get_bridge().start())
 
     @app.get("/api/oblivion/events")
     def oblivion_events():
@@ -411,7 +415,7 @@ def register(app, bridge=None, allowed_port=None, token=None):
         if sec:
             return sec
         return Response(
-            stream_with_context(bridge.events()),
+            stream_with_context(get_bridge().events()),
             mimetype="text/event-stream",
             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
         )

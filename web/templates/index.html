@@ -288,19 +288,19 @@
                 <section class="split-left-chat">
                     <div class="chat-pane-header">
                         <h3>💬 Jarvis Chat Space</h3>
-                        <span class="pane-badge">30% Split</span>
+                        <span class="pane-badge">Oblivion Agent</span>
                     </div>
 
                     <div id="split-chat-messages" class="split-chat-messages">
                         <div class="msg-bubble jarvis-msg">
-                            <div class="msg-author">Jarvis AI</div>
-                            <div class="msg-text">Hello! I am Jarvis. Type a command or goal below. I will execute it and display live progress in the 70% workspace pane on the right!</div>
+                            <div class="msg-author">Oblivion AI</div>
+                            <div class="msg-text">How can I help? I can read and edit files, run commands, search the web and use skills.</div>
                         </div>
                     </div>
 
                     <form id="split-chat-form" class="split-chat-form">
-                        <input type="text" id="split-user-input" placeholder="Ask Jarvis to execute a goal..." required autocomplete="off">
-                        <button type="submit">Send →</button>
+                        <input type="text" id="split-user-input" placeholder="Ask Oblivion to execute a task or goal..." required autocomplete="off">
+                        <button type="submit" id="split-send-btn">Send →</button>
                     </form>
                 </section>
 
@@ -309,53 +309,32 @@
                     <div class="workspace-pane-header">
                         <h3>⚡ Execution Workspace (What Jarvis is Doing)</h3>
                         <div class="workspace-status-pills">
-                            <span class="status-pill active-pill">System 1/2 Reasoning</span>
-                            <span class="status-pill">Memory Sync</span>
+                            <span class="status-pill active-pill" id="split-model-pill">Oblivion Core</span>
+                            <span class="status-pill" id="split-status-pill">Ready</span>
                             <span class="pane-badge">70% Split</span>
                         </div>
                     </div>
 
                     <div class="workspace-content-scroll" id="workspace-dynamic-content">
-                        <!-- Default View: Live Dashboard -->
-                        <div class="execution-dashboard">
-                            <div class="exec-card">
-                                <h4>Current Active Task</h4>
-                                <div class="exec-task-name" id="exec-task-name">Idle — Waiting for query...</div>
-                                <div class="exec-progress-bar">
-                                    <div class="exec-progress-fill" id="exec-progress-fill" style="width: 100%;"></div>
-                                </div>
-                            </div>
+                        <!-- Pending Approvals in 70% Pane -->
+                        <div id="split-approvals" class="split-approvals"></div>
 
-                            <div class="exec-card">
-                                <h4>Live Execution Log & Chain of Thought</h4>
-                                <pre class="exec-terminal-log" id="exec-terminal-log">[05:47:00 AM] Jarvis Core Initialized.
-[05:47:01 AM] RAG Knowledge Vault Loaded (D:\Desktop\RAG).
-[05:47:02 AM] Memory System Online (SQLite nexus_web_memory.db).
-[05:47:03 AM] Operational Modes: Deep Focus, Learning Companion, Creative Collaboration, Strategic Planning.
-[05:47:04 AM] Ready to receive prompt...</pre>
+                        <!-- Tasks Card -->
+                        <div class="exec-card" id="split-tasks-card">
+                            <h4>Current Tasks</h4>
+                            <div class="exec-task-name" id="split-task-name">No active tasks</div>
+                            <div class="exec-progress-bar">
+                                <div class="exec-progress-fill" id="split-tasks-bar" style="width: 0%;"></div>
                             </div>
+                            <ul id="split-tasks-list" class="split-tasks-list"></ul>
+                        </div>
 
-                            <div class="exec-card">
-                                <h4>Generated Output & Workspace Assets</h4>
-                                <div class="exec-assets-grid" id="exec-assets-grid">
-                                    <div class="asset-card">
-                                        <div class="asset-icon">📄</div>
-                                        <div class="asset-title">Research Papers</div>
-                                        <small>3 Docs Available</small>
-                                    </div>
-                                    <div class="asset-card">
-                                        <div class="asset-icon">🎨</div>
-                                        <div class="asset-title">Generated Pictures</div>
-                                        <small>5 Assets</small>
-                                    </div>
-                                    <div class="asset-card">
-                                        <div class="asset-icon">📁</div>
-                                        <div class="asset-title">Shared Docs</div>
-                                        <small>12 Files</small>
-                                    </div>
-                                </div>
+                        <!-- Live Tool Execution Cards & Diffs -->
+                        <div class="exec-card" id="split-tools-card">
+                            <h4>Tool Calls & Live Diffs</h4>
+                            <div id="split-tools-stream" class="split-tools-stream">
+                                <div class="split-empty-msg">No actions executed yet. Enter a prompt to start.</div>
                             </div>
-
                         </div>
                     </div>
                 </section>

@@ -649,6 +649,16 @@ a, button, .desktop-icon-item, .dock-app-btn, .theme-circle {
 .asset-title { font-size: 0.78rem; font-weight: 600; }
 .asset-card small { font-size: 0.68rem; color: rgba(255,255,255,0.5); }
 
+/* Oblivion 30/70 Live Workspace Additions */
+.split-approvals:empty { display: none; }
+.split-approvals { margin-bottom: 12px; }
+.split-tasks-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; }
+.split-tasks-list li { display: flex; align-items: center; gap: 8px; color: rgba(255,255,255,0.8); }
+.split-tasks-list li.completed { color: rgba(255,255,255,0.4); text-decoration: line-through; }
+.split-tasks-list li.in_progress { color: #00f2fe; font-weight: 600; }
+.split-tools-stream { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; max-height: 400px; overflow-y: auto; }
+.split-empty-msg { font-size: 0.8rem; color: rgba(255,255,255,0.4); font-style: italic; }
+
 @media (max-width: 900px) {
     .desktop-canvas { flex-direction: column; padding-left: 20px; }
     .desktop-right-widgets { width: 100%; }
