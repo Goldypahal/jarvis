@@ -436,7 +436,7 @@ impl Agent {
         self.turn_marks.push(self.tools.journal().mark());
         if let Some(ref recall) = self.memory_recall {
             let project = self.tools.root().to_string_lossy();
-            let relevant = recall.recall_for_prompt(user_text, &project, 2000);
+            let relevant = recall.recall_for_prompt(user_text, &project, 2000).await;
             if !relevant.is_empty() {
                 let mem_lines = relevant
                     .iter()
@@ -932,20 +932,21 @@ mod tests {
     async fn recall_injects_memories_into_system_prompt() {
         struct MockRecall;
         impl crate::extract::MemoryRecall for MockRecall {
-            fn recall_for_prompt(
-                &self,
-                prompt: &str,
-                _project: &str,
+            fn recall_for_prompt<'a>(
+                &'a self,
+                prompt: &'a str,
+                _project: &'a str,
                 _budget: usize,
-            ) -> Vec<String> {
-                if prompt.contains("rust") {
+            ) -> crate::extract::RecallFuture<'a> {
+                let res = if prompt.contains("rust") {
                     vec![
                         "[user_pref] User loves Rust".into(),
                         "[project_fact] Cargo workspace".into(),
                     ]
                 } else {
                     vec![]
-                }
+                };
+                Box::pin(async move { res })
             }
         }
 

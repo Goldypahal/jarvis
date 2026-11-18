@@ -7,7 +7,7 @@
 use anyhow::Result;
 use rusqlite::Connection;
 
-pub const CURRENT_VERSION: i64 = 3;
+pub const CURRENT_VERSION: i64 = 4;
 
 pub fn migrate(conn: &mut Connection) -> Result<()> {
     let tx = conn.transaction()?;
@@ -93,6 +93,20 @@ pub fn migrate(conn: &mut Connection) -> Result<()> {
         tx.pragma_update(None, "user_version", 3)?;
     }
 
+    if current_version < 4 {
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS memory_embeddings (
+                memory_id   INTEGER PRIMARY KEY REFERENCES memories(id) ON DELETE CASCADE,
+                model       TEXT NOT NULL,
+                dimensions  INTEGER NOT NULL,
+                embedding   BLOB NOT NULL,
+                created     TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_memory_embeddings_model ON memory_embeddings(model);",
+        )?;
+        tx.pragma_update(None, "user_version", 4)?;
+    }
+
     tx.commit()?;
     Ok(())
 }
@@ -124,6 +138,7 @@ mod tests {
         assert!(tables.contains(&"usage".to_string()));
         assert!(tables.contains(&"memories".to_string()));
         assert!(tables.contains(&"memories_fts".to_string()));
+        assert!(tables.contains(&"memory_embeddings".to_string()));
     }
 
     #[test]

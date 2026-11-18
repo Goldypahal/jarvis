@@ -51,7 +51,7 @@ Current milestone: **Month 2 — memory and an honest desktop** · Branch: `road
 - [x] `remember`, `recall`, `forget` tools with permission rules; tests — 2026-11-18, a73691a, cargo test: 111 passed; pytest: 50 passed; clippy: 0 warnings; evals: 1/1 passed; lifecycle, permissions & toolbox verified
 - [x] End-of-session extraction pass proposes memories (cheap model, budgeted); user can disable — 2026-11-18, 7179626, cargo test: 118 passed; pytest: 50 passed; clippy: 0 warnings; evals: 1/1 passed; extraction, heuristics & disabling verified
 - [x] Recall on each request within a ~500-token budget; per-project scoping; tests that one project's memory never appears in another — 2026-11-18, ef9dcf6, cargo test: 120 passed; clippy: 0 warnings; pytest: 50 passed; evals: 1/1 passed; project isolation & 500-token budget verified
-- [ ] Embeddings via Ollama + `sqlite-vec` (optional; falls back to FTS when not available)
+- [x] Embeddings via Ollama + `sqlite-vec` (optional; falls back to FTS when not available) — 2026-11-18, dfc96db, cargo test: 125 passed; clippy: 0 warnings; pytest: 50 passed; evals: 1/1 passed; vector search, Ollama client, sqlite-vec KNN & FTS5 fallback verified
 - [ ] Desktop "Memory" window: list, search, edit, delete, forget-by-topic, export
 - [ ] Sessions window: list, search, rename, resume, delete; work folder chosen per session (B10)
 - [ ] B7: replace every fake widget with real data (usage today, tasks, files created, memory count, model status) or remove it; menu-bar date is live

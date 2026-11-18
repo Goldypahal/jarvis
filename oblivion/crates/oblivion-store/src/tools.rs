@@ -55,7 +55,7 @@ impl MemoryTools {
         }
     }
 
-    fn exec_remember(&self, args: &Value) -> Result<String, String> {
+    async fn exec_remember(&self, args: &Value) -> Result<String, String> {
         let text = args
             .get("text")
             .and_then(Value::as_str)
@@ -89,13 +89,21 @@ impl MemoryTools {
             .add_memory(&new_mem)
             .map_err(|e| format!("failed to save memory: {e}"))?;
 
+        if let Some(embedder) = self.store.embedder() {
+            if let Ok(vec) = embedder.embed(&created.text).await {
+                let _ = self
+                    .store
+                    .save_memory_embedding(created.id, embedder.model_name(), &vec);
+            }
+        }
+
         Ok(format!(
             "Remembered [ID: {}] ({}, importance {}): {}",
             created.id, created.mem_type, created.importance, created.text
         ))
     }
 
-    fn exec_recall(&self, args: &Value) -> Result<String, String> {
+    async fn exec_recall(&self, args: &Value) -> Result<String, String> {
         let query = args
             .get("query")
             .and_then(Value::as_str)
@@ -122,9 +130,15 @@ impl MemoryTools {
             ..Default::default()
         };
 
+        let embedding = if let Some(embedder) = self.store.embedder() {
+            embedder.embed(query).await.ok()
+        } else {
+            None
+        };
+
         let results = self
             .store
-            .search_memories(query, Some(&filter), limit)
+            .search_memories_hybrid(query, embedding.as_deref(), Some(&filter), limit)
             .map_err(|e| format!("failed to recall memories: {e}"))?;
 
         if results.is_empty() {
@@ -330,8 +344,8 @@ impl ToolProvider for MemoryTools {
     fn execute<'a>(&'a self, name: &'a str, args: &'a Value) -> ToolFuture<'a> {
         Box::pin(async move {
             match name {
-                "remember" => self.exec_remember(args),
-                "recall" => self.exec_recall(args),
+                "remember" => self.exec_remember(args).await,
+                "recall" => self.exec_recall(args).await,
                 "forget" => self.exec_forget(args),
                 other => Err(format!("unknown memory tool '{other}'")),
             }

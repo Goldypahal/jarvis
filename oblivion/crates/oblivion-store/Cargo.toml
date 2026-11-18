@@ -14,6 +14,8 @@ oblivion-providers.workspace = true
 oblivion-tools.workspace = true
 oblivion-core.workspace = true
 rusqlite = { version = "0.42.0", features = ["bundled"] }
+sqlite-vec = "0.1.6"
+reqwest.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

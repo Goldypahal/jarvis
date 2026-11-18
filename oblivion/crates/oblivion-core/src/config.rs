@@ -32,9 +32,13 @@ max_web_calls = 15      # web searches + fetches per request (sub-agents get 8 e
 
 # Long-term memory across sessions.
 # auto_extract: runs a cheap, budgeted model pass after sessions to propose memories.
+# embedding_model: optional local embedding model through Ollama (e.g. "nomic-embed-text").
+# When empty or unavailable, falls back to full-text search (FTS5).
 [memory]
 enabled = true
 auto_extract = true
+embedding_model = ""
+ollama_endpoint = "http://localhost:11434"
 
 # Rules are "tool(pattern)"; * matches anything. Deny wins over allow.
 # Allowed calls run without asking; denied calls are refused.
@@ -340,6 +344,10 @@ pub struct MemorySettings {
     pub auto_extract: bool,
     #[serde(default = "default_extract_max_tokens")]
     pub max_tokens: usize,
+    #[serde(default)]
+    pub embedding_model: String,
+    #[serde(default = "default_ollama_endpoint")]
+    pub ollama_endpoint: String,
 }
 
 impl Default for MemorySettings {
@@ -348,12 +356,18 @@ impl Default for MemorySettings {
             enabled: true,
             auto_extract: true,
             max_tokens: default_extract_max_tokens(),
+            embedding_model: String::new(),
+            ollama_endpoint: default_ollama_endpoint(),
         }
     }
 }
 
 fn default_extract_max_tokens() -> usize {
     2000
+}
+
+fn default_ollama_endpoint() -> String {
+    "http://localhost:11434".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

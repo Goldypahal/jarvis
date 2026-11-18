@@ -13,6 +13,7 @@ pub use agent::{Agent, AgentEvent, Approver, Decision, TurnSummary};
 pub use config::{ApprovalMode, Config};
 pub use extract::{
     extract_heuristics, extract_memories, parse_proposals, MemoryRecall, ProposedMemory,
+    RecallFuture,
 };
 pub use rules::Rules;
 pub use session::{JsonDir, Session, SessionStore};

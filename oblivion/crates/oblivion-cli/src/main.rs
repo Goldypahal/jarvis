@@ -411,6 +411,13 @@ async fn run() -> Result<()> {
     }
     let cfg = Config::load(&config_path)?;
     cfg.validate()?;
+    if !cfg.memory.embedding_model.is_empty() {
+        let embedder = Arc::new(oblivion_store::OllamaEmbedder::new(
+            &cfg.memory.ollama_endpoint,
+            &cfg.memory.embedding_model,
+        ));
+        store.set_embedder(embedder);
+    }
     let (targets, skipped) = cfg.targets(&keys::for_provider);
 
     if cli.models {

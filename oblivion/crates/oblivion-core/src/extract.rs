@@ -33,11 +33,19 @@ pub struct ProposedMemory {
     pub importance: u32,
 }
 
+pub type RecallFuture<'a> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Vec<String>> + Send + 'a>>;
+
 /// Trait for retrieving relevant memories to inject into prompt context.
 pub trait MemoryRecall: Send + Sync {
     /// Retrieve formatted memory strings relevant to `prompt` within `budget_chars`
     /// scoped to `project` (so project facts never leak to other projects).
-    fn recall_for_prompt(&self, prompt: &str, project: &str, budget_chars: usize) -> Vec<String>;
+    fn recall_for_prompt<'a>(
+        &'a self,
+        prompt: &'a str,
+        project: &'a str,
+        budget_chars: usize,
+    ) -> RecallFuture<'a>;
 }
 
 impl ProposedMemory {
