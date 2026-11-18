@@ -142,6 +142,7 @@ pub fn router(state: WebState) -> Router {
         .route("/send", post(send))
         .route("/approve", post(approve))
         .route("/cancel", post(cancel))
+        .route("/api/system/dashboard", get(get_dashboard))
         .route(
             "/api/memory",
             get(list_or_search_memories).post(create_memory),
@@ -671,6 +672,223 @@ async fn update_session_workspace(
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DashboardTask {
+    pub text: String,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DashboardFile {
+    pub name: String,
+    pub path: String,
+    pub size: u64,
+    pub modified: u64,
+    pub category: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DashboardEngine {
+    pub version: String,
+    pub status: String,
+    pub model: String,
+    pub workspace: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DashboardData {
+    pub usage_today: Vec<oblivion_store::UsageRow>,
+    pub tasks: Vec<DashboardTask>,
+    pub recent_files: Vec<DashboardFile>,
+    pub memories_count: usize,
+    pub memories_by_type: HashMap<String, usize>,
+    pub sessions_count: usize,
+    pub engine: DashboardEngine,
+}
+
+async fn get_dashboard(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<DashboardData>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let usage_today = st.store.usage_today().unwrap_or_default();
+    let memories_count = st.store.count_memories(None).unwrap_or(0) as usize;
+    let mut memories_by_type = HashMap::new();
+    if let Ok(mems) = st.store.list_memories(None, 1000) {
+        for m in mems {
+            *memories_by_type.entry(m.mem_type).or_insert(0) += 1;
+        }
+    }
+    let sessions_count = st.store.list_sessions(1000).map(|s| s.len()).unwrap_or(0);
+
+    let mut tasks = Vec::new();
+    let mut model_label = "groq:llama-3.3-70b-versatile".to_string();
+    let mut workspace_path = std::env::current_dir()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
+
+    {
+        let h = st.bus.history.lock().unwrap();
+        for env in h.iter() {
+            match &env.event {
+                UiEvent::Todos { items } => {
+                    tasks = items
+                        .iter()
+                        .map(|t| DashboardTask {
+                            text: t.text.clone(),
+                            status: t.status.clone(),
+                        })
+                        .collect();
+                }
+                UiEvent::Model { label } => {
+                    model_label = label.clone();
+                }
+                UiEvent::SessionResumed { workspace, .. } => {
+                    workspace_path = workspace.clone();
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let status = if st.controls.busy() {
+        "busy".to_string()
+    } else {
+        "ready".to_string()
+    };
+
+    let engine = DashboardEngine {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        status,
+        model: model_label,
+        workspace: workspace_path.clone(),
+    };
+
+    let recent_files = scan_recent_files(std::path::Path::new(&workspace_path), 20);
+
+    Ok(Json(DashboardData {
+        usage_today,
+        tasks,
+        recent_files,
+        memories_count,
+        memories_by_type,
+        sessions_count,
+        engine,
+    }))
+}
+
+fn scan_recent_files(root: &std::path::Path, max_count: usize) -> Vec<DashboardFile> {
+    let mut files = Vec::new();
+    if !root.is_dir() {
+        return files;
+    }
+    let now = std::time::SystemTime::now();
+    let seven_days = std::time::Duration::from_secs(7 * 24 * 3600);
+
+    let mut stack = vec![(root.to_path_buf(), 0usize)];
+    while let Some((dir, depth)) = stack.pop() {
+        if depth > 4 {
+            continue;
+        }
+        let read_dir = match std::fs::read_dir(&dir) {
+            Ok(rd) => rd,
+            Err(_) => continue,
+        };
+        for entry in read_dir.flatten() {
+            let path = entry.path();
+            let file_name = entry.file_name().to_string_lossy().into_owned();
+            if file_name.starts_with('.')
+                || file_name == "target"
+                || file_name == "node_modules"
+                || file_name == "__pycache__"
+                || file_name == ".venv"
+                || file_name == ".pytest_cache"
+                || file_name == ".git"
+            {
+                continue;
+            }
+            if path.is_dir() {
+                stack.push((path, depth + 1));
+            } else if path.is_file() {
+                if let Ok(meta) = entry.metadata() {
+                    if let Ok(mtime) = meta.modified() {
+                        let age = now.duration_since(mtime).unwrap_or_default();
+                        if age <= seven_days {
+                            let size = meta.len();
+                            let modified_secs = mtime
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_secs())
+                                .unwrap_or(0);
+                            let ext = path
+                                .extension()
+                                .and_then(|e| e.to_str())
+                                .unwrap_or("")
+                                .to_lowercase();
+                            let lower_name = file_name.to_lowercase();
+                            let category = if ext == "pdf" {
+                                "paper"
+                            } else if matches!(
+                                ext.as_str(),
+                                "png" | "jpg" | "jpeg" | "gif" | "svg" | "webp" | "ico"
+                            ) {
+                                "picture"
+                            } else if matches!(
+                                ext.as_str(),
+                                "doc" | "docx" | "txt" | "rtf" | "csv" | "tsv" | "json"
+                            ) {
+                                "document"
+                            } else if ext == "md" {
+                                if lower_name.contains("case") || lower_name.contains("study") {
+                                    "case-study"
+                                } else {
+                                    "notebook"
+                                }
+                            } else if matches!(
+                                ext.as_str(),
+                                "rs" | "py"
+                                    | "js"
+                                    | "ts"
+                                    | "html"
+                                    | "css"
+                                    | "toml"
+                                    | "yaml"
+                                    | "yml"
+                            ) {
+                                "code"
+                            } else {
+                                "file"
+                            };
+
+                            let rel_path = path
+                                .strip_prefix(root)
+                                .map(|p| p.to_string_lossy().into_owned())
+                                .unwrap_or_else(|_| file_name.clone());
+
+                            files.push(DashboardFile {
+                                name: file_name,
+                                path: rel_path,
+                                size,
+                                modified: modified_secs,
+                                category: category.to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    files.sort_by_key(|a| std::cmp::Reverse(a.modified));
+    if files.len() > max_count {
+        files.truncate(max_count);
+    }
+    files
+}
+
 /// Copy worker events onto the bus.
 pub async fn pump(mut rx: UnboundedReceiver<UiEvent>, bus: Arc<Bus>) {
     while let Some(e) = rx.recv().await {
@@ -1187,5 +1405,110 @@ mod live {
             .unwrap();
         assert_eq!(del_res.status(), StatusCode::OK);
         assert_eq!(store.list_sessions(10).unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn web_dashboard_rest_api_returns_real_stats() {
+        use oblivion_providers::UsageLedger;
+
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("oblivion.db");
+        let store = Arc::new(oblivion_store::Store::open(&db_path).unwrap());
+
+        // Record usage in store
+        store.record(
+            "groq:llama-3.3-70b-versatile",
+            Some(&oblivion_providers::Usage {
+                prompt_tokens: 1500,
+                completion_tokens: 350,
+            }),
+        );
+
+        // Add a memory
+        let _ = store.add_memory(&oblivion_store::NewMemory {
+            mem_type: "user_pref".into(),
+            text: "Prefers concise responses".into(),
+            source_session: None,
+            project: None,
+            importance: 4,
+        });
+
+        // Create a test file in dir
+        let test_file = dir.path().join("notes.md");
+        std::fs::write(&test_file, "# Research Notes").unwrap();
+
+        let (url, _seen) = crate::testkit::fake_server(vec![]).await;
+        let (_worker, controls, _events) = crate::testkit::worker(&url, dir.path());
+
+        let bus = Arc::new(Bus::default());
+        bus.publish(UiEvent::SessionResumed {
+            id: "s1".into(),
+            workspace: dir.path().to_string_lossy().into_owned(),
+            messages: vec![],
+        });
+        bus.publish(UiEvent::Model {
+            label: "groq:llama-3.3-70b-versatile".into(),
+        });
+        bus.publish(UiEvent::Todos {
+            items: vec![crate::app::TodoView {
+                text: "Refactor dashboard".into(),
+                status: "in_progress".into(),
+            }],
+        });
+
+        let token = "dashboard-token-1234";
+        let state = WebState {
+            token: token.into(),
+            controls,
+            bus,
+            store: store.clone(),
+        };
+
+        let app = router(state);
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+        let base = format!("http://127.0.0.1:{}", addr.port());
+
+        // 1. Unauthorized request
+        let unauth = client
+            .get(format!("{base}/api/system/dashboard"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unauth.status(), StatusCode::UNAUTHORIZED);
+
+        // 2. Authorized request
+        let res = client
+            .get(format!("{base}/api/system/dashboard"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let data: DashboardData = res.json().await.unwrap();
+
+        assert_eq!(data.usage_today.len(), 1);
+        assert_eq!(data.usage_today[0].target, "groq:llama-3.3-70b-versatile");
+        assert_eq!(data.usage_today[0].requests, 1);
+        assert_eq!(data.usage_today[0].prompt_tokens, 1500);
+
+        assert_eq!(data.memories_count, 1);
+        assert_eq!(data.memories_by_type.get("user_pref"), Some(&1));
+
+        assert_eq!(data.tasks.len(), 1);
+        assert_eq!(data.tasks[0].text, "Refactor dashboard");
+        assert_eq!(data.tasks[0].status, "in_progress");
+
+        assert_eq!(data.engine.status, "ready");
+        assert_eq!(data.engine.model, "groq:llama-3.3-70b-versatile");
+
+        assert!(data.recent_files.iter().any(|f| f.name == "notes.md"));
     }
 }

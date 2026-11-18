@@ -428,6 +428,31 @@ def register(app, bridge=None, allowed_port=None, token=None):
             return sec
         return jsonify(get_bridge().status())
 
+    @app.get("/api/oblivion/dashboard")
+    @app.get("/api/dashboard")
+    def oblivion_dashboard():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        if not b.running():
+            return jsonify({
+                "usage_today": [],
+                "tasks": [],
+                "recent_files": [],
+                "memories_count": 0,
+                "memories_by_type": {},
+                "sessions_count": 0,
+                "engine": {
+                    "version": "0.5.0",
+                    "status": "offline",
+                    "model": "offline",
+                    "workspace": b.workdir or "",
+                },
+            }), 200
+        code, text, ct = b.get("/api/system/dashboard")
+        return Response(text, status=code, mimetype=ct)
+
     @app.post("/api/oblivion/start")
     def oblivion_start():
         sec = check_security()

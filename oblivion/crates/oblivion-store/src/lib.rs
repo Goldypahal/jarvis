@@ -18,6 +18,7 @@ use anyhow::{Context, Result};
 use oblivion_core::session::{Session, SessionInfo, SessionStore};
 use oblivion_providers::{Role, Usage, UsageLedger};
 use rusqlite::{params, Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
 
 static INIT_SQLITE_VEC: std::sync::Once = std::sync::Once::new();
 
@@ -37,7 +38,7 @@ pub struct Store {
 }
 
 /// Today's usage of one model.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UsageRow {
     pub target: String,
     pub requests: u64,

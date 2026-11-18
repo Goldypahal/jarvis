@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initDesktopIcons();
     initCustomIconAdd();
     initSplitModal();
+    initDesktopWidgets();
 });
 
 // ==========================================================================
@@ -32,17 +33,23 @@ function initLockScreen() {
 }
 
 // ==========================================================================
-// 2. Menu Bar Clock
+// 2. Menu Bar Clock & Live Date (B7)
 // ==========================================================================
 function initClock() {
     const clockEl = document.getElementById('menu-clock');
-    if (!clockEl) return;
-    function updateClock() {
+    const dateEl = document.getElementById('menu-date');
+    if (!clockEl && !dateEl) return;
+    function updateClockAndDate() {
         const now = new Date();
-        clockEl.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+        if (clockEl) {
+            clockEl.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+        }
+        if (dateEl) {
+            dateEl.textContent = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        }
     }
-    updateClock();
-    setInterval(updateClock, 1000);
+    updateClockAndDate();
+    setInterval(updateClockAndDate, 1000);
 }
 
 // ==========================================================================
@@ -148,14 +155,25 @@ function initThemePicker() {
 }
 
 // ==========================================================================
-// 5. Desktop Icons & Dock Actions
+// 5. Desktop Icons & Dock Actions (B7)
 // ==========================================================================
 function initDesktopIcons() {
     const iconItems = document.querySelectorAll('.desktop-icon-item[data-action]');
     iconItems.forEach(item => {
         item.addEventListener('click', () => {
             const action = item.dataset.action;
-            openSplitModalWithContext(action);
+            const categoryMap = {
+                'open-research': 'paper',
+                'open-pictures': 'picture',
+                'open-docs': 'document',
+                'open-notebook': 'notebook',
+                'open-casestudies': 'case-study'
+            };
+            if (categoryMap[action] && window.FilesManager?.openWithFilter) {
+                window.FilesManager.openWithFilter(categoryMap[action]);
+            } else {
+                openSplitModalWithContext(action);
+            }
         });
     });
 
@@ -174,7 +192,9 @@ function initDesktopIcons() {
         btn.addEventListener('click', () => {
             dockBtns.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            if (btn.dataset.action) {
+            if (btn.dataset.action === 'files' && window.FilesManager?.open) {
+                window.FilesManager.open('all');
+            } else if (btn.dataset.action) {
                 openSplitModalWithContext(btn.dataset.action);
             } else {
                 openSplitModal();
@@ -289,3 +309,187 @@ function escapeHtml(str) {
 window.openSplitModal = openSplitModal;
 window.openSplitModalWithContext = openSplitModalWithContext;
 window.escapeHtml = escapeHtml;
+
+// ==========================================================================
+// 8. Real Desktop Widgets Controller (B7)
+// ==========================================================================
+function initDesktopWidgets() {
+    const openMemBtn = document.getElementById('open-memory-widget-btn');
+    if (openMemBtn) {
+        openMemBtn.addEventListener('click', () => {
+            if (window.MemoryModal?.open) window.MemoryModal.open();
+        });
+    }
+
+    const openFilesBtn = document.getElementById('open-files-widget-btn');
+    if (openFilesBtn) {
+        openFilesBtn.addEventListener('click', () => {
+            if (window.FilesManager?.open) window.FilesManager.open('all');
+        });
+    }
+
+    fetchAndRenderDashboard();
+    setInterval(fetchAndRenderDashboard, 10000);
+}
+
+async function fetchAndRenderDashboard() {
+    try {
+        const token = window.Oblivion?.token || new URLSearchParams(window.location.search).get('t') || '';
+        const headers = token ? { 'x-oblivion-token': token } : {};
+        const res = await fetch('/api/oblivion/dashboard', { headers });
+        if (!res.ok) return;
+        const data = await res.json();
+        renderDashboardData(data);
+    } catch (err) {
+        console.error('Failed to fetch dashboard metrics:', err);
+    }
+}
+
+function renderDashboardData(data) {
+    if (!data) return;
+
+    // 1. Usage Today
+    const totalReqEl = document.getElementById('usage-total-requests');
+    const totalTokensEl = document.getElementById('usage-total-tokens');
+    const breakdownList = document.getElementById('usage-breakdown-list');
+
+    const usageList = data.usage_today || [];
+    let sumReq = 0;
+    let sumTokens = 0;
+    usageList.forEach(u => {
+        sumReq += u.requests || 0;
+        sumTokens += (u.prompt_tokens || 0) + (u.completion_tokens || 0);
+    });
+
+    if (totalReqEl) totalReqEl.textContent = `${sumReq} req`;
+    if (totalTokensEl) totalTokensEl.textContent = sumTokens.toLocaleString();
+
+    if (breakdownList) {
+        if (usageList.length === 0) {
+            breakdownList.innerHTML = '<div class="empty-widget-msg">No requests recorded today</div>';
+        } else {
+            breakdownList.innerHTML = usageList.map(u => {
+                const total = (u.prompt_tokens || 0) + (u.completion_tokens || 0);
+                const shortTarget = (u.target || '').replace(/^.*\//, '');
+                return `
+                    <div class="usage-row-item">
+                        <span class="usage-target" title="${escapeHtml(u.target)}">${escapeHtml(shortTarget)}</span>
+                        <span class="usage-tokens">${total.toLocaleString()} tok (${u.requests} req)</span>
+                    </div>
+                `;
+            }).join('');
+        }
+    }
+
+    // 2. Current Tasks
+    const tasksProgress = document.getElementById('tasks-progress-lbl');
+    const tasksBar = document.getElementById('tasks-widget-bar');
+    const tasksList = document.getElementById('tasks-widget-list');
+
+    const tasks = data.tasks || [];
+    if (tasks.length === 0) {
+        if (tasksProgress) tasksProgress.textContent = '0/0';
+        if (tasksBar) tasksBar.style.width = '0%';
+        if (tasksList) tasksList.innerHTML = '<li class="empty-widget-msg">No active tasks</li>';
+    } else {
+        const completed = tasks.filter(t => t.status === 'completed').length;
+        const pct = Math.round((completed / tasks.length) * 100);
+        if (tasksProgress) tasksProgress.textContent = `${completed}/${tasks.length}`;
+        if (tasksBar) tasksBar.style.width = `${pct}%`;
+        if (tasksList) {
+            tasksList.innerHTML = tasks.slice(0, 4).map(t => {
+                const isDone = t.status === 'completed';
+                const isProg = t.status === 'in_progress';
+                const icon = isDone ? '✓' : (isProg ? '▶' : '○');
+                const cls = isDone ? 'done' : (isProg ? 'in-prog' : 'pending');
+                return `
+                    <li class="task-widget-item ${cls}">
+                        <span class="task-status-icon">${icon}</span>
+                        <span class="task-text" title="${escapeHtml(t.text)}">${escapeHtml(t.text)}</span>
+                    </li>
+                `;
+            }).join('');
+        }
+    }
+
+    // 3. Files Created This Week
+    const filesCountLbl = document.getElementById('files-count-lbl');
+    const filesList = document.getElementById('files-widget-list');
+    const recentFiles = data.recent_files || [];
+
+    if (filesCountLbl) filesCountLbl.textContent = `${recentFiles.length} files`;
+    if (filesList) {
+        if (recentFiles.length === 0) {
+            filesList.innerHTML = '<div class="empty-widget-msg">No files created this week</div>';
+        } else {
+            filesList.innerHTML = recentFiles.slice(0, 4).map(f => {
+                const catIcon = {
+                    paper: '📄',
+                    picture: '🎨',
+                    document: '📁',
+                    notebook: '📓',
+                    'case-study': '📂',
+                    code: '💻'
+                }[f.category] || '📄';
+                return `
+                    <div class="file-widget-row" data-path="${escapeHtml(f.path)}">
+                        <span class="file-icon">${catIcon}</span>
+                        <span class="file-name" title="${escapeHtml(f.path)}">${escapeHtml(f.name)}</span>
+                        <span class="file-cat">${escapeHtml(f.category)}</span>
+                    </div>
+                `;
+            }).join('');
+
+            filesList.querySelectorAll('.file-widget-row').forEach(row => {
+                row.addEventListener('click', () => {
+                    if (window.FilesManager?.open) window.FilesManager.open('all');
+                });
+            });
+        }
+    }
+
+    // 4. Long-Term Memory
+    const memCountLbl = document.getElementById('memory-widget-count');
+    const memBreakdown = document.getElementById('memory-widget-breakdown');
+    const memCount = data.memories_count || 0;
+    const byType = data.memories_by_type || {};
+
+    if (memCountLbl) memCountLbl.textContent = `${memCount} items`;
+    if (memBreakdown) {
+        if (memCount === 0) {
+            memBreakdown.innerHTML = '<div class="empty-widget-msg">No memories stored</div>';
+        } else {
+            const labelMap = {
+                user_pref: 'pref',
+                project_fact: 'project',
+                recipe: 'recipe',
+                fact: 'fact',
+                past_outcome: 'outcome'
+            };
+            const pills = Object.entries(byType).map(([type, count]) => {
+                return `<span class="mem-type-pill">${count} ${labelMap[type] || type}</span>`;
+            }).join(' ');
+            memBreakdown.innerHTML = `<div class="mem-pills-row">${pills}</div>`;
+        }
+    }
+
+    // 5. Engine & Model Status
+    const engineDot = document.getElementById('engine-status-dot');
+    const engineVer = document.getElementById('engine-ver-lbl');
+    const engineState = document.getElementById('engine-state-lbl');
+    const modelBadge = document.getElementById('engine-model-badge');
+    const wsPath = document.getElementById('engine-workspace-path');
+
+    const eng = data.engine || {};
+    if (engineVer && eng.version) engineVer.textContent = `Oblivion v${eng.version}`;
+    if (engineState) {
+        const isReady = eng.status === 'ready';
+        const isBusy = eng.status === 'busy';
+        engineState.textContent = isBusy ? 'Busy' : (isReady ? 'Ready' : 'Offline');
+        if (engineDot) {
+            engineDot.className = `status-indicator-dot ${isBusy ? 'busy' : (isReady ? 'ready' : 'offline')}`;
+        }
+    }
+    if (modelBadge) modelBadge.textContent = eng.model || 'groq:llama-3.3-70b';
+    if (wsPath && eng.workspace) wsPath.textContent = eng.workspace;
+}

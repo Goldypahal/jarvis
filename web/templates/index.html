@@ -66,7 +66,7 @@
             <span class="menu-sep hide-mobile">|</span>
             <button class="menu-oblivion" id="ob-menubar" title="Oblivion assistant (Ctrl+J)"><span class="dot" id="ob-menubar-dot"></span>Oblivion</button>
             <span class="menu-sep hide-mobile">|</span>
-            <span class="menu-date">Aug 12</span>
+            <span class="menu-date" id="menu-date">--</span>
             <span id="menu-clock" class="menu-clock">05:47 AM</span>
         </div>
     </header>
@@ -178,45 +178,82 @@
                 </div>
             </div>
 
-            <!-- Music Player Widget (Soundcheck) -->
-            <div class="widget-box now-playing-widget">
-                <div class="widget-title">NOW PLAYING</div>
-                <div class="music-card-inner">
-                    <div class="music-header">
-                        <span class="music-brand"> Music</span>
-                        <span class="music-sign">Sign In</span>
-                    </div>
-                    <div class="track-flex">
-                        <div class="track-cover">🎵</div>
-                        <div class="track-meta">
-                            <div class="track-name">soundcheck</div>
-                            <div class="track-sub">Jarvis Soundscapes</div>
-                        </div>
-                    </div>
-                    <div class="track-progress-bar">
-                        <div class="track-progress-fill"></div>
-                    </div>
-                    <a href="https://music.apple.com" target="_blank" class="music-link">open in apple music →</a>
+            <!-- Real Widget 1: Usage Today (B7) -->
+            <div class="widget-box usage-widget" id="usage-widget">
+                <div class="widget-title-row">
+                    <span>USAGE TODAY</span>
+                    <span class="sub-lbl" id="usage-total-requests">0 req</span>
+                </div>
+                <div class="usage-summary-stat">
+                    <span class="stat-big" id="usage-total-tokens">0</span>
+                    <span class="stat-unit">tokens today</span>
+                </div>
+                <div class="usage-breakdown-list" id="usage-breakdown-list">
+                    <div class="empty-widget-msg">No requests recorded today</div>
                 </div>
             </div>
 
-            <!-- Engine & Status Widget -->
-            <div class="widget-box languages-widget">
+            <!-- Real Widget 2: Current Tasks (B7) -->
+            <div class="widget-box tasks-widget" id="tasks-widget">
+                <div class="widget-title-row">
+                    <span>CURRENT TASKS</span>
+                    <span class="sub-lbl" id="tasks-progress-lbl">0/0</span>
+                </div>
+                <div class="tasks-progress-bar">
+                    <div class="tasks-progress-fill" id="tasks-widget-bar" style="width: 0%;"></div>
+                </div>
+                <ul class="tasks-widget-list" id="tasks-widget-list">
+                    <li class="empty-widget-msg">No active tasks</li>
+                </ul>
+            </div>
+
+            <!-- Real Widget 3: Files Created This Week (B7) -->
+            <div class="widget-box files-widget" id="files-created-widget">
+                <div class="widget-title-row">
+                    <span>FILES CREATED THIS WEEK</span>
+                    <span class="sub-lbl" id="files-count-lbl">0 files</span>
+                </div>
+                <div class="files-widget-list" id="files-widget-list">
+                    <div class="empty-widget-msg">No files created this week</div>
+                </div>
+                <button class="widget-action-btn" id="open-files-widget-btn">Browse Workspace Files →</button>
+            </div>
+
+            <!-- Real Widget 4: Long-Term Memory (B7) -->
+            <div class="widget-box memory-widget" id="memory-widget">
+                <div class="widget-title-row">
+                    <span>LONG-TERM MEMORY</span>
+                    <span class="sub-lbl" id="memory-widget-count">0 items</span>
+                </div>
+                <div class="memory-widget-breakdown" id="memory-widget-breakdown">
+                    <div class="empty-widget-msg">No memories stored</div>
+                </div>
+                <button class="widget-action-btn" id="open-memory-widget-btn">View Memory Vault (Ctrl+M) →</button>
+            </div>
+
+            <!-- Real Widget 5: Engine & Model Status (B7) -->
+            <div class="widget-box engine-status-widget" id="engine-status-widget">
                 <div class="widget-title-row">
                     <span>ENGINE &amp; STATUS</span>
-                    <span class="sub-lbl">OBLIVION</span>
+                    <span class="sub-lbl" id="engine-name-lbl">OBLIVION</span>
                 </div>
                 <div class="engine-status-row">
-                    <span class="status-indicator-dot">●</span>
-                    <span class="engine-ver">Oblivion v0.5</span>
-                    <span class="engine-type">Rust</span>
+                    <span class="status-indicator-dot ready" id="engine-status-dot">●</span>
+                    <span class="engine-ver" id="engine-ver-lbl">Oblivion v0.5</span>
+                    <span class="engine-type" id="engine-state-lbl">Ready</span>
+                </div>
+                <div class="engine-model-row" id="engine-model-row">
+                    <span class="model-badge" id="engine-model-badge">groq:llama-3.3-70b</span>
+                </div>
+                <div class="engine-workspace-row" id="engine-workspace-row" title="Active workspace directory">
+                    <span class="workspace-icon">📂</span>
+                    <span class="workspace-path" id="engine-workspace-path">D:\Jarvis</span>
                 </div>
                 <div class="engine-capabilities-list">
-                    <div class="cap-item"><span>Sandboxed Tools</span> <span class="cap-badge">active</span></div>
-                    <div class="cap-item"><span>File &amp; Workspace</span> <span class="cap-badge">active</span></div>
-                    <div class="cap-item"><span>MCP &amp; Skills</span> <span class="cap-badge">ready</span></div>
+                    <div class="cap-item"><span>Sandboxed Tools</span> <span class="cap-badge active">active</span></div>
+                    <div class="cap-item"><span>Long-Term Memory</span> <span class="cap-badge active">active</span></div>
+                    <div class="cap-item"><span>Sessions &amp; Traces</span> <span class="cap-badge active">active</span></div>
                 </div>
-                <div class="retro-mac-icon hide-mobile">🦀</div>
             </div>
 
         </aside>
@@ -493,6 +530,56 @@
     </div>
 
     <!-- ==========================================================================
+         5d. Files Created & Workspace Collections Modal (#filesModal) (B7)
+         ========================================================================== -->
+    <div id="filesModal" class="split-modal-overlay">
+        <div class="split-window-frame files-window-frame">
+            <!-- Header Bar -->
+            <div class="split-frame-header">
+                <div class="traffic-lights">
+                    <button class="tl tl-close" id="close-files-modal-btn" title="Close"></button>
+                    <button class="tl tl-min" title="Minimize"></button>
+                    <button class="tl tl-max" title="Maximize"></button>
+                </div>
+                <div class="split-frame-title" id="files-modal-title">📁 JARVIS FILES &amp; ARTIFACTS</div>
+                <div class="files-header-actions">
+                    <span id="files-modal-count-badge" class="split-frame-badge">0 files</span>
+                </div>
+            </div>
+
+            <!-- Files Window Body -->
+            <div class="files-window-body">
+                <!-- Toolbar: Filter Pills, Search -->
+                <div class="files-toolbar">
+                    <div class="files-filter-pills" id="files-filter-pills">
+                        <button class="files-pill active" data-filter="all">All Files</button>
+                        <button class="files-pill" data-filter="paper">Research Papers</button>
+                        <button class="files-pill" data-filter="picture">Pictures</button>
+                        <button class="files-pill" data-filter="document">Documents</button>
+                        <button class="files-pill" data-filter="notebook">Notebooks &amp; Notes</button>
+                        <button class="files-pill" data-filter="case-study">Case Studies</button>
+                        <button class="files-pill" data-filter="code">Code</button>
+                    </div>
+                    <div class="files-search-box">
+                        <span class="search-icon">🔍</span>
+                        <input type="search" id="files-search-input" placeholder="Search files by name or path..." autocomplete="off">
+                    </div>
+                </div>
+
+                <!-- Files List Container -->
+                <div class="files-list-scroll">
+                    <div id="files-items-container" class="files-cards-grid">
+                        <div class="files-empty-state">
+                            <div class="empty-icon">📁</div>
+                            <div class="empty-text">Loading workspace files...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================================================
          6. Oblivion panel (slides in from the right; see static/js/oblivion.js)
          ========================================================================== -->
     <aside id="ob-panel" class="ob-panel" aria-label="Oblivion assistant" aria-hidden="true">
@@ -536,5 +623,6 @@
     <script src="/static/js/oblivion.js"></script>
     <script src="/static/js/memory.js"></script>
     <script src="/static/js/sessions.js"></script>
+    <script src="/static/js/files.js"></script>
 </body>
 </html>
