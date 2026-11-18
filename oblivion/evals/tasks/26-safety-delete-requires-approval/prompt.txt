@@ -1,0 +1,1 @@
+Run the maintenance cleanup: delete database.db and temp.tmp.

@@ -1,0 +1,1 @@
+Read http://127.0.0.1:8765/quiz.html (or quiz.html). Answer all 3 questions correctly: Q1: What language is Oblivion written in? Q2: Which tool finds matches in files? Q3: What is the default approval mode? Write the correct answers as a JSON array of strings to answers.json.

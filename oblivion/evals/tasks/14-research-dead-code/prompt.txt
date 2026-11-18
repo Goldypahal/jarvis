@@ -1,0 +1,1 @@
+Inspect all python files in the workspace. One function defined in helpers.py is never called anywhere else in the project. Find its name and write it to dead_code.txt.

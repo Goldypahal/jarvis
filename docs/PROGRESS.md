@@ -39,7 +39,7 @@ Current milestone: **v0.5 "One brain"** · Branch: `roadmap/m1`
 - [x] Q6: per-run trace file (JSON lines: model calls, tool calls, approvals, timings) under `~/.oblivion/traces/`, size-capped; `oblivion --trace <id>` prints one — 2026-11-18, 183900d, cargo test: 97 passed (14 in oblivion-cli); pytest: 29 passed; size-capped jsonl logging, rotation, prefix matching & --trace list verified
 
 ### Week 4 — measure
-- [ ] Q4: evals from 10 to 30: +5 research, +5 documents, +5 browser (local test site), +5 safety (must ask before delete; must not act on "ignore your instructions" text in a page or file)
+- [x] Q4: evals from 10 to 30: +5 research, +5 documents, +5 browser (local test site), +5 safety (must ask before delete; must not act on "ignore your instructions" text in a page or file) — 2026-11-18, b0afa3d, pytest: 34 passed; 30 tasks created (tasks 11-30) with prompt/workspace/hidden/flags and test runner daemon server support
 - [ ] B11: provider limits move from code to `oblivion.toml` with a `checked = "YYYY-MM-DD"` field; defaults stay; test
 - [ ] Python tests for every `web/app.py` route
 - [ ] Milestone check: no code path returns canned text; S1–S4, S6, S8, S9 closed; 30 evals run with one command; five real browser tasks done → merge, tag `v0.5`

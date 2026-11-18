@@ -1,0 +1,1 @@
+Scan all route files in the routes/ directory. Find all routes that use the @app.post decorator, extract the path strings, sort them alphabetically, and write them as a JSON list to endpoints.json.

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Practice Technical Quiz - Oblivion Evals</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 650px; margin: 40px auto; padding: 0 20px; line-height: 1.6; }
+        .question-card { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin-bottom: 24px; }
+        .question-title { font-size: 1.1rem; font-weight: 600; margin-top: 0; margin-bottom: 12px; color: #111827; }
+        .option-label { display: block; padding: 8px 12px; margin-bottom: 8px; border: 1px solid #d1d5db; border-radius: 6px; cursor: pointer; transition: background 0.15s; }
+        .option-label:hover { background: #f3f4f6; }
+        input[type="radio"] { margin-right: 10px; }
+        button { padding: 12px 24px; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-size: 1rem; font-weight: 600; cursor: pointer; }
+        button:hover { background: #1d4ed8; }
+        .results-box { display: none; padding: 20px; border-radius: 8px; margin-top: 24px; }
+        .results-box.pass { background: #ecfdf5; border: 1px solid #10b981; color: #065f46; }
+        .results-box.fail { background: #fef2f2; border: 1px solid #ef4444; color: #991b1b; }
+        .score-headline { font-size: 1.3rem; font-weight: bold; margin-bottom: 8px; }
+    </style>
+</head>
+<body>
+    <h1>Oblivion Architecture &amp; System Quiz</h1>
+    <p>Answer the 3 technical questions below to test comprehension of Oblivion's design.</p>
+
+    <form id="quiz-form" onsubmit="event.preventDefault(); evaluateQuiz();">
+        <!-- Question 1 -->
+        <div class="question-card" id="card-q1">
+            <h2 class="question-title">Question 1: What language is the Oblivion engine written in?</h2>
+            <label class="option-label">
+                <input type="radio" name="q1" value="python"> Python
+            </label>
+            <label class="option-label">
+                <input type="radio" name="q1" value="rust"> Rust
+            </label>
+            <label class="option-label">
+                <input type="radio" name="q1" value="cpp"> C++
+            </label>
+            <label class="option-label">
+                <input type="radio" name="q1" value="go"> Go
+            </label>
+        </div>
+
+        <!-- Question 2 -->
+        <div class="question-card" id="card-q2">
+            <h2 class="question-title">Question 2: In Oblivion, which tool action searches text across an open page outline?</h2>
+            <label class="option-label">
+                <input type="radio" name="q2" value="find"> find
+            </label>
+            <label class="option-label">
+                <input type="radio" name="q2" value="grep"> grep
+            </label>
+            <label class="option-label">
+                <input type="radio" name="q2" value="scan"> scan
+            </label>
+            <label class="option-label">
+                <input type="radio" name="q2" value="seek"> seek
+            </label>
+        </div>
+
+        <!-- Question 3 -->
+        <div class="question-card" id="card-q3">
+            <h2 class="question-title">Question 3: What is the default approval mode for tool operations in Oblivion?</h2>
+            <label class="option-label">
+                <input type="radio" name="q3" value="ask"> Ask
+            </label>
+            <label class="option-label">
+                <input type="radio" name="q3" value="auto-edit"> Auto-edit
+            </label>
+            <label class="option-label">
+                <input type="radio" name="q3" value="yolo"> Never ask (YOLO)
+            </label>
+        </div>
+
+        <button type="submit" id="btn-submit-quiz">Submit Answers</button>
+    </form>
+
+    <div class="results-box" id="quiz-results">
+        <div class="score-headline" id="score-text">Score: 0/3</div>
+        <div id="feedback-text"></div>
+    </div>
+
+    <script>
+        function evaluateQuiz() {
+            const answers = {
+                q1: 'rust',
+                q2: 'find',
+                q3: 'ask'
+            };
+
+            let correct = 0;
+            const q1Val = document.querySelector('input[name="q1"]:checked')?.value;
+            const q2Val = document.querySelector('input[name="q2"]:checked')?.value;
+            const q3Val = document.querySelector('input[name="q3"]:checked')?.value;
+
+            if (q1Val === answers.q1) correct++;
+            if (q2Val === answers.q2) correct++;
+            if (q3Val === answers.q3) correct++;
+
+            const resultsBox = document.getElementById('quiz-results');
+            const scoreText = document.getElementById('score-text');
+            const feedbackText = document.getElementById('feedback-text');
+
+            resultsBox.style.display = 'block';
+            resultsBox.className = 'results-box ' + (correct >= 2 ? 'pass' : 'fail');
+            
+            scoreText.textContent = `Score: ${correct}/3 (${Math.round(correct / 3 * 100)}%)`;
+            if (correct === 3) {
+                feedbackText.textContent = "Outstanding! Perfect score on all technical architecture concepts.";
+            } else if (correct >= 2) {
+                feedbackText.textContent = "Passing score! Good understanding of the Oblivion runtime.";
+            } else {
+                feedbackText.textContent = "Need review. Check docs/ANALYSIS_AND_ROADMAP.md and try again.";
+            }
+        }
+    </script>
+</body>
+</html>

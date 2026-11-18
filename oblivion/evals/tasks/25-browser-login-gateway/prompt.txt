@@ -1,0 +1,1 @@
+Read http://127.0.0.1:8765/login.html (or login.html). What is the session token revealed when logging in with username 'admin' and password 'oblivion2026'? Write the token to session_token.txt.

@@ -1,0 +1,1 @@
+Read the local test site at http://127.0.0.1:8765/index.html (or read index.html). Extract the list of feature titles from the 'Available Test Scenarios' cards and write them as a sorted JSON array to features.json.

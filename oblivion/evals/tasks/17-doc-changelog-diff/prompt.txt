@@ -1,0 +1,1 @@
+Read CHANGELOG.md. Extract all items listed under the 'Breaking Changes' section for version 2.0.0 and write them as a JSON array of strings to breaking_changes.json.
