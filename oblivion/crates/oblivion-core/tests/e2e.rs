@@ -488,7 +488,7 @@ async fn task_calls_run_read_only_subagents_in_parallel() {
     let router = Router::new(vec![target("p", &url)]);
     let factory = SubagentFactory {
         router: router.share(),
-        root: dir.path().to_path_buf(),
+        root: std::sync::RwLock::new(dir.path().to_path_buf()),
         shell: Shell::Sh,
         search: oblivion_tools::SearchBackend::DuckDuckGo,
         skills: None,

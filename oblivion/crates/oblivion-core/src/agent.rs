@@ -269,7 +269,35 @@ impl Agent {
         if let Some(s) = system {
             old.messages.insert(0, s);
         }
+        self.tools.set_root(old.workspace.clone());
+        if let Some(sub) = &self.subagents {
+            *sub.root.write().unwrap() = old.workspace.clone();
+        }
         self.session = old;
+        self.repair();
+    }
+
+    /// Set a new workspace folder for the session and tools.
+    pub fn set_workspace(&mut self, new_workspace: std::path::PathBuf) {
+        self.session.workspace = new_workspace.clone();
+        self.tools.set_root(new_workspace.clone());
+        if let Some(sub) = &self.subagents {
+            *sub.root.write().unwrap() = new_workspace;
+        }
+    }
+
+    /// Start a new session with the given workspace.
+    pub fn new_session(&mut self, workspace: std::path::PathBuf) {
+        let system = self.session.messages.first().cloned();
+        let mut s = Session::new(workspace.clone());
+        if let Some(sys) = system {
+            s.messages.push(sys);
+        }
+        self.tools.set_root(workspace.clone());
+        if let Some(sub) = &self.subagents {
+            *sub.root.write().unwrap() = workspace;
+        }
+        self.session = s;
         self.repair();
     }
 
@@ -967,5 +995,32 @@ mod tests {
         let sys_content2 = a.session.messages[0].content.as_deref().unwrap();
         assert!(!sys_content2.contains("<relevant_memories>"));
         assert_eq!(sys_content2, "sys");
+    }
+
+    #[test]
+    fn session_resume_and_workspace_switch() {
+        let d = tempfile::tempdir().unwrap();
+        let mut a = agent(d.path());
+        assert_eq!(a.tools.root(), d.path());
+
+        // 1. Switch workspace
+        let other_dir = tempfile::tempdir().unwrap();
+        a.set_workspace(other_dir.path().to_path_buf());
+        assert_eq!(a.tools.root(), other_dir.path());
+        assert_eq!(a.session.workspace, other_dir.path());
+
+        // 2. New session with custom workspace
+        let third_dir = tempfile::tempdir().unwrap();
+        a.new_session(third_dir.path().to_path_buf());
+        assert_eq!(a.tools.root(), third_dir.path());
+        assert_eq!(a.session.workspace, third_dir.path());
+
+        // 3. Resume old session updates tools root to old workspace
+        let mut old = Session::new(d.path().to_path_buf());
+        old.messages.push(Message::user("prior query"));
+        a.resume(old);
+        assert_eq!(a.tools.root(), d.path());
+        assert_eq!(a.session.workspace, d.path());
+        assert_eq!(a.session.messages.len(), 2); // system + user
     }
 }

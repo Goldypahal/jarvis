@@ -524,6 +524,72 @@ def register(app, bridge=None, allowed_port=None, token=None):
             headers={"Content-Disposition": f'attachment; filename="memories.{ext}"'},
         )
 
+    @app.route("/api/oblivion/sessions", methods=["GET", "POST"])
+    @app.route("/api/sessions", methods=["GET", "POST"])
+    def oblivion_sessions():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        if request.method == "GET":
+            params = dict(request.args)
+            code, text, ct = b.get("/api/sessions", params=params)
+            return Response(text, status=code, mimetype=ct)
+        else:
+            body = request.get_json(silent=True) or {}
+            code, text, ct = b.request("POST", "/api/sessions", body=body)
+            return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/sessions/<session_id>", methods=["GET", "DELETE"])
+    @app.route("/api/sessions/<session_id>", methods=["GET", "DELETE"])
+    def oblivion_session_item(session_id):
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        if request.method == "GET":
+            code, text, ct = b.get(f"/api/sessions/{session_id}")
+            return Response(text, status=code, mimetype=ct)
+        else:
+            code, text, ct = b.delete(f"/api/sessions/{session_id}")
+            return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/sessions/<session_id>/rename", methods=["POST"])
+    @app.route("/api/sessions/<session_id>/rename", methods=["POST"])
+    def oblivion_session_rename(session_id):
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        body = request.get_json(silent=True)
+        if body is None:
+            return jsonify({"error": "expected a JSON body"}), 400
+        code, text, ct = b.request("POST", f"/api/sessions/{session_id}/rename", body=body)
+        return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/sessions/<session_id>/resume", methods=["POST"])
+    @app.route("/api/sessions/<session_id>/resume", methods=["POST"])
+    def oblivion_session_resume(session_id):
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        code, text, ct = b.request("POST", f"/api/sessions/{session_id}/resume", body={})
+        return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/sessions/<session_id>/workspace", methods=["POST"])
+    @app.route("/api/sessions/<session_id>/workspace", methods=["POST"])
+    def oblivion_session_workspace(session_id):
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        body = request.get_json(silent=True)
+        if body is None:
+            return jsonify({"error": "expected a JSON body"}), 400
+        code, text, ct = b.request("POST", f"/api/sessions/{session_id}/workspace", body=body)
+        return Response(text, status=code, mimetype=ct)
+
     return bridge
 
 

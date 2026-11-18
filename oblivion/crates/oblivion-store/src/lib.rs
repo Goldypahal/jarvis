@@ -298,19 +298,76 @@ impl Store {
     pub fn list_sessions(&self, limit: usize) -> Result<Vec<SessionInfo>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, created, workspace, title FROM sessions ORDER BY updated DESC LIMIT ?1",
+            "SELECT id, created, updated, workspace, title, json_array_length(messages)
+             FROM sessions ORDER BY updated DESC LIMIT ?1",
         )?;
         let rows = stmt
             .query_map(params![limit as i64], |r| {
                 Ok(SessionInfo {
                     id: r.get(0)?,
                     created: r.get(1)?,
-                    workspace: r.get::<_, String>(2)?.into(),
-                    first_prompt: r.get(3)?,
+                    workspace: r.get::<_, String>(3)?.into(),
+                    first_prompt: r.get(4)?,
+                    updated: r.get(2).ok(),
+                    message_count: r.get::<_, Option<i64>>(5)?.map(|n| n.max(0) as usize),
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
+    }
+
+    /// Search sessions by title, id, workspace, or messages content.
+    pub fn search_sessions(&self, query: &str, limit: usize) -> Result<Vec<SessionInfo>> {
+        let conn = self.conn.lock().unwrap();
+        let q = format!("%{}%", query.trim());
+        let mut stmt = conn.prepare(
+            "SELECT id, created, updated, workspace, title, json_array_length(messages)
+             FROM sessions
+             WHERE id LIKE ?1 OR title LIKE ?1 OR workspace LIKE ?1 OR messages LIKE ?1
+             ORDER BY updated DESC LIMIT ?2",
+        )?;
+        let rows = stmt
+            .query_map(params![q, limit as i64], |r| {
+                Ok(SessionInfo {
+                    id: r.get(0)?,
+                    created: r.get(1)?,
+                    workspace: r.get::<_, String>(3)?.into(),
+                    first_prompt: r.get(4)?,
+                    updated: r.get(2).ok(),
+                    message_count: r.get::<_, Option<i64>>(5)?.map(|n| n.max(0) as usize),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Rename an existing session.
+    pub fn rename_session(&self, id: &str, title: &str) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Local::now().to_rfc3339();
+        let affected = conn.execute(
+            "UPDATE sessions SET title = ?1, updated = ?2 WHERE id = ?3",
+            params![title.trim(), now, id],
+        )?;
+        Ok(affected > 0)
+    }
+
+    /// Delete an existing session.
+    pub fn delete_session(&self, id: &str) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        let affected = conn.execute("DELETE FROM sessions WHERE id = ?1", params![id])?;
+        Ok(affected > 0)
+    }
+
+    /// Update workspace for an existing session.
+    pub fn update_session_workspace(&self, id: &str, workspace: &Path) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Local::now().to_rfc3339();
+        let affected = conn.execute(
+            "UPDATE sessions SET workspace = ?1, updated = ?2 WHERE id = ?3",
+            params![workspace.to_string_lossy(), now, id],
+        )?;
+        Ok(affected > 0)
     }
 
     /// Copy Phase 0 JSON sessions into the database (once; existing ids are kept).
@@ -991,7 +1048,56 @@ mod tests {
         let list = st.list_sessions(10).unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].first_prompt, "fix the login bug");
+        assert_eq!(list[0].message_count, Some(3));
         assert!(st.load_session("nope").is_err());
+    }
+
+    #[test]
+    fn sessions_search_rename_delete_and_workspace() {
+        let st = Store::in_memory().unwrap();
+        let mut s1 = Session::new("/project1".into());
+        s1.id = "session-p1-001".into();
+        s1.messages.push(Message::user("Build the database schema"));
+        st.save(&s1).unwrap();
+
+        let mut s2 = Session::new("/project2".into());
+        s2.id = "session-p2-002".into();
+        s2.messages
+            .push(Message::user("Fix frontend CSS styles and modal"));
+        st.save(&s2).unwrap();
+
+        // 1. Search sessions
+        let res_frontend = st.search_sessions("frontend", 10).unwrap();
+        assert_eq!(res_frontend.len(), 1);
+        assert_eq!(res_frontend[0].id, s2.id);
+
+        let res_p1 = st.search_sessions("project1", 10).unwrap();
+        assert_eq!(res_p1.len(), 1);
+        assert_eq!(res_p1[0].id, s1.id);
+
+        // 2. Rename session
+        assert!(st
+            .rename_session(&s1.id, "Refactor SQL migrations")
+            .unwrap());
+        let list = st.list_sessions(10).unwrap();
+        let renamed = list.iter().find(|s| s.id == s1.id).unwrap();
+        assert_eq!(renamed.first_prompt, "Refactor SQL migrations");
+
+        // 3. Update workspace (B10)
+        assert!(st
+            .update_session_workspace(&s2.id, Path::new("/project2-new"))
+            .unwrap());
+        let s2_loaded = st.load_session(&s2.id).unwrap();
+        assert_eq!(
+            s2_loaded.workspace,
+            std::path::PathBuf::from("/project2-new")
+        );
+
+        // 4. Delete session
+        assert!(st.delete_session(&s1.id).unwrap());
+        assert!(!st.delete_session("nonexistent").unwrap());
+        assert!(st.load_session(&s1.id).is_err());
+        assert_eq!(st.list_sessions(10).unwrap().len(), 1);
     }
 
     #[test]

@@ -244,6 +244,9 @@
                     <button class="dock-app-btn" id="open-memory-dock-btn" title="Memory &amp; Knowledge Base (Ctrl+M)" data-action="memory">
                         <div class="app-icon memory-dock-icon">🧠</div>
                     </button>
+                    <button class="dock-app-btn" id="open-sessions-dock-btn" title="Sessions Manager (Ctrl+S)" data-action="sessions">
+                        <div class="app-icon session-dock-icon">🗂️</div>
+                    </button>
                     
                     <!-- Chat Icon (Oblivion Assistant) -->
                     <button class="dock-app-btn chat-dock-btn active" id="open-chat-dock-btn" title="Oblivion assistant (Ctrl+J)">
@@ -270,7 +273,7 @@
                     <button class="tl tl-max"></button>
                 </div>
                 <div class="split-frame-title">JARVIS EXECUTIVE WORKSPACE (30% CHAT / 70% EXECUTION SPLIT)</div>
-                <div class="split-frame-badge">ACTIVE SESSION</div>
+                <div class="split-frame-badge" id="ob-active-session-badge" title="Click to view sessions (Ctrl+S)" style="cursor: pointer;">ACTIVE SESSION</div>
             </div>
 
             <!-- Window Body: 30 / 70 Split Layout -->
@@ -427,6 +430,69 @@
     </div>
 
     <!-- ==========================================================================
+         5c. Sessions & Workspaces Window Modal (#sessionsModal) (B10)
+         ========================================================================== -->
+    <div id="sessionsModal" class="split-modal-overlay">
+        <div class="split-window-frame sessions-window-frame">
+            <!-- Header Bar -->
+            <div class="split-frame-header">
+                <div class="traffic-lights">
+                    <button class="tl tl-close" id="close-sessions-modal-btn" title="Close"></button>
+                    <button class="tl tl-min" title="Minimize"></button>
+                    <button class="tl tl-max" title="Maximize"></button>
+                </div>
+                <div class="split-frame-title">🗂️ JARVIS SESSIONS &amp; WORKSPACES (B10)</div>
+                <div class="sessions-header-actions">
+                    <span id="sessions-count-badge" class="split-frame-badge">0 sessions</span>
+                </div>
+            </div>
+
+            <!-- Sessions Window Body -->
+            <div class="sessions-window-body">
+                <!-- Toolbar: Search, Actions -->
+                <div class="sessions-toolbar">
+                    <div class="sessions-search-box">
+                        <span class="search-icon">🔍</span>
+                        <input type="search" id="sessions-search-input" placeholder="Search sessions by prompt, workspace, title..." autocomplete="off">
+                    </div>
+                    <div class="sessions-actions">
+                        <button id="sessions-new-btn" class="mem-btn mem-btn-primary">+ New Session</button>
+                    </div>
+                </div>
+
+                <!-- New Session Form Pane (Work folder chosen per session - B10) -->
+                <div id="sessions-editor-pane" class="sessions-editor-pane" style="display: none;">
+                    <div class="editor-header">
+                        <h4>Start New Session</h4>
+                        <button id="sessions-editor-close-btn" class="editor-close-btn" type="button">✕</button>
+                    </div>
+                    <form id="sessions-editor-form">
+                        <div class="form-group">
+                            <label for="new-session-workspace">Work Folder (Chosen per session - B10)</label>
+                            <input type="text" id="new-session-workspace" class="mem-input" placeholder="e.g. D:\Jarvis or custom project path" required>
+                            <span class="field-hint" style="font-size: 11px; opacity: 0.7; margin-top: 4px; display: block;">Oblivion tools (file read/edit, search, commands) will be rooted to this directory.</span>
+                        </div>
+                        <div class="editor-actions">
+                            <button type="button" id="sessions-editor-cancel-btn" class="mem-btn">Cancel</button>
+                            <button type="submit" id="sessions-editor-save-btn" class="mem-btn mem-btn-primary">Launch Session</button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Sessions List Container -->
+                <div class="sessions-list-scroll">
+                    <div id="sessions-items-container" class="sessions-cards-grid">
+                        <div class="sessions-empty-state">
+                            <div class="empty-icon">🗂️</div>
+                            <div class="empty-text">Loading sessions...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================================================
          6. Oblivion panel (slides in from the right; see static/js/oblivion.js)
          ========================================================================== -->
     <aside id="ob-panel" class="ob-panel" aria-label="Oblivion assistant" aria-hidden="true">
@@ -469,5 +535,6 @@
     <script src="/static/js/app.js"></script>
     <script src="/static/js/oblivion.js"></script>
     <script src="/static/js/memory.js"></script>
+    <script src="/static/js/sessions.js"></script>
 </body>
 </html>

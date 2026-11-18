@@ -15,12 +15,16 @@ pub struct Session {
     pub messages: Vec<Message>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SessionInfo {
     pub id: String,
     pub created: String,
     pub workspace: PathBuf,
     pub first_prompt: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_count: Option<usize>,
 }
 
 /// Where sessions are saved. The CLI uses SQLite; tests and fallbacks use JSON files.
@@ -94,9 +98,11 @@ impl Session {
                 .collect();
             out.push(SessionInfo {
                 id: s.id,
-                created: s.created,
+                created: s.created.clone(),
                 workspace: s.workspace,
                 first_prompt,
+                updated: Some(s.created),
+                message_count: Some(s.messages.len()),
             });
         }
         out.sort_by(|a, b| b.id.cmp(&a.id));

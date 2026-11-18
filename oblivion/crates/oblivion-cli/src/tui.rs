@@ -274,6 +274,10 @@ impl Model {
                 self.todos = s.todos.clone();
                 self.state = Some(s);
             }
+            UiEvent::SessionResumed { .. } => {
+                self.items.clear();
+                self.lanes.clear();
+            }
             UiEvent::Quit => self.quit = true,
         }
     }

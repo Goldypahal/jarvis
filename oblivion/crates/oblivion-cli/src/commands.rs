@@ -37,6 +37,9 @@ pub const HELP: &str = "\
 /approval <m>  ask | auto-edit | yolo
 /clear         start a fresh conversation
 /session       show the session id (resume with --resume <id>)
+/resume <id>   resume an earlier session
+/workspace <p> change working directory for this session
+/new [path]    start a fresh session with optional folder
 /skills        list skills; run one with /<skill-name> [request]
 /mcp           list MCP servers and their tools
 /exit          quit";
@@ -73,6 +76,7 @@ pub async fn handle_command(
     agent: &mut Agent,
     skills: &SkillSet,
     hub: &McpHub,
+    store: Option<&oblivion_store::Store>,
     cmd: &str,
     sink: &mut (dyn FnMut(AgentEvent) + Send),
 ) -> Result<Command> {
@@ -160,6 +164,53 @@ pub async fn handle_command(
             "Conversation cleared.".to_string()
         }
         "session" => format!("Session {}", agent.session.id),
+        "workspace" | "cd" => {
+            if arg.is_empty() {
+                format!("Current workspace: {}", agent.tools.root().display())
+            } else {
+                let p = std::path::PathBuf::from(arg);
+                if !p.is_dir() {
+                    format!("Directory not found: {}", p.display())
+                } else {
+                    agent.set_workspace(p.clone());
+                    format!("Workspace updated to: {}", p.display())
+                }
+            }
+        }
+        "new" => {
+            let ws = if arg.is_empty() {
+                agent.tools.root().to_path_buf()
+            } else {
+                std::path::PathBuf::from(arg)
+            };
+            if !ws.is_dir() {
+                format!("Directory not found: {}", ws.display())
+            } else {
+                agent.new_session(ws.clone());
+                format!(
+                    "Started new session {} in {}",
+                    agent.session.id,
+                    ws.display()
+                )
+            }
+        }
+        "resume" => {
+            if arg.is_empty() {
+                "Usage: /resume <session_id>".to_string()
+            } else if let Some(st) = store {
+                match st.load_session(arg) {
+                    Ok(loaded) => {
+                        let count = loaded.messages.len();
+                        let ws = loaded.workspace.display().to_string();
+                        agent.resume(loaded);
+                        format!("Resumed session {arg} ({count} messages, workspace: {ws})")
+                    }
+                    Err(e) => format!("Failed to load session {arg}: {e}"),
+                }
+            } else {
+                "Cannot resume: session store is not available.".to_string()
+            }
+        }
         other => format!("Unknown command /{other}. Try /help or /skills."),
     };
     Ok(Command::Done(text))

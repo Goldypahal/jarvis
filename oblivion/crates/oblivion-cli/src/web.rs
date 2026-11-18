@@ -73,6 +73,10 @@ impl Bus {
                     *last_seq = seq;
                 }
                 // Only the latest state and task list matter.
+                (UiEvent::SessionResumed { .. }, _) => {
+                    h.clear();
+                    h.push(env.clone());
+                }
                 (UiEvent::State(_), _) => {
                     h.retain(|e| !matches!(e.event, UiEvent::State(_)));
                     h.push(env.clone());
@@ -145,6 +149,20 @@ pub fn router(state: WebState) -> Router {
         .route("/api/memory/{id}", put(update_memory).delete(delete_memory))
         .route("/api/memory/forget", post(forget_memories_topic))
         .route("/api/memory/export", get(export_memories))
+        .route(
+            "/api/sessions",
+            get(list_or_search_sessions).post(create_or_switch_session),
+        )
+        .route(
+            "/api/sessions/{id}",
+            get(get_session).delete(delete_session),
+        )
+        .route("/api/sessions/{id}/rename", post(rename_session))
+        .route("/api/sessions/{id}/resume", post(resume_session))
+        .route(
+            "/api/sessions/{id}/workspace",
+            post(update_session_workspace),
+        )
         .with_state(state)
 }
 
@@ -504,6 +522,152 @@ async fn export_memories(
             json_str,
         )
             .into_response())
+    }
+}
+
+async fn list_or_search_sessions(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<oblivion_core::SessionInfo>>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let limit = q.get("limit").and_then(|v| v.parse().ok()).unwrap_or(50);
+    let sessions = if let Some(search_q) = q.get("q").filter(|s| !s.trim().is_empty()) {
+        st.store.search_sessions(search_q, limit)
+    } else {
+        st.store.list_sessions(limit)
+    }
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(sessions))
+}
+
+async fn get_session(
+    State(st): State<WebState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<oblivion_core::Session>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let session = st
+        .store
+        .load_session(&id)
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    Ok(Json(session))
+}
+
+#[derive(Deserialize)]
+struct CreateSessionBody {
+    workspace: Option<String>,
+}
+
+async fn create_or_switch_session(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Json(body): Json<CreateSessionBody>,
+) -> Result<(StatusCode, Json<serde_json::Value>), StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let cmd = match &body.workspace {
+        Some(w) if !w.trim().is_empty() => format!("/new {}", w.trim()),
+        _ => "/new".to_string(),
+    };
+    st.controls.send(cmd);
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({ "status": "created", "workspace": body.workspace })),
+    ))
+}
+
+#[derive(Deserialize)]
+struct RenameSessionBody {
+    title: String,
+}
+
+async fn rename_session(
+    State(st): State<WebState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Json(body): Json<RenameSessionBody>,
+) -> StatusCode {
+    if !st.authorized(&headers, &q) {
+        return StatusCode::UNAUTHORIZED;
+    }
+    if body.title.trim().is_empty() {
+        return StatusCode::BAD_REQUEST;
+    }
+    match st.store.rename_session(&id, &body.title) {
+        Ok(true) => StatusCode::OK,
+        Ok(false) => StatusCode::NOT_FOUND,
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
+async fn resume_session(
+    State(st): State<WebState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<oblivion_core::Session>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let session = st
+        .store
+        .load_session(&id)
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    st.controls.send(format!("/resume {id}"));
+    Ok(Json(session))
+}
+
+async fn delete_session(
+    State(st): State<WebState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> StatusCode {
+    if !st.authorized(&headers, &q) {
+        return StatusCode::UNAUTHORIZED;
+    }
+    match st.store.delete_session(&id) {
+        Ok(true) => StatusCode::OK,
+        Ok(false) => StatusCode::NOT_FOUND,
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
+#[derive(Deserialize)]
+struct WorkspaceBody {
+    workspace: String,
+}
+
+async fn update_session_workspace(
+    State(st): State<WebState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Json(body): Json<WorkspaceBody>,
+) -> StatusCode {
+    if !st.authorized(&headers, &q) {
+        return StatusCode::UNAUTHORIZED;
+    }
+    let p = std::path::Path::new(body.workspace.trim());
+    if !p.is_dir() {
+        return StatusCode::BAD_REQUEST;
+    }
+    match st.store.update_session_workspace(&id, p) {
+        Ok(true) => {
+            st.controls.send(format!("/workspace {}", p.display()));
+            StatusCode::OK
+        }
+        Ok(false) => StatusCode::NOT_FOUND,
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
     }
 }
 
@@ -919,5 +1083,109 @@ mod live {
             .await
             .unwrap();
         assert_eq!(del_res.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn sessions_api_endpoints_crud_and_resume() {
+        use oblivion_core::SessionStore;
+        let dir = tempfile::tempdir().unwrap();
+        let (url, _seen) = crate::testkit::fake_server(vec![]).await;
+        let (_worker, controls, _events) = crate::testkit::worker(&url, dir.path());
+
+        let bus = Arc::new(Bus::default());
+        let store = Arc::new(oblivion_store::Store::in_memory().unwrap());
+        let token = new_token();
+        let state = WebState {
+            token: token.clone().into(),
+            controls,
+            bus,
+            store: store.clone(),
+        };
+
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            axum::serve(listener, router(state)).await.unwrap();
+        });
+
+        let base = format!("http://127.0.0.1:{port}");
+        let client = reqwest::Client::new();
+
+        // 1. Seed store with a session
+        let mut s = oblivion_core::Session::new(dir.path().to_path_buf());
+        s.id = "session-test-123".into();
+        s.messages
+            .push(oblivion_providers::Message::user("Fix auth bug"));
+        store.save(&s).unwrap();
+
+        // 2. List sessions
+        let list_res = client
+            .get(format!("{base}/api/sessions"))
+            .header("x-oblivion-token", &token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(list_res.status(), StatusCode::OK);
+        let list: Vec<oblivion_core::SessionInfo> = list_res.json().await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, "session-test-123");
+        assert_eq!(list[0].first_prompt, "Fix auth bug");
+
+        // 3. Get single session
+        let get_res = client
+            .get(format!("{base}/api/sessions/session-test-123"))
+            .header("x-oblivion-token", &token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(get_res.status(), StatusCode::OK);
+        let loaded: oblivion_core::Session = get_res.json().await.unwrap();
+        assert_eq!(loaded.id, "session-test-123");
+
+        // 4. Rename session
+        let rename_res = client
+            .post(format!("{base}/api/sessions/session-test-123/rename"))
+            .header("x-oblivion-token", &token)
+            .json(&serde_json::json!({ "title": "Refactor authentication flow" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(rename_res.status(), StatusCode::OK);
+        let list_after_rename = store.list_sessions(10).unwrap();
+        assert_eq!(
+            list_after_rename[0].first_prompt,
+            "Refactor authentication flow"
+        );
+
+        // 5. Update workspace
+        let ws_res = client
+            .post(format!("{base}/api/sessions/session-test-123/workspace"))
+            .header("x-oblivion-token", &token)
+            .json(&serde_json::json!({ "workspace": dir.path().to_string_lossy() }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(ws_res.status(), StatusCode::OK);
+
+        // 6. Resume session
+        let resume_res = client
+            .post(format!("{base}/api/sessions/session-test-123/resume"))
+            .header("x-oblivion-token", &token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resume_res.status(), StatusCode::OK);
+
+        // 7. Delete session
+        let del_res = client
+            .delete(format!("{base}/api/sessions/session-test-123"))
+            .header("x-oblivion-token", &token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(del_res.status(), StatusCode::OK);
+        assert_eq!(store.list_sessions(10).unwrap().len(), 0);
     }
 }

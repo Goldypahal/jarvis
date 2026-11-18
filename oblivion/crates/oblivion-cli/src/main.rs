@@ -652,7 +652,7 @@ async fn run() -> Result<()> {
     agent.memory_extract_tokens = cfg.memory.max_tokens;
     agent.set_subagents(oblivion_core::SubagentFactory {
         router: agent.router.share(),
-        root: root.clone(),
+        root: std::sync::RwLock::new(root.clone()),
         shell,
         search: subagent_search,
         read_roots: skill_dirs.clone(),
@@ -689,7 +689,9 @@ async fn run() -> Result<()> {
             ev_tx,
             approvals,
         );
-        let worker = worker.with_traces(traces_dir, current_tracer.clone());
+        let worker = worker
+            .with_traces(traces_dir, current_tracer.clone())
+            .with_store(store.clone());
         if !cli.prompt.is_empty() {
             controls.send(cli.prompt.join(" "));
         }
@@ -779,7 +781,7 @@ async fn run() -> Result<()> {
         }
         if let Some(cmd) = input.strip_prefix('/') {
             let mut sink = print_event;
-            match handle_command(&mut agent, &skills, &hub, cmd, &mut sink).await? {
+            match handle_command(&mut agent, &skills, &hub, Some(&store), cmd, &mut sink).await? {
                 Command::Quit => break,
                 Command::Done(text) => println!("{text}"),
                 Command::Run(task) => {

@@ -16,5 +16,5 @@ pub use extract::{
     RecallFuture,
 };
 pub use rules::Rules;
-pub use session::{JsonDir, Session, SessionStore};
+pub use session::{JsonDir, Session, SessionInfo, SessionStore};
 pub use subagent::SubagentFactory;
