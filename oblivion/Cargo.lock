@@ -2135,10 +2135,12 @@ dependencies = [
  "chrono",
  "oblivion-core",
  "oblivion-providers",
+ "oblivion-tools",
  "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]

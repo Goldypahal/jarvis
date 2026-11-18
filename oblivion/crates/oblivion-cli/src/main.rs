@@ -624,6 +624,8 @@ async fn run() -> Result<()> {
         if let Some(b) = &browser {
             tools.add_provider(b.clone());
         }
+        let memory_tools = Arc::new(oblivion_store::MemoryTools::new(store.clone()));
+        tools.add_provider(memory_tools);
         Agent::new(
             router,
             tools,

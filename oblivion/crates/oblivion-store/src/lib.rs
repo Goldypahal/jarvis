@@ -4,8 +4,10 @@
 
 pub mod memory;
 pub mod migrations;
+pub mod tools;
 
 pub use memory::{Memory, MemoryFilter, NewMemory};
+pub use tools::MemoryTools;
 
 use std::path::Path;
 use std::sync::Mutex;
