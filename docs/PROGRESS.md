@@ -35,7 +35,7 @@ Current milestone: **v0.5 "One brain"** · Branch: `roadmap/m1`
 - [x] B8: local test site under `oblivion/evals/sites/` (static HTML: form, quiz, pagination) used by browser evals — 2026-11-18, d752ee4, pytest: 29 passed; 5 static pages (index, form, quiz, pagination, login) verified
 - [x] B8: browser agent on five real tasks (search, page read, multi-page form on a local test page, practice quiz on a local test page, a site needing a login done by the user). Record each result; fix what breaks. Real logins: BLOCKED (needs user) if no session exists — 2026-11-18, e9ab149, 5/5 tasks passed in browser agent (search & pagination, page read, multi-step form [CONF-7842], practice quiz [3/3 100%], auth gateway [OBLIVION-AUTH-SUCCESS-99]); external live logins BLOCKED (needs user)
 - [x] B9: `--tui` checked in a real Windows Terminal: paste, resize, Shift+Enter, scroll, approvals; fix issues — 2026-11-18, 987c72a, cargo test: 93 passed; mouse wheel scroll, ANSI/bracketed paste, Shift+Enter, and resize clamping verified
-- [ ] B12: run each of security-review, refactor, write-tests, frontend-design, mcp-builder, explain-codebase once on this repo; fix the skill text where the model went wrong
+- [x] B12: run each of security-review, refactor, write-tests, frontend-design, mcp-builder, explain-codebase once on this repo; fix the skill text where the model went wrong — 2026-11-18, 3c2324c, cargo test: 93 passed; refined instructions across all 6 bundled skills addressing model failure modes
 - [ ] Q6: per-run trace file (JSON lines: model calls, tool calls, approvals, timings) under `~/.oblivion/traces/`, size-capped; `oblivion --trace <id>` prints one
 
 ### Week 4 — measure

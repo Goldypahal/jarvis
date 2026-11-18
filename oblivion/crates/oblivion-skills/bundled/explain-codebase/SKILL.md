@@ -6,21 +6,28 @@ license: MIT
 # Explain a codebase
 
 Work from the outside in and keep reading cheap: list and search before opening files, and read
-only the parts that matter.
+only the parts that matter. Never dump whole files into context when a header or targeted slice suffices.
 
-1. **Orientation** (3-5 calls): README, AGENTS.md/CONTRIBUTING, the manifest (package.json, Cargo.toml,
-   pyproject.toml, go.mod, pom.xml) for language, dependencies and scripts, and the top-level folders
-   (`glob` with `*` and `*/*`).
-2. **Entry points**: main files, CLI definitions, HTTP route registration, `bin/`, Dockerfile CMD,
-   framework conventions (e.g. `app/`, `pages/`, `src/main.rs`, `manage.py`).
-3. **Follow one real flow end to end** (e.g. "an HTTP request to /orders", "the `build` command"):
-   entry -> handler -> business logic -> storage/external calls -> response. Use `grep` for function names
-   to jump between files. For large repos, use the `task` tool to explore separate areas in parallel.
-4. **Note the important pieces**: core data types/models, configuration and environment variables,
-   database schema/migrations, background jobs, external services, test layout and commands.
-5. **Answer at the right level.** For "explain the repo": a one-paragraph summary, a folder map
-   (folder -> responsibility), the main flow as numbered steps with file paths, how to run/test, and
-   gotchas you noticed. For "where does X happen": the file:line(s) and a short explanation of the path to it.
-6. Offer a diagram as Mermaid text if the flow has many parts, and offer to save the overview as
-   AGENTS.md (init-project skill) so future sessions start faster.
-Never guess: if you did not read it, say "probably" or check first.
+1. **Orientation** (3-5 targeted lookups):
+   - Read root docs (`README.md`, `AGENTS.md`, `CONTRIBUTING.md`).
+   - Inspect build/package manifests (`Cargo.toml`, `pyproject.toml`, `package.json`, `go.mod`) to identify language, dependencies, toolchain, and scripts.
+   - List top-level directories (`glob` with `*` and `*/*`) to grasp repository layout.
+2. **Entry points**:
+   - Locate startup files, CLI argument parsers, HTTP route initializations, and main binaries (`src/main.rs`, `app.py`, `index.ts`, `cmd/`).
+   - Identify how configuration and environment variables are loaded.
+3. **Trace one real flow end to end**:
+   - Trace a concrete user action (e.g. an incoming HTTP request, CLI invocation, or agent turn):
+     Entrypoint &rarr; Route Handler &rarr; Business Logic &rarr; External / Database Storage &rarr; Response / Event.
+   - Search for function and type definitions across files to map connections without guessing.
+4. **Identify core architectural foundations**:
+   - Primary data models, state machines, and schemas.
+   - Concurrency, locking, or background worker models.
+   - Security boundaries: input sanitization, authentication, permission checks, and sandboxing.
+   - Test suite layout and execution commands.
+5. **Answer at the right level**:
+   - For repository overviews: provide a one-paragraph summary of purpose, a directory map (directory &rarr; responsibility), key control flows with exact `file:line` citations, and standard build/test instructions.
+   - For "where does X happen": provide the exact `file:line` references and a concise walkthrough of how control reaches that point.
+6. **Diagramming & persistence**:
+   - Provide a Mermaid flowchart (`flowchart TD` or `sequenceDiagram`) for flows involving multiple components.
+   - Offer to update or persist architectural notes in `AGENTS.md` for future sessions.
+Never guess: verify claims by reading the actual source code; if unverified, explicitly label it as "needs confirmation".
