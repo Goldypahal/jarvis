@@ -55,7 +55,7 @@ Current milestone: **Month 2 — memory and an honest desktop** · Branch: `road
 - [x] Desktop "Memory" window: list, search, edit, delete, forget-by-topic, export — 2026-11-19, 0dc948b, cargo test: 126 passed; pytest: 53 passed; clippy: 0 warnings; browser subagent UI test verified (CRUD, live search, dark theme)
 - [x] Sessions window: list, search, rename, resume, delete; work folder chosen per session (B10) — 2026-11-19, 278f93d, cargo test: 128 passed; pytest: 56 passed; clippy: 0 warnings; browser subagent UI test verified (CRUD, work folder per session, rename, live search, dark theme)
 - [x] B7: replace every fake widget with real data (usage today, tasks, files created, memory count, model status) or remove it; menu-bar date is live — 2026-11-19, ee01a7e, cargo test: 128 passed; pytest: 61 passed; clippy: 0 warnings; browser subagent UI test verified (live date, 5 real widgets, files modal, light & dark themes)
-- [ ] `AGENTS.md` read at start, update offered at end of a session
+- [x] `AGENTS.md` read at start, update offered at end of a session — 2026-11-19, 59065f9, cargo test: 133 passed; clippy: 0 warnings; pytest: 64 passed; node check: clean; read at start, update proposals, CLI offer, /agents-md and REST endpoints verified
 - [ ] 5 memory evals; milestone check
 
 ## Month 3 — local models and one-file install → v1.0
