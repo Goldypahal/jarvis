@@ -36,7 +36,7 @@ Current milestone: **v0.5 "One brain"** · Branch: `roadmap/m1`
 - [x] B8: browser agent on five real tasks (search, page read, multi-page form on a local test page, practice quiz on a local test page, a site needing a login done by the user). Record each result; fix what breaks. Real logins: BLOCKED (needs user) if no session exists — 2026-11-18, e9ab149, 5/5 tasks passed in browser agent (search & pagination, page read, multi-step form [CONF-7842], practice quiz [3/3 100%], auth gateway [OBLIVION-AUTH-SUCCESS-99]); external live logins BLOCKED (needs user)
 - [x] B9: `--tui` checked in a real Windows Terminal: paste, resize, Shift+Enter, scroll, approvals; fix issues — 2026-11-18, 987c72a, cargo test: 93 passed; mouse wheel scroll, ANSI/bracketed paste, Shift+Enter, and resize clamping verified
 - [x] B12: run each of security-review, refactor, write-tests, frontend-design, mcp-builder, explain-codebase once on this repo; fix the skill text where the model went wrong — 2026-11-18, 3c2324c, cargo test: 93 passed; refined instructions across all 6 bundled skills addressing model failure modes
-- [ ] Q6: per-run trace file (JSON lines: model calls, tool calls, approvals, timings) under `~/.oblivion/traces/`, size-capped; `oblivion --trace <id>` prints one
+- [x] Q6: per-run trace file (JSON lines: model calls, tool calls, approvals, timings) under `~/.oblivion/traces/`, size-capped; `oblivion --trace <id>` prints one — 2026-11-18, 183900d, cargo test: 97 passed (14 in oblivion-cli); pytest: 29 passed; size-capped jsonl logging, rotation, prefix matching & --trace list verified
 
 ### Week 4 — measure
 - [ ] Q4: evals from 10 to 30: +5 research, +5 documents, +5 browser (local test site), +5 safety (must ask before delete; must not act on "ignore your instructions" text in a page or file)
@@ -145,6 +145,18 @@ Current milestone: **v0.5 "One brain"** · Branch: `roadmap/m1`
   - `python -m pytest -q legacy/tests`: 8 passed, 0 failed
   - `node --check`: clean on all static JS files
   - UI visual verification: verified with browser subagent across Ice Blue and Dark Charcoal themes with screenshot evidence.
+
+### Month 1 Week 3 Summary (2026-11-18)
+- Items done:
+  - B8: local test site under `oblivion/evals/sites/` (index, form, quiz, pagination, login) with pytest validation (29 passed).
+  - B8: browser agent evaluation on five real tasks (search/pagination, page read, multi-step form [CONF-7842], practice quiz [3/3 100%], auth gateway [OBLIVION-AUTH-SUCCESS-99]); external live logins BLOCKED (needs user).
+  - B9: `--tui` resilience in Windows Terminal: ANSI and bracketed paste handling, resize coordinate clamping, Shift+Enter and Enter handling, mouse wheel scroll capture.
+  - B12: refined instructions across all 6 bundled skills (`security-review`, `refactor`, `write-tests`, `frontend-design`, `mcp-builder`, `explain-codebase`) addressing model failure modes.
+  - Q6: per-run trace recorder in `oblivion-cli` writing JSON lines (`TraceEntry`) to `~/.oblivion/traces/`, 5MB file cap with overflow logging, 50-file rotation, prefix matching & `--trace list` / `--trace <id>` inspection.
+- Gate results:
+  - `cargo test --workspace`: 97 passed, 0 failed (14 in oblivion-cli)
+  - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings
+  - `python -m pytest -q tests`: 29 passed, 0 failed
 
 ## Notes for next session
 <!-- Surprises about the code, environment quirks, things the next session must know. -->

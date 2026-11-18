@@ -5,13 +5,14 @@ mod commands;
 mod keys;
 #[cfg(test)]
 mod testkit;
+pub mod trace;
 mod tui;
 mod web;
 
 use std::io::{BufRead, IsTerminal, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
@@ -115,6 +116,10 @@ struct Cli {
     /// Full-screen terminal interface (chat, task list and helpers side by side).
     #[arg(long)]
     tui: bool,
+
+    /// Print a run's trace log (JSON lines) by run id, then exit. Use "list" to show traces.
+    #[arg(long, value_name = "ID")]
+    trace: Option<String>,
 }
 
 mod style {
@@ -151,6 +156,26 @@ impl Approver for TerminalApprover {
                 _ => println!("Please type y, n or a."),
             }
         }
+    }
+}
+
+struct TracingApprover {
+    inner: Box<dyn Approver>,
+    tracer: Arc<Mutex<Option<Arc<trace::Tracer>>>>,
+}
+
+impl Approver for TracingApprover {
+    fn approve(&self, tool: &str, summary: &str) -> Decision {
+        let decision = self.inner.approve(tool, summary);
+        if let Some(tracer) = self.tracer.lock().unwrap().as_ref() {
+            let dec_str = match decision {
+                Decision::Yes => "yes",
+                Decision::No => "no",
+                Decision::Always => "always",
+            };
+            tracer.record_approval(0, tool, summary, dec_str);
+        }
+        decision
     }
 }
 
@@ -305,6 +330,11 @@ async fn run() -> Result<()> {
         .clone()
         .unwrap_or_else(config::default_config_path);
     let sessions_dir = home.join("sessions");
+    let traces_dir = home.join("traces");
+
+    if let Some(id) = &cli.trace {
+        return trace::print_trace(&traces_dir, id);
+    }
 
     if cli.init {
         return init_config(&config_path);
@@ -563,11 +593,16 @@ async fn run() -> Result<()> {
     let interactive_ui = cli.web || cli.tui;
     let (ev_tx, ev_rx) = app::channels();
     let approvals = app::Approvals::new(ev_tx.clone());
-    let approver: Box<dyn Approver> = if interactive_ui {
+    let base_approver: Box<dyn Approver> = if interactive_ui {
         approvals.approver()
     } else {
         Box::new(TerminalApprover)
     };
+    let current_tracer: Arc<Mutex<Option<Arc<trace::Tracer>>>> = Arc::new(Mutex::new(None));
+    let approver: Box<dyn Approver> = Box::new(TracingApprover {
+        inner: base_approver,
+        tracer: current_tracer.clone(),
+    });
     let mut agent = {
         // Snapshot folder is named per run so undo data never mixes between sessions.
         let snap = home
@@ -633,6 +668,7 @@ async fn run() -> Result<()> {
             ev_tx,
             approvals,
         );
+        let worker = worker.with_traces(traces_dir, current_tracer.clone());
         if !cli.prompt.is_empty() {
             controls.send(cli.prompt.join(" "));
         }
@@ -676,7 +712,15 @@ async fn run() -> Result<()> {
                 task = skill_request(&skills, name, arg);
             }
         }
-        run_one(&mut agent, &task, &in_turn, &cancel).await;
+        run_one(
+            &mut agent,
+            &task,
+            &in_turn,
+            &cancel,
+            &traces_dir,
+            current_tracer.clone(),
+        )
+        .await;
         hub.shutdown().await;
         if let Some(b) = &browser {
             b.shutdown().await;
@@ -708,11 +752,29 @@ async fn run() -> Result<()> {
             match handle_command(&mut agent, &skills, &hub, cmd, &mut sink).await? {
                 Command::Quit => break,
                 Command::Done(text) => println!("{text}"),
-                Command::Run(task) => run_one(&mut agent, &task, &in_turn, &cancel).await,
+                Command::Run(task) => {
+                    run_one(
+                        &mut agent,
+                        &task,
+                        &in_turn,
+                        &cancel,
+                        &traces_dir,
+                        current_tracer.clone(),
+                    )
+                    .await
+                }
             }
             continue;
         }
-        run_one(&mut agent, input, &in_turn, &cancel).await;
+        run_one(
+            &mut agent,
+            input,
+            &in_turn,
+            &cancel,
+            &traces_dir,
+            current_tracer.clone(),
+        )
+        .await;
     }
     hub.shutdown().await;
     if let Some(b) = &browser {
@@ -917,9 +979,50 @@ fn dirs_home() -> Option<PathBuf> {
     std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from)
 }
 
-async fn run_one(agent: &mut Agent, task: &str, in_turn: &AtomicBool, cancel: &Notify) {
+async fn run_one(
+    agent: &mut Agent,
+    task: &str,
+    in_turn: &AtomicBool,
+    cancel: &Notify,
+    traces_dir: &std::path::Path,
+    tracer_slot: Arc<Mutex<Option<Arc<trace::Tracer>>>>,
+) {
     in_turn.store(true, Ordering::SeqCst);
-    let mut on_event = print_event;
+    let tracer = trace::Tracer::start(traces_dir, task, agent.tools.root()).map(Arc::new);
+    if let Some(t) = &tracer {
+        *tracer_slot.lock().unwrap() = Some(t.clone());
+    }
+    let tracer_ev = tracer.clone();
+    let mut on_event = move |e: AgentEvent| {
+        if let Some(t) = &tracer_ev {
+            match &e {
+                AgentEvent::Model(m) => t.record_model(m),
+                AgentEvent::Fallback { from, reason } => t.record_fallback(from, reason),
+                AgentEvent::ToolStart {
+                    name,
+                    summary,
+                    detail,
+                } => {
+                    t.record_tool_start(name, summary, detail);
+                }
+                AgentEvent::ToolEnd {
+                    name,
+                    preview,
+                    is_error,
+                    ..
+                } => {
+                    t.record_tool_end(name, preview, *is_error);
+                }
+                AgentEvent::Declined { name } => t.record_declined(name),
+                AgentEvent::Notice(msg) => t.record(trace::TraceEntry::Notice {
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    text: msg.clone(),
+                }),
+                _ => {}
+            }
+        }
+        print_event(e);
+    };
     let result = tokio::select! {
         r = agent.run_turn(task, &mut on_event) => Some(r),
         _ = cancel.notified() => None,
@@ -927,13 +1030,32 @@ async fn run_one(agent: &mut Agent, task: &str, in_turn: &AtomicBool, cancel: &N
     in_turn.store(false, Ordering::SeqCst);
     match result {
         None => {
+            if let Some(t) = &tracer {
+                t.finish(0, 0, 0, 0, "cancelled", None);
+            }
             agent.repair();
             println!(
                 "\n{YELLOW}Cancelled. File changes so far are kept; /undo reverts them.{RESET}"
             );
         }
-        Some(Err(e)) => println!("\n{RED}✗ {e:#}{RESET}"),
+        Some(Err(e)) => {
+            let err_msg = format!("{e:#}");
+            if let Some(t) = &tracer {
+                t.finish(0, 0, 0, 0, "error", Some(&err_msg));
+            }
+            println!("\n{RED}✗ {e:#}{RESET}");
+        }
         Some(Ok(s)) => {
+            if let Some(t) = &tracer {
+                t.finish(
+                    s.steps,
+                    s.tool_calls,
+                    s.usage.prompt_tokens,
+                    s.usage.completion_tokens,
+                    "done",
+                    None,
+                );
+            }
             let tokens = if s.usage.prompt_tokens + s.usage.completion_tokens > 0 {
                 format!(
                     " · {} in / {} out tokens",
@@ -948,4 +1070,5 @@ async fn run_one(agent: &mut Agent, task: &str, in_turn: &AtomicBool, cancel: &N
             );
         }
     }
+    *tracer_slot.lock().unwrap() = None;
 }
