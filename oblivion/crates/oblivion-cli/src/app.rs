@@ -100,12 +100,23 @@ pub enum UiEvent {
     Todos {
         items: Vec<TodoView>,
     },
+    SessionResumed {
+        id: String,
+        workspace: String,
+        messages: Vec<SessionMessageView>,
+    },
     Busy {
         busy: bool,
     },
     State(StateView),
     /// `/exit` was typed.
     Quit,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct SessionMessageView {
+    pub role: String,
+    pub content: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -133,6 +144,7 @@ pub struct StateView {
     pub todos: Vec<TodoView>,
     pub skills: Vec<String>,
     pub browser: bool,
+    pub instructions_file: Option<String>,
 }
 
 impl From<AgentEvent> for UiEvent {
@@ -227,6 +239,8 @@ pub fn state_view(agent: &Agent, skills: &SkillSet, browser: bool) -> StateView 
         todos: todo_views(&agent.tools.todos().items()),
         skills: skills.all().map(|s| s.name.clone()).collect(),
         browser,
+        instructions_file: oblivion_core::prompt::project_instructions(agent.tools.root())
+            .map(|(name, _)| name),
     }
 }
 
@@ -338,6 +352,7 @@ pub struct Worker {
     approvals: Arc<Approvals>,
     traces_dir: Option<PathBuf>,
     tracer_slot: Option<Arc<Mutex<Option<Arc<crate::trace::Tracer>>>>>,
+    store: Option<Arc<oblivion_store::Store>>,
 }
 
 /// Build the channels first: the agent needs `approvals.approver()` when it is created.
@@ -379,9 +394,15 @@ impl Worker {
                 approvals,
                 traces_dir: None,
                 tracer_slot: None,
+                store: None,
             },
             controls,
         )
+    }
+
+    pub fn with_store(mut self, store: Arc<oblivion_store::Store>) -> Self {
+        self.store = Some(store);
+        self
     }
 
     pub fn with_traces(
@@ -417,9 +438,15 @@ impl Worker {
                     let mut sink = move |e: AgentEvent| {
                         let _ = tx.send(e.into());
                     };
-                    let result =
-                        handle_command(&mut self.agent, &self.skills, &self.hub, cmd, &mut sink)
-                            .await;
+                    let result = handle_command(
+                        &mut self.agent,
+                        &self.skills,
+                        &self.hub,
+                        self.store.as_deref(),
+                        cmd,
+                        &mut sink,
+                    )
+                    .await;
                     match result {
                         Ok(Command::Quit) => {
                             let _ = self.tx.send(UiEvent::Quit);
@@ -427,6 +454,30 @@ impl Worker {
                         }
                         Ok(Command::Done(info)) => {
                             let _ = self.tx.send(UiEvent::Info { text: info });
+                            if text.starts_with("/resume ") {
+                                let messages = self
+                                    .agent
+                                    .session
+                                    .messages
+                                    .iter()
+                                    .filter_map(|m| {
+                                        let role = match m.role {
+                                            oblivion_providers::Role::User => "user",
+                                            oblivion_providers::Role::Assistant => "assistant",
+                                            _ => return None,
+                                        };
+                                        m.content.as_ref().map(|c| SessionMessageView {
+                                            role: role.into(),
+                                            content: c.clone(),
+                                        })
+                                    })
+                                    .collect();
+                                let _ = self.tx.send(UiEvent::SessionResumed {
+                                    id: self.agent.session.id.clone(),
+                                    workspace: self.agent.tools.root().display().to_string(),
+                                    messages,
+                                });
+                            }
                             self.send_state();
                             continue;
                         }

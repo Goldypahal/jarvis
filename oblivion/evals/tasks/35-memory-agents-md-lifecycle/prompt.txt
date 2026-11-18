@@ -1,0 +1,1 @@
+Create the build manifest with version '1.2.0' following project rules in AGENTS.md.

@@ -1,0 +1,1 @@
+Recall the database connection pool size configured for this project. Write ONLY the pool size number to pool.txt.

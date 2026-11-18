@@ -1,0 +1,1 @@
+Generate a file config.json containing keys 'name' with value 'Jarvis' and 'active' with value true, following my formatting preferences.

@@ -66,7 +66,7 @@
             <span class="menu-sep hide-mobile">|</span>
             <button class="menu-oblivion" id="ob-menubar" title="Oblivion assistant (Ctrl+J)"><span class="dot" id="ob-menubar-dot"></span>Oblivion</button>
             <span class="menu-sep hide-mobile">|</span>
-            <span class="menu-date">Aug 12</span>
+            <span class="menu-date" id="menu-date">--</span>
             <span id="menu-clock" class="menu-clock">05:47 AM</span>
         </div>
     </header>
@@ -178,45 +178,82 @@
                 </div>
             </div>
 
-            <!-- Music Player Widget (Soundcheck) -->
-            <div class="widget-box now-playing-widget">
-                <div class="widget-title">NOW PLAYING</div>
-                <div class="music-card-inner">
-                    <div class="music-header">
-                        <span class="music-brand"> Music</span>
-                        <span class="music-sign">Sign In</span>
-                    </div>
-                    <div class="track-flex">
-                        <div class="track-cover">🎵</div>
-                        <div class="track-meta">
-                            <div class="track-name">soundcheck</div>
-                            <div class="track-sub">Jarvis Soundscapes</div>
-                        </div>
-                    </div>
-                    <div class="track-progress-bar">
-                        <div class="track-progress-fill"></div>
-                    </div>
-                    <a href="https://music.apple.com" target="_blank" class="music-link">open in apple music →</a>
+            <!-- Real Widget 1: Usage Today (B7) -->
+            <div class="widget-box usage-widget" id="usage-widget">
+                <div class="widget-title-row">
+                    <span>USAGE TODAY</span>
+                    <span class="sub-lbl" id="usage-total-requests">0 req</span>
+                </div>
+                <div class="usage-summary-stat">
+                    <span class="stat-big" id="usage-total-tokens">0</span>
+                    <span class="stat-unit">tokens today</span>
+                </div>
+                <div class="usage-breakdown-list" id="usage-breakdown-list">
+                    <div class="empty-widget-msg">No requests recorded today</div>
                 </div>
             </div>
 
-            <!-- Engine & Status Widget -->
-            <div class="widget-box languages-widget">
+            <!-- Real Widget 2: Current Tasks (B7) -->
+            <div class="widget-box tasks-widget" id="tasks-widget">
+                <div class="widget-title-row">
+                    <span>CURRENT TASKS</span>
+                    <span class="sub-lbl" id="tasks-progress-lbl">0/0</span>
+                </div>
+                <div class="tasks-progress-bar">
+                    <div class="tasks-progress-fill" id="tasks-widget-bar" style="width: 0%;"></div>
+                </div>
+                <ul class="tasks-widget-list" id="tasks-widget-list">
+                    <li class="empty-widget-msg">No active tasks</li>
+                </ul>
+            </div>
+
+            <!-- Real Widget 3: Files Created This Week (B7) -->
+            <div class="widget-box files-widget" id="files-created-widget">
+                <div class="widget-title-row">
+                    <span>FILES CREATED THIS WEEK</span>
+                    <span class="sub-lbl" id="files-count-lbl">0 files</span>
+                </div>
+                <div class="files-widget-list" id="files-widget-list">
+                    <div class="empty-widget-msg">No files created this week</div>
+                </div>
+                <button class="widget-action-btn" id="open-files-widget-btn">Browse Workspace Files →</button>
+            </div>
+
+            <!-- Real Widget 4: Long-Term Memory (B7) -->
+            <div class="widget-box memory-widget" id="memory-widget">
+                <div class="widget-title-row">
+                    <span>LONG-TERM MEMORY</span>
+                    <span class="sub-lbl" id="memory-widget-count">0 items</span>
+                </div>
+                <div class="memory-widget-breakdown" id="memory-widget-breakdown">
+                    <div class="empty-widget-msg">No memories stored</div>
+                </div>
+                <button class="widget-action-btn" id="open-memory-widget-btn">View Memory Vault (Ctrl+M) →</button>
+            </div>
+
+            <!-- Real Widget 5: Engine & Model Status (B7) -->
+            <div class="widget-box engine-status-widget" id="engine-status-widget">
                 <div class="widget-title-row">
                     <span>ENGINE &amp; STATUS</span>
-                    <span class="sub-lbl">OBLIVION</span>
+                    <span class="sub-lbl" id="engine-name-lbl">OBLIVION</span>
                 </div>
                 <div class="engine-status-row">
-                    <span class="status-indicator-dot">●</span>
-                    <span class="engine-ver">Oblivion v0.5</span>
-                    <span class="engine-type">Rust</span>
+                    <span class="status-indicator-dot ready" id="engine-status-dot">●</span>
+                    <span class="engine-ver" id="engine-ver-lbl">Oblivion v0.5</span>
+                    <span class="engine-type" id="engine-state-lbl">Ready</span>
+                </div>
+                <div class="engine-model-row" id="engine-model-row">
+                    <span class="model-badge" id="engine-model-badge">groq:llama-3.3-70b</span>
+                </div>
+                <div class="engine-workspace-row" id="engine-workspace-row" title="Active workspace directory">
+                    <span class="workspace-icon">📂</span>
+                    <span class="workspace-path" id="engine-workspace-path">D:\Jarvis</span>
                 </div>
                 <div class="engine-capabilities-list">
-                    <div class="cap-item"><span>Sandboxed Tools</span> <span class="cap-badge">active</span></div>
-                    <div class="cap-item"><span>File &amp; Workspace</span> <span class="cap-badge">active</span></div>
-                    <div class="cap-item"><span>MCP &amp; Skills</span> <span class="cap-badge">ready</span></div>
+                    <div class="cap-item"><span>Sandboxed Tools</span> <span class="cap-badge active">active</span></div>
+                    <div class="cap-item"><span>Long-Term Memory</span> <span class="cap-badge active">active</span></div>
+                    <div class="cap-item"><span>Sessions &amp; Traces</span> <span class="cap-badge active">active</span></div>
                 </div>
-                <div class="retro-mac-icon hide-mobile">🦀</div>
             </div>
 
         </aside>
@@ -240,6 +277,12 @@
                     </button>
                     <button class="dock-app-btn" title="Model Context Protocol (MCP)" data-action="mcp">
                         <div class="app-icon mem-icon">🔌</div>
+                    </button>
+                    <button class="dock-app-btn" id="open-memory-dock-btn" title="Memory &amp; Knowledge Base (Ctrl+M)" data-action="memory">
+                        <div class="app-icon memory-dock-icon">🧠</div>
+                    </button>
+                    <button class="dock-app-btn" id="open-sessions-dock-btn" title="Sessions Manager (Ctrl+S)" data-action="sessions">
+                        <div class="app-icon session-dock-icon">🗂️</div>
                     </button>
                     
                     <!-- Chat Icon (Oblivion Assistant) -->
@@ -267,7 +310,7 @@
                     <button class="tl tl-max"></button>
                 </div>
                 <div class="split-frame-title">JARVIS EXECUTIVE WORKSPACE (30% CHAT / 70% EXECUTION SPLIT)</div>
-                <div class="split-frame-badge">ACTIVE SESSION</div>
+                <div class="split-frame-badge" id="ob-active-session-badge" title="Click to view sessions (Ctrl+S)" style="cursor: pointer;">ACTIVE SESSION</div>
             </div>
 
             <!-- Window Body: 30 / 70 Split Layout -->
@@ -333,6 +376,210 @@
     </div>
 
     <!-- ==========================================================================
+         5b. Long-Term Memory Window Modal (#memoryModal)
+         ========================================================================== -->
+    <div id="memoryModal" class="split-modal-overlay">
+        <div class="split-window-frame memory-window-frame">
+            <!-- Header Bar -->
+            <div class="split-frame-header">
+                <div class="traffic-lights">
+                    <button class="tl tl-close" id="close-memory-modal-btn" title="Close"></button>
+                    <button class="tl tl-min" title="Minimize"></button>
+                    <button class="tl tl-max" title="Maximize"></button>
+                </div>
+                <div class="split-frame-title">🧠 JARVIS LONG-TERM MEMORY &amp; KNOWLEDGE</div>
+                <div class="memory-header-actions">
+                    <span id="memory-count-badge" class="split-frame-badge">0 memories</span>
+                    <button id="memory-export-json-btn" class="mem-btn-sm" title="Export as JSON">JSON</button>
+                    <button id="memory-export-md-btn" class="mem-btn-sm" title="Export as Markdown">MD</button>
+                </div>
+            </div>
+
+            <!-- Memory Window Body -->
+            <div class="memory-window-body">
+                <!-- Toolbar: Search, Category Filter, Actions -->
+                <div class="memory-toolbar">
+                    <div class="memory-search-box">
+                        <span class="search-icon">🔍</span>
+                        <input type="search" id="memory-search-input" placeholder="Search memories (FTS5 full-text + semantic vectors)..." autocomplete="off">
+                    </div>
+                    <div class="memory-filters">
+                        <select id="memory-type-filter" class="mem-select">
+                            <option value="">All Categories</option>
+                            <option value="user_pref">User Preferences</option>
+                            <option value="project_fact">Project Facts</option>
+                            <option value="recipe">Recipes &amp; Guides</option>
+                            <option value="fact">General Facts</option>
+                            <option value="past_outcome">Past Outcomes</option>
+                        </select>
+                        <button id="memory-forget-topic-btn" class="mem-btn mem-btn-warn" title="Forget everything matching a query or topic">Forget Topic</button>
+                        <button id="memory-new-btn" class="mem-btn mem-btn-primary">+ Add Memory</button>
+                    </div>
+                </div>
+
+                <!-- Add/Edit Memory Form Pane -->
+                <div id="memory-editor-pane" class="memory-editor-pane" style="display: none;">
+                    <div class="editor-header">
+                        <h4 id="memory-editor-title">New Memory</h4>
+                        <button id="memory-editor-close-btn" class="editor-close-btn" type="button">✕</button>
+                    </div>
+                    <form id="memory-editor-form">
+                        <input type="hidden" id="edit-memory-id" value="">
+                        <div class="form-row">
+                            <div class="form-group flex-1">
+                                <label for="edit-memory-type">Category</label>
+                                <select id="edit-memory-type" class="mem-select" required>
+                                    <option value="user_pref">user_pref (User Preference)</option>
+                                    <option value="project_fact">project_fact (Project Specific Fact)</option>
+                                    <option value="recipe">recipe (Code recipe or guideline)</option>
+                                    <option value="fact">fact (General Fact)</option>
+                                    <option value="past_outcome">past_outcome (Execution Outcome)</option>
+                                </select>
+                            </div>
+                            <div class="form-group w-32">
+                                <label for="edit-memory-importance">Importance (1-5)</label>
+                                <input type="number" id="edit-memory-importance" min="1" max="5" value="3" class="mem-input" required>
+                            </div>
+                            <div class="form-group flex-1">
+                                <label for="edit-memory-project">Project Scope (Optional)</label>
+                                <input type="text" id="edit-memory-project" placeholder="e.g. /workspace/project" class="mem-input">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="edit-memory-text">Memory Content</label>
+                            <textarea id="edit-memory-text" rows="3" class="mem-textarea" placeholder="Enter concise, durable fact or rule to remember..." required></textarea>
+                        </div>
+                        <div class="editor-actions">
+                            <button type="button" id="memory-editor-cancel-btn" class="mem-btn">Cancel</button>
+                            <button type="submit" id="memory-editor-save-btn" class="mem-btn mem-btn-primary">Save Memory</button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Memory List Container -->
+                <div class="memory-list-scroll">
+                    <div id="memory-items-container" class="memory-items-container">
+                        <div class="memory-loading">Loading memories...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================================================
+         5c. Sessions & Workspaces Window Modal (#sessionsModal) (B10)
+         ========================================================================== -->
+    <div id="sessionsModal" class="split-modal-overlay">
+        <div class="split-window-frame sessions-window-frame">
+            <!-- Header Bar -->
+            <div class="split-frame-header">
+                <div class="traffic-lights">
+                    <button class="tl tl-close" id="close-sessions-modal-btn" title="Close"></button>
+                    <button class="tl tl-min" title="Minimize"></button>
+                    <button class="tl tl-max" title="Maximize"></button>
+                </div>
+                <div class="split-frame-title">🗂️ JARVIS SESSIONS &amp; WORKSPACES (B10)</div>
+                <div class="sessions-header-actions">
+                    <span id="sessions-count-badge" class="split-frame-badge">0 sessions</span>
+                </div>
+            </div>
+
+            <!-- Sessions Window Body -->
+            <div class="sessions-window-body">
+                <!-- Toolbar: Search, Actions -->
+                <div class="sessions-toolbar">
+                    <div class="sessions-search-box">
+                        <span class="search-icon">🔍</span>
+                        <input type="search" id="sessions-search-input" placeholder="Search sessions by prompt, workspace, title..." autocomplete="off">
+                    </div>
+                    <div class="sessions-actions">
+                        <button id="sessions-new-btn" class="mem-btn mem-btn-primary">+ New Session</button>
+                    </div>
+                </div>
+
+                <!-- New Session Form Pane (Work folder chosen per session - B10) -->
+                <div id="sessions-editor-pane" class="sessions-editor-pane" style="display: none;">
+                    <div class="editor-header">
+                        <h4>Start New Session</h4>
+                        <button id="sessions-editor-close-btn" class="editor-close-btn" type="button">✕</button>
+                    </div>
+                    <form id="sessions-editor-form">
+                        <div class="form-group">
+                            <label for="new-session-workspace">Work Folder (Chosen per session - B10)</label>
+                            <input type="text" id="new-session-workspace" class="mem-input" placeholder="e.g. D:\Jarvis or custom project path" required>
+                            <span class="field-hint" style="font-size: 11px; opacity: 0.7; margin-top: 4px; display: block;">Oblivion tools (file read/edit, search, commands) will be rooted to this directory.</span>
+                        </div>
+                        <div class="editor-actions">
+                            <button type="button" id="sessions-editor-cancel-btn" class="mem-btn">Cancel</button>
+                            <button type="submit" id="sessions-editor-save-btn" class="mem-btn mem-btn-primary">Launch Session</button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Sessions List Container -->
+                <div class="sessions-list-scroll">
+                    <div id="sessions-items-container" class="sessions-cards-grid">
+                        <div class="sessions-empty-state">
+                            <div class="empty-icon">🗂️</div>
+                            <div class="empty-text">Loading sessions...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================================================
+         5d. Files Created & Workspace Collections Modal (#filesModal) (B7)
+         ========================================================================== -->
+    <div id="filesModal" class="split-modal-overlay">
+        <div class="split-window-frame files-window-frame">
+            <!-- Header Bar -->
+            <div class="split-frame-header">
+                <div class="traffic-lights">
+                    <button class="tl tl-close" id="close-files-modal-btn" title="Close"></button>
+                    <button class="tl tl-min" title="Minimize"></button>
+                    <button class="tl tl-max" title="Maximize"></button>
+                </div>
+                <div class="split-frame-title" id="files-modal-title">📁 JARVIS FILES &amp; ARTIFACTS</div>
+                <div class="files-header-actions">
+                    <span id="files-modal-count-badge" class="split-frame-badge">0 files</span>
+                </div>
+            </div>
+
+            <!-- Files Window Body -->
+            <div class="files-window-body">
+                <!-- Toolbar: Filter Pills, Search -->
+                <div class="files-toolbar">
+                    <div class="files-filter-pills" id="files-filter-pills">
+                        <button class="files-pill active" data-filter="all">All Files</button>
+                        <button class="files-pill" data-filter="paper">Research Papers</button>
+                        <button class="files-pill" data-filter="picture">Pictures</button>
+                        <button class="files-pill" data-filter="document">Documents</button>
+                        <button class="files-pill" data-filter="notebook">Notebooks &amp; Notes</button>
+                        <button class="files-pill" data-filter="case-study">Case Studies</button>
+                        <button class="files-pill" data-filter="code">Code</button>
+                    </div>
+                    <div class="files-search-box">
+                        <span class="search-icon">🔍</span>
+                        <input type="search" id="files-search-input" placeholder="Search files by name or path..." autocomplete="off">
+                    </div>
+                </div>
+
+                <!-- Files List Container -->
+                <div class="files-list-scroll">
+                    <div id="files-items-container" class="files-cards-grid">
+                        <div class="files-empty-state">
+                            <div class="empty-icon">📁</div>
+                            <div class="empty-text">Loading workspace files...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================================================
          6. Oblivion panel (slides in from the right; see static/js/oblivion.js)
          ========================================================================== -->
     <aside id="ob-panel" class="ob-panel" aria-label="Oblivion assistant" aria-hidden="true">
@@ -374,5 +621,8 @@
 
     <script src="/static/js/app.js"></script>
     <script src="/static/js/oblivion.js"></script>
+    <script src="/static/js/memory.js"></script>
+    <script src="/static/js/sessions.js"></script>
+    <script src="/static/js/files.js"></script>
 </body>
 </html>

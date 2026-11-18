@@ -304,6 +304,18 @@ a, button, .desktop-icon-item, .dock-app-btn, .theme-circle {
     display: flex;
     flex-direction: column;
     gap: 14px;
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
+    padding-right: 6px;
+}
+
+.desktop-right-widgets::-webkit-scrollbar {
+    width: 4px;
+}
+
+.desktop-right-widgets::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
 }
 
 .widget-box {
@@ -402,60 +414,510 @@ a, button, .desktop-icon-item, .dock-app-btn, .theme-circle {
 .temp-deg { font-size: 1.8rem; font-weight: 700; line-height: 1; margin: 4px 0; }
 .cond-text { font-size: 0.7rem; color: rgba(255,255,255,0.6); }
 
-/* Now Playing Music Widget */
-.music-card-inner {
+/* Real Desktop Widgets (B7) */
+.widget-title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.65rem;
+    font-family: "JetBrains Mono", monospace;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.sub-lbl {
+    font-size: 0.62rem;
+    opacity: 0.75;
+}
+
+.empty-widget-msg {
+    font-size: 0.72rem;
+    color: rgba(255, 255, 255, 0.45);
+    font-style: italic;
+    padding: 4px 0;
+}
+
+/* Usage Today Widget */
+.usage-summary-stat {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin: 4px 0;
+}
+
+.stat-big {
+    font-size: 1.6rem;
+    font-weight: 700;
+    font-family: "JetBrains Mono", monospace;
+    color: #00f2fe;
+    line-height: 1;
+}
+
+.stat-unit {
+    font-size: 0.72rem;
+    color: rgba(255, 255, 255, 0.6);
+    font-family: "JetBrains Mono", monospace;
+}
+
+.usage-breakdown-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 4px;
+}
+
+.usage-row-item {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.68rem;
+    font-family: "JetBrains Mono", monospace;
+    padding: 3px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.usage-target {
+    color: rgba(255, 255, 255, 0.85);
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.usage-tokens {
+    color: rgba(255, 255, 255, 0.55);
+}
+
+/* Tasks Widget */
+.tasks-progress-bar {
+    height: 4px;
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 2px;
+    overflow: hidden;
+    margin: 4px 0;
+}
+
+.tasks-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #00f2fe, #4facfe);
+    transition: width 0.3s ease;
+}
+
+.tasks-widget-list {
+    list-style: none;
+    padding: 0;
+    margin: 4px 0 0 0;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.task-widget-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.72rem;
+    line-height: 1.3;
+}
+
+.task-status-icon {
+    font-size: 0.7rem;
+    font-family: monospace;
+    width: 14px;
+    text-align: center;
+}
+
+.task-widget-item.done {
+    color: rgba(255, 255, 255, 0.45);
+    text-decoration: line-through;
+}
+
+.task-widget-item.done .task-status-icon {
+    color: #34d399;
+}
+
+.task-widget-item.in-prog {
+    color: #00f2fe;
+    font-weight: 500;
+}
+
+.task-widget-item.in-prog .task-status-icon {
+    color: #00f2fe;
+}
+
+.task-widget-item.pending {
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.task-widget-item.pending .task-status-icon {
+    color: rgba(255, 255, 255, 0.35);
+}
+
+.task-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Files Created Widget */
+.files-widget-list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin: 4px 0;
+}
+
+.file-widget-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.72rem;
+    padding: 4px 6px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.file-widget-row:hover {
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.file-icon {
+    font-size: 0.85rem;
+}
+
+.file-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.file-cat {
+    font-size: 0.6rem;
+    font-family: "JetBrains Mono", monospace;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.45);
+}
+
+.widget-action-btn {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 0.68rem;
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: "JetBrains Mono", monospace;
+    text-align: center;
+    margin-top: 4px;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.widget-action-btn:hover {
+    background: rgba(255, 255, 255, 0.18);
+    border-color: rgba(255, 255, 255, 0.35);
+    color: #ffffff;
+}
+
+/* Long-Term Memory Widget */
+.mem-pills-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 4px 0;
+}
+
+.mem-type-pill {
+    background: rgba(121, 40, 202, 0.25);
+    border: 1px solid rgba(121, 40, 202, 0.5);
+    color: #d8b4fe;
+    font-size: 0.62rem;
+    font-family: "JetBrains Mono", monospace;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+/* Engine & Status Widget */
+.engine-status-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin: 6px 0 2px 0;
+}
+
+.status-indicator-dot {
+    font-size: 0.85rem;
+}
+
+.status-indicator-dot.ready {
+    color: #34d399;
+}
+
+.status-indicator-dot.busy {
+    color: #f59e0b;
+}
+
+.status-indicator-dot.offline {
+    color: #ef4444;
+}
+
+.engine-ver {
+    font-size: 1.05rem;
+    font-weight: 700;
+    font-family: "JetBrains Mono", monospace;
+}
+
+.engine-state {
+    font-size: 0.68rem;
+    color: rgba(255, 255, 255, 0.6);
+    font-family: "JetBrains Mono", monospace;
+}
+
+.engine-model-row {
+    margin: 2px 0 4px 0;
+}
+
+.model-badge {
+    background: rgba(0, 242, 254, 0.15);
+    border: 1px solid rgba(0, 242, 254, 0.35);
+    color: #00f2fe;
+    font-size: 0.65rem;
+    font-family: "JetBrains Mono", monospace;
+    padding: 2px 6px;
+    border-radius: 4px;
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.engine-workspace-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.65rem;
+    font-family: "JetBrains Mono", monospace;
+    color: rgba(255, 255, 255, 0.6);
+    margin: 4px 0 6px 0;
+}
+
+.workspace-icon {
+    font-size: 0.75rem;
+}
+
+.workspace-path {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.engine-capabilities-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 4px;
+}
+
+.cap-item {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.7rem;
+}
+
+.cap-badge.active {
+    color: #34d399;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.62rem;
+    text-transform: uppercase;
+}
+
+/* ==========================================================================
+   Files & Artifacts Window Modal (#filesModal) (B7)
+   ========================================================================== */
+.files-window-frame {
+    width: 820px;
+    max-width: 90vw;
+    height: 600px;
+    max-height: 85vh;
+}
+
+.files-window-body {
+    display: flex;
+    flex-direction: column;
+    height: calc(100% - 40px);
+    padding: 16px;
+    gap: 14px;
+}
+
+.files-toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.files-filter-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.files-pill {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 0.72rem;
+    padding: 4px 10px;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.files-pill:hover, .files-pill.active {
+    background: #007aff;
+    border-color: #007aff;
+    color: #ffffff;
+}
+
+.files-search-box {
+    display: flex;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 8px;
+    padding: 6px 10px;
+    gap: 8px;
+}
+
+.files-search-box input {
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #ffffff;
+    font-size: 0.8rem;
+    width: 100%;
+}
+
+.files-list-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.files-cards-grid {
     display: flex;
     flex-direction: column;
     gap: 8px;
 }
 
-.music-header {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.7rem;
-    color: rgba(255,255,255,0.7);
-}
-
-.track-flex {
+.file-card-item {
     display: flex;
     align-items: center;
+    gap: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    padding: 10px 14px;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.file-card-item:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(0, 122, 255, 0.4);
+}
+
+.file-card-icon {
+    font-size: 1.5rem;
+}
+
+.file-card-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.file-card-name {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #ffffff;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-card-path {
+    font-size: 0.7rem;
+    font-family: "JetBrains Mono", monospace;
+    color: rgba(255, 255, 255, 0.55);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-card-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.65rem;
+    color: rgba(255, 255, 255, 0.5);
+    margin-top: 2px;
+}
+
+.file-card-cat-badge {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 1px 5px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.6rem;
+}
+
+.file-action-btn {
+    background: rgba(0, 122, 255, 0.15);
+    border: 1px solid rgba(0, 122, 255, 0.4);
+    color: #007aff;
+    font-size: 0.72rem;
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.file-action-btn:hover {
+    background: #007aff;
+    border-color: #007aff;
+    color: #ffffff;
+}
+
+.files-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    opacity: 0.6;
     gap: 10px;
 }
 
-.track-cover {
-    width: 38px;
-    height: 38px;
-    border-radius: 8px;
-    background: rgba(255,255,255,0.1);
-    display: flex;
-    align-items: center;
-    justify-content: center;
+.files-empty-state .empty-icon {
+    font-size: 36px;
 }
 
-.track-name { font-size: 0.82rem; font-weight: 700; }
-.track-sub { font-size: 0.72rem; color: rgba(255,255,255,0.6); }
-
-.track-progress-bar {
-    height: 3px;
-    background: rgba(255,255,255,0.15);
-    border-radius: 2px;
+.files-empty-state .empty-text {
+    font-size: 14px;
 }
 
-.track-progress-fill { width: 45%; height: 100%; background: #ffffff; }
-.music-link { font-family: "JetBrains Mono", monospace; font-size: 0.68rem; color: rgba(255,255,255,0.8); text-decoration: none; }
-
-/* Engine & Status Widget */
-.widget-title-row { display: flex; justify-content: space-between; font-size: 0.65rem; font-family: "JetBrains Mono", monospace; }
-.engine-status-row { display: flex; align-items: baseline; gap: 8px; margin: 6px 0; }
-.status-indicator-dot { color: #34d399; font-size: 0.85rem; }
-.engine-ver { font-size: 1.05rem; font-weight: 700; font-family: "JetBrains Mono", monospace; }
-.engine-type { font-size: 0.68rem; color: rgba(255,255,255,0.6); font-family: "JetBrains Mono", monospace; }
-
-.engine-capabilities-list { display: flex; flex-direction: column; gap: 5px; margin-top: 4px; }
-.cap-item { display: flex; justify-content: space-between; font-size: 0.72rem; }
-.cap-badge { color: rgba(255,255,255,0.6); font-family: "JetBrains Mono", monospace; font-size: 0.65rem; text-transform: uppercase; }
-
-.retro-mac-icon { font-size: 1.6rem; text-align: right; opacity: 0.7; margin-top: 4px; }
+/* Dark mode adjustments for Files */
+body[data-theme="black"] .files-window-frame {
+    background: rgba(22, 22, 24, 0.95);
+    border-color: rgba(255, 255, 255, 0.15);
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.7);
+}
 
 /* Bottom Dock */
 .desktop-bottom-dock {

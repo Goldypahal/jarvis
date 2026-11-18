@@ -21,6 +21,7 @@ import os
 import pathlib
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -51,6 +52,24 @@ def start_local_sites_server(port: int = 8765):
         return None
 
 
+def init_eval_db(db_path: pathlib.Path, seed_file: pathlib.Path | None = None):
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(db_path)
+    con.execute("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, created TEXT, updated TEXT, workspace TEXT, title TEXT, messages TEXT);")
+    con.execute("CREATE TABLE IF NOT EXISTS usage (day TEXT, target TEXT, requests INTEGER, prompt_tokens INTEGER, completion_tokens INTEGER, PRIMARY KEY (day, target));")
+    con.execute("CREATE TABLE IF NOT EXISTS memories (id INTEGER PRIMARY KEY AUTOINCREMENT, mem_type TEXT NOT NULL, text TEXT NOT NULL, source_session TEXT, project TEXT, created TEXT NOT NULL, last_used TEXT NOT NULL, importance INTEGER NOT NULL DEFAULT 3);")
+    con.execute("CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(text, content=memories, content_rowid=id);")
+    con.execute("CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN INSERT INTO memories_fts(rowid, text) VALUES (new.id, new.text); END;")
+    con.execute("CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN INSERT INTO memories_fts(memories_fts, rowid, text) VALUES('delete', old.id, old.text); END;")
+    con.execute("CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN INSERT INTO memories_fts(memories_fts, rowid, text) VALUES('delete', old.id, old.text); INSERT INTO memories_fts(rowid, text) VALUES (new.id, new.text); END;")
+    con.execute("CREATE TABLE IF NOT EXISTS memory_embeddings (memory_id INTEGER PRIMARY KEY REFERENCES memories(id) ON DELETE CASCADE, model TEXT NOT NULL, dimensions INTEGER NOT NULL, embedding BLOB NOT NULL, created TEXT NOT NULL);")
+    con.execute("PRAGMA user_version = 4;")
+    if seed_file and seed_file.is_file():
+        con.executescript(seed_file.read_text(encoding="utf-8"))
+    con.commit()
+    con.close()
+
+
 def run_task(task: pathlib.Path, binary: str, model: str | None, timeout: int, logs: pathlib.Path) -> dict:
     work = pathlib.Path(tempfile.mkdtemp(prefix=f"obl-eval-{task.name}-"))
     shutil.copytree(task / "workspace", work, dirs_exist_ok=True)
@@ -65,9 +84,29 @@ def run_task(task: pathlib.Path, binary: str, model: str | None, timeout: int, l
         cmd += ["--model", model]
     cmd.append(prompt)
 
+    env = dict(os.environ)
+    task_seed = task / "seed.sql"
+    task_home = task / "home"
+    eval_home = None
+    if task_seed.is_file() or task_home.is_dir():
+        eval_home = pathlib.Path(tempfile.mkdtemp(prefix=f"obl-home-{task.name}-"))
+        if task_home.is_dir():
+            shutil.copytree(task_home, eval_home, dirs_exist_ok=True)
+        if task_seed.is_file():
+            init_eval_db(eval_home / "oblivion.db", task_seed)
+        env["OBLIVION_HOME"] = str(eval_home)
+
     start = time.time()
     try:
-        agent = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
+        agent = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            env=env,
+        )
         agent_out, agent_code, timed_out = agent.stdout + agent.stderr, agent.returncode, False
     except subprocess.TimeoutExpired as e:
         agent_out = (e.stdout or "") if isinstance(e.stdout, str) else ""
@@ -90,6 +129,8 @@ def run_task(task: pathlib.Path, binary: str, model: str | None, timeout: int, l
         encoding="utf-8",
     )
     shutil.rmtree(work, ignore_errors=True)
+    if eval_home:
+        shutil.rmtree(eval_home, ignore_errors=True)
     steps = next((ln for ln in agent_out.splitlines() if "step(s)" in ln), "").strip()
     return {"task": task.name, "passed": passed, "seconds": seconds, "timed_out": timed_out, "summary": steps}
 

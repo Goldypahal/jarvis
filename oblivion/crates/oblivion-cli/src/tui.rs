@@ -274,6 +274,10 @@ impl Model {
                 self.todos = s.todos.clone();
                 self.state = Some(s);
             }
+            UiEvent::SessionResumed { .. } => {
+                self.items.clear();
+                self.lanes.clear();
+            }
             UiEvent::Quit => self.quit = true,
         }
     }
@@ -1081,6 +1085,7 @@ mod tests {
             todos: vec![],
             skills: vec!["code-review".into(), "deep-research".into()],
             browser: false,
+            instructions_file: Some("AGENTS.md".into()),
         }));
         m.apply(UiEvent::User {
             text: "add a version flag".into(),

@@ -52,7 +52,7 @@ impl Approver for SubagentApprover {
 /// Everything needed to start sub-agents like the main agent.
 pub struct SubagentFactory {
     pub router: Router,
-    pub root: PathBuf,
+    pub root: std::sync::RwLock<PathBuf>,
     pub shell: Shell,
     pub search: SearchBackend,
     pub skills: Option<Arc<dyn ToolProvider>>,
@@ -103,7 +103,8 @@ impl SubagentFactory {
 
     pub fn spawn(&self, model: Option<&str>) -> Agent {
         let snap = std::env::temp_dir().join("oblivion-subagent-snapshots");
-        let mut tools = ToolBox::new(self.root.clone(), self.shell, snap)
+        let root = self.root.read().unwrap().clone();
+        let mut tools = ToolBox::new(root, self.shell, snap)
             .with_search(self.search.clone())
             .restrict_to(SUBAGENT_TOOLS)
             .allow_reads_in(self.read_roots.clone());

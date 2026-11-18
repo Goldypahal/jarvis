@@ -1,0 +1,1 @@
+-- Database contains no credentials or facts about root password

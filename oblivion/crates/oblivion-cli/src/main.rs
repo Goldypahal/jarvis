@@ -411,6 +411,13 @@ async fn run() -> Result<()> {
     }
     let cfg = Config::load(&config_path)?;
     cfg.validate()?;
+    if !cfg.memory.embedding_model.is_empty() {
+        let embedder = Arc::new(oblivion_store::OllamaEmbedder::new(
+            &cfg.memory.ollama_endpoint,
+            &cfg.memory.embedding_model,
+        ));
+        store.set_embedder(embedder);
+    }
     let (targets, skipped) = cfg.targets(&keys::for_provider);
 
     if cli.models {
@@ -624,6 +631,11 @@ async fn run() -> Result<()> {
         if let Some(b) = &browser {
             tools.add_provider(b.clone());
         }
+        let memory_tools = Arc::new(oblivion_store::MemoryTools::with_project(
+            store.clone(),
+            root.to_string_lossy(),
+        ));
+        tools.add_provider(memory_tools);
         Agent::new(
             router,
             tools,
@@ -636,9 +648,11 @@ async fn run() -> Result<()> {
     agent.context_tokens = cfg.agent.context_tokens;
     agent.max_web_calls = cfg.agent.max_web_calls;
     agent.summary_prefer = cfg.routing.summary.clone();
+    agent.memory_auto_extract = cfg.memory.enabled && cfg.memory.auto_extract;
+    agent.memory_extract_tokens = cfg.memory.max_tokens;
     agent.set_subagents(oblivion_core::SubagentFactory {
         router: agent.router.share(),
-        root: root.clone(),
+        root: std::sync::RwLock::new(root.clone()),
         shell,
         search: subagent_search,
         read_roots: skill_dirs.clone(),
@@ -662,6 +676,9 @@ async fn run() -> Result<()> {
         );
     }
     agent.persist_with(store.clone());
+    if cfg.memory.enabled {
+        agent.set_memory_recall(store.clone());
+    }
 
     if interactive_ui {
         let (worker, controls) = app::Worker::new(
@@ -672,12 +689,22 @@ async fn run() -> Result<()> {
             ev_tx,
             approvals,
         );
-        let worker = worker.with_traces(traces_dir, current_tracer.clone());
+        let worker = worker
+            .with_traces(traces_dir, current_tracer.clone())
+            .with_store(store.clone());
         if !cli.prompt.is_empty() {
             controls.send(cli.prompt.join(" "));
         }
         let result = if cli.web {
-            run_web(worker, controls, ev_rx, cli.port, !cli.no_open).await
+            run_web(
+                worker,
+                controls,
+                store.clone(),
+                ev_rx,
+                cli.port,
+                !cli.no_open,
+            )
+            .await
         } else {
             tui::run(worker, controls, ev_rx).await
         };
@@ -725,6 +752,7 @@ async fn run() -> Result<()> {
             current_tracer.clone(),
         )
         .await;
+        extract_and_persist_memories(&agent, &store).await;
         hub.shutdown().await;
         if let Some(b) = &browser {
             b.shutdown().await;
@@ -738,6 +766,9 @@ async fn run() -> Result<()> {
         root.display(),
         agent.approval
     );
+    if let Some((name, _)) = prompt::project_instructions(&root) {
+        println!("{DIM}Loaded project instructions from {name}{RESET}");
+    }
     let stdin = std::io::stdin();
     loop {
         print!("\n{GREEN}❯{RESET} ");
@@ -753,7 +784,7 @@ async fn run() -> Result<()> {
         }
         if let Some(cmd) = input.strip_prefix('/') {
             let mut sink = print_event;
-            match handle_command(&mut agent, &skills, &hub, cmd, &mut sink).await? {
+            match handle_command(&mut agent, &skills, &hub, Some(&store), cmd, &mut sink).await? {
                 Command::Quit => break,
                 Command::Done(text) => println!("{text}"),
                 Command::Run(task) => {
@@ -780,6 +811,7 @@ async fn run() -> Result<()> {
         )
         .await;
     }
+    extract_and_persist_memories(&agent, &store).await;
     hub.shutdown().await;
     if let Some(b) = &browser {
         b.shutdown().await;
@@ -787,10 +819,67 @@ async fn run() -> Result<()> {
     Ok(())
 }
 
+async fn extract_and_persist_memories(agent: &Agent, store: &Arc<oblivion_store::Store>) {
+    if agent.memory_auto_extract {
+        let proposals = agent.extract_end_of_session_memories().await;
+        if !proposals.is_empty() {
+            println!(
+                "\n{DIM}Learned {} memories from this session:{RESET}",
+                proposals.len()
+            );
+            for p in &proposals {
+                println!(
+                    "  {DIM}• [{}] (importance {}): {}{RESET}",
+                    p.mem_type, p.importance, p.text
+                );
+                let new_mem = oblivion_store::NewMemory::new(&p.mem_type, &p.text, p.importance)
+                    .with_source_session(&agent.session.id);
+                let _ = store.add_memory(&new_mem);
+            }
+
+            if let Some(proposal) = agent.propose_agents_md_update(&proposals) {
+                let filename = proposal
+                    .path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy();
+                println!("\n{BOLD}Project instructions update available for {filename}:{RESET}");
+                for add in &proposal.additions {
+                    println!("  {GREEN}+ {add}{RESET}");
+                }
+                let stdin = std::io::stdin();
+                if stdin.is_terminal() {
+                    print!("Update {filename}? [y/N]: ");
+                    let _ = std::io::stdout().flush();
+                    let mut ans = String::new();
+                    if stdin.read_line(&mut ans).is_ok() {
+                        let a = ans.trim().to_lowercase();
+                        if a == "y" || a == "yes" {
+                            match agent.apply_agents_md_update(&proposal) {
+                                Ok(()) => println!("{GREEN}✓ Updated {filename}{RESET}"),
+                                Err(e) => {
+                                    eprintln!("{RED}✗ Failed to update {filename}: {e}{RESET}")
+                                }
+                            }
+                        } else {
+                            println!("{DIM}Skipped updating {filename}.{RESET}");
+                        }
+                    }
+                } else {
+                    println!(
+                        "{DIM}Run /agents-md update to apply these additions to {filename}.{RESET}"
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// `oblivion --web`: serve the page, then run the agent until Ctrl+C or /exit.
 async fn run_web(
     worker: app::Worker,
     controls: app::Controls,
+    store: Arc<oblivion_store::Store>,
     events: tokio::sync::mpsc::UnboundedReceiver<app::UiEvent>,
     port: u16,
     open: bool,
@@ -805,6 +894,7 @@ async fn run_web(
         token: token.into(),
         controls: controls.clone(),
         bus: bus.clone(),
+        store,
     };
     tokio::spawn(web::pump(events, bus));
     tokio::spawn(async move {

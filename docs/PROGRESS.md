@@ -4,7 +4,7 @@ The agent ticks items here as it finishes them: `- [x] item — 2026-11-18, <com
 Blocked items stay unticked with `BLOCKED (...)`. Problem IDs refer to `ANALYSIS_AND_ROADMAP.md`.
 Split any item that turns out bigger than about 400 changed lines.
 
-Current milestone: **v0.5 "One brain"** · Branch: `roadmap/m1`
+Current milestone: **Month 2 — memory and an honest desktop** · Branch: `roadmap/m2`
 
 ---
 
@@ -47,16 +47,16 @@ Current milestone: **v0.5 "One brain"** · Branch: `roadmap/m1`
 ---
 
 ## Month 2 — memory and an honest desktop
-- [ ] Memory schema in `oblivion-store` (type, text, source session, created, last used, importance) with FTS5 search; migrations; tests
-- [ ] `remember`, `recall`, `forget` tools with permission rules; tests
-- [ ] End-of-session extraction pass proposes memories (cheap model, budgeted); user can disable
-- [ ] Recall on each request within a ~500-token budget; per-project scoping; tests that one project's memory never appears in another
-- [ ] Embeddings via Ollama + `sqlite-vec` (optional; falls back to FTS when not available)
-- [ ] Desktop "Memory" window: list, search, edit, delete, forget-by-topic, export
-- [ ] Sessions window: list, search, rename, resume, delete; work folder chosen per session (B10)
-- [ ] B7: replace every fake widget with real data (usage today, tasks, files created, memory count, model status) or remove it; menu-bar date is live
-- [ ] `AGENTS.md` read at start, update offered at end of a session
-- [ ] 5 memory evals; milestone check
+- [x] Memory schema in `oblivion-store` (type, text, source session, created, last used, importance) with FTS5 search; migrations; tests — 2026-11-18, 6d4125d, cargo test: 106 passed; pytest: 50 passed; clippy: 0 warnings; FTS5 CRUD, ranking, triggers & migrations verified
+- [x] `remember`, `recall`, `forget` tools with permission rules; tests — 2026-11-18, a73691a, cargo test: 111 passed; pytest: 50 passed; clippy: 0 warnings; evals: 1/1 passed; lifecycle, permissions & toolbox verified
+- [x] End-of-session extraction pass proposes memories (cheap model, budgeted); user can disable — 2026-11-18, 7179626, cargo test: 118 passed; pytest: 50 passed; clippy: 0 warnings; evals: 1/1 passed; extraction, heuristics & disabling verified
+- [x] Recall on each request within a ~500-token budget; per-project scoping; tests that one project's memory never appears in another — 2026-11-18, ef9dcf6, cargo test: 120 passed; clippy: 0 warnings; pytest: 50 passed; evals: 1/1 passed; project isolation & 500-token budget verified
+- [x] Embeddings via Ollama + `sqlite-vec` (optional; falls back to FTS when not available) — 2026-11-18, dfc96db, cargo test: 125 passed; clippy: 0 warnings; pytest: 50 passed; evals: 1/1 passed; vector search, Ollama client, sqlite-vec KNN & FTS5 fallback verified
+- [x] Desktop "Memory" window: list, search, edit, delete, forget-by-topic, export — 2026-11-19, 0dc948b, cargo test: 126 passed; pytest: 53 passed; clippy: 0 warnings; browser subagent UI test verified (CRUD, live search, dark theme)
+- [x] Sessions window: list, search, rename, resume, delete; work folder chosen per session (B10) — 2026-11-19, 278f93d, cargo test: 128 passed; pytest: 56 passed; clippy: 0 warnings; browser subagent UI test verified (CRUD, work folder per session, rename, live search, dark theme)
+- [x] B7: replace every fake widget with real data (usage today, tasks, files created, memory count, model status) or remove it; menu-bar date is live — 2026-11-19, ee01a7e, cargo test: 128 passed; pytest: 61 passed; clippy: 0 warnings; browser subagent UI test verified (live date, 5 real widgets, files modal, light & dark themes)
+- [x] `AGENTS.md` read at start, update offered at end of a session — 2026-11-19, 59065f9, cargo test: 133 passed; clippy: 0 warnings; pytest: 64 passed; node check: clean; read at start, update proposals, CLI offer, /agents-md and REST endpoints verified
+- [x] 5 memory evals; milestone check — 2026-11-19, 343f4b9, cargo test: 135 passed; clippy: 0 warnings; pytest: 65 passed; node check: clean; 35 evals verified; milestone check complete
 
 ## Month 3 — local models and one-file install → v1.0
 - [ ] Hardware detection (RAM, GPU, VRAM) and model-size recommendation
@@ -171,8 +171,31 @@ Current milestone: **v0.5 "One brain"** · Branch: `roadmap/m1`
   - `python -m pytest -q tests`: 50 passed, 0 failed
   - `node --check`: clean on all static JS files
 
+### Month 2 Summary (2026-11-19)
+- Items done:
+  - Memory schema in `oblivion-store` with FTS5 search, migrations, ranking & triggers (6d4125d).
+  - `remember`, `recall`, `forget` tools with permission rules (a73691a).
+  - End-of-session memory extraction pass proposing memories (cheap model + heuristic fallback) (7179626).
+  - Recall on each request within ~500-token budget with per-project isolation (ef9dcf6).
+  - Embeddings via Ollama + sqlite-vec with fallback to FTS5 (dfc96db).
+  - Desktop "Memory" window: list, search, edit, delete, forget-by-topic, export via REST API & UI (0dc948b).
+  - Sessions window: list, search, rename, resume, delete; work folder per session (B10) (278f93d).
+  - Real desktop widgets (B7): usage today, current tasks, files created this week, memory count, model status; live menu-bar date (ee01a7e).
+  - `AGENTS.md` read at start, update offered at end of a session, `/agents-md` commands & REST endpoints (59065f9).
+  - 5 memory evals added (tasks 31-35) covering fact recall, deleted memory rejection, project isolation, user preferences, and AGENTS.md lifecycle; runner updated to support isolated homes and seed.sql (343f4b9).
+- Gate results:
+  - `cargo test --workspace`: 135 passed, 0 failed
+  - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings
+  - `cargo fmt --all`: clean
+  - `python -m pytest -q tests`: 65 passed, 0 failed
+  - `node --check`: clean on all static JS files
+  - UI visual verification: verified with browser subagent across Memory window, Sessions window, Desktop widgets, Files modal, dark & light themes.
+
 ## Notes for next session
 <!-- Surprises about the code, environment quirks, things the next session must know. -->
+- Month 2 ("memory and an honest desktop") is 100% complete and verified.
+- Active working branch for Month 3 is `roadmap/m3` (to be branched from merged `roadmap/m2` / `main`).
+- Exact next item to start: "Hardware detection (RAM, GPU, VRAM) and model-size recommendation".
 - Windows + PowerShell: no bash heredocs; quote paths with spaces.
 - Smart App Control has blocked Rust build scripts before; if a build fails with an
   "Application Control policy" error, mark the item BLOCKED (needs user) instead of retrying.

@@ -68,7 +68,8 @@ How to work
     p
 }
 
-fn project_instructions(root: &Path) -> Option<(String, String)> {
+/// Find and read project instructions from the workspace root (e.g. AGENTS.md, OBLIVION.md).
+pub fn project_instructions(root: &Path) -> Option<(String, String)> {
     for name in INSTRUCTION_FILES {
         if let Ok(text) = std::fs::read_to_string(root.join(name)) {
             let text = if text.chars().count() > MAX_INSTRUCTION_CHARS {

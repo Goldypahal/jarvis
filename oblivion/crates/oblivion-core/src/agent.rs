@@ -96,6 +96,12 @@ pub struct Agent {
     /// web_search + web_fetch calls allowed per request before the model is told
     /// to answer with what it has (free tiers allow few tokens per day).
     pub max_web_calls: usize,
+    /// Whether the end-of-session memory extraction pass runs.
+    pub memory_auto_extract: bool,
+    /// Maximum tokens budgeted for the memory extraction pass.
+    pub memory_extract_tokens: usize,
+    pub memory_recall: Option<Arc<dyn crate::extract::MemoryRecall>>,
+    base_system_prompt: String,
     rules: Rules,
     store: Option<Arc<dyn SessionStore>>,
     approver: Box<dyn Approver>,
@@ -115,7 +121,9 @@ impl Agent {
         system_prompt: String,
     ) -> Self {
         let mut session = Session::new(tools.root().to_path_buf());
-        session.messages.push(Message::system(system_prompt));
+        session
+            .messages
+            .push(Message::system(system_prompt.clone()));
         Self {
             router,
             tools,
@@ -125,6 +133,10 @@ impl Agent {
             context_tokens: 24_000,
             summary_prefer: String::new(),
             max_web_calls: 15,
+            memory_auto_extract: true,
+            memory_extract_tokens: 2000,
+            memory_recall: None,
+            base_system_prompt: system_prompt,
             rules: Rules::default(),
             store: None,
             approver,
@@ -132,6 +144,11 @@ impl Agent {
             turn_marks: Vec::new(),
             subagents: None,
         }
+    }
+
+    /// Provide a memory recall implementation to inject relevant memories into turns.
+    pub fn set_memory_recall(&mut self, recall: Arc<dyn crate::extract::MemoryRecall>) {
+        self.memory_recall = Some(recall);
     }
 
     /// Save the session as JSON files in `dir` after every step.
@@ -252,7 +269,35 @@ impl Agent {
         if let Some(s) = system {
             old.messages.insert(0, s);
         }
+        self.tools.set_root(old.workspace.clone());
+        if let Some(sub) = &self.subagents {
+            *sub.root.write().unwrap() = old.workspace.clone();
+        }
         self.session = old;
+        self.repair();
+    }
+
+    /// Set a new workspace folder for the session and tools.
+    pub fn set_workspace(&mut self, new_workspace: std::path::PathBuf) {
+        self.session.workspace = new_workspace.clone();
+        self.tools.set_root(new_workspace.clone());
+        if let Some(sub) = &self.subagents {
+            *sub.root.write().unwrap() = new_workspace;
+        }
+    }
+
+    /// Start a new session with the given workspace.
+    pub fn new_session(&mut self, workspace: std::path::PathBuf) {
+        let system = self.session.messages.first().cloned();
+        let mut s = Session::new(workspace.clone());
+        if let Some(sys) = system {
+            s.messages.push(sys);
+        }
+        self.tools.set_root(workspace.clone());
+        if let Some(sub) = &self.subagents {
+            *sub.root.write().unwrap() = workspace;
+        }
+        self.session = s;
         self.repair();
     }
 
@@ -330,6 +375,42 @@ impl Agent {
         Ok(true)
     }
 
+    /// Run the end-of-session memory extraction pass to propose durable facts and preferences.
+    /// Uses a budgeted cheap model call, falling back to heuristic extraction.
+    /// Returns an empty list if `memory_auto_extract` is false or if no user interaction occurred.
+    pub async fn extract_end_of_session_memories(&self) -> Vec<crate::extract::ProposedMemory> {
+        if !self.memory_auto_extract || self.session.messages.len() < 2 {
+            return Vec::new();
+        }
+        let budget_chars = self.memory_extract_tokens * 4;
+        let mut on_fb = |_from, _reason| {};
+        crate::extract::extract_memories(
+            &self.router,
+            &self.summary_prefer,
+            &self.session.messages,
+            budget_chars,
+            &mut on_fb,
+        )
+        .await
+    }
+
+    /// Check if any extracted memories warrant a proposed update to AGENTS.md.
+    pub fn propose_agents_md_update(
+        &self,
+        memories: &[crate::extract::ProposedMemory],
+    ) -> Option<crate::agents_md::AgentsMdProposal> {
+        crate::agents_md::propose_update(self.tools.root(), memories)
+    }
+
+    /// Apply an AGENTS.md proposal to disk and records a snapshot in the undo journal.
+    pub fn apply_agents_md_update(
+        &self,
+        proposal: &crate::agents_md::AgentsMdProposal,
+    ) -> std::io::Result<()> {
+        let _ = self.tools.journal().snapshot(&proposal.path);
+        crate::agents_md::apply_update(proposal)
+    }
+
     /// Undo every file change from the most recent turn.
     pub fn undo_last_turn(&mut self) -> Result<Option<UndoReport>> {
         match self.turn_marks.pop() {
@@ -398,6 +479,25 @@ impl Agent {
         on_event: &mut (dyn FnMut(AgentEvent) + Send),
     ) -> Result<TurnSummary> {
         self.turn_marks.push(self.tools.journal().mark());
+        if let Some(ref recall) = self.memory_recall {
+            let project = self.tools.root().to_string_lossy();
+            let relevant = recall.recall_for_prompt(user_text, &project, 2000).await;
+            if !relevant.is_empty() {
+                let mem_lines = relevant
+                    .iter()
+                    .map(|m| format!("- {m}"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if !self.session.messages.is_empty() {
+                    self.session.messages[0].content = Some(format!(
+                        "{}\n\nRelevant memories from earlier sessions:\n<relevant_memories>\n{}\n</relevant_memories>",
+                        self.base_system_prompt, mem_lines
+                    ));
+                }
+            } else if !self.session.messages.is_empty() {
+                self.session.messages[0].content = Some(self.base_system_prompt.clone());
+            }
+        }
         self.session.messages.push(Message::user(user_text));
         self.save();
 
@@ -871,5 +971,73 @@ mod tests {
         a.approval = ApprovalMode::Yolo;
         assert!(a.needs_approval("shell", &cmd).is_none());
         assert!(a.needs_approval("read_file", &Risk::Safe).is_none());
+    }
+
+    #[tokio::test]
+    async fn recall_injects_memories_into_system_prompt() {
+        struct MockRecall;
+        impl crate::extract::MemoryRecall for MockRecall {
+            fn recall_for_prompt<'a>(
+                &'a self,
+                prompt: &'a str,
+                _project: &'a str,
+                _budget: usize,
+            ) -> crate::extract::RecallFuture<'a> {
+                let res = if prompt.contains("rust") {
+                    vec![
+                        "[user_pref] User loves Rust".into(),
+                        "[project_fact] Cargo workspace".into(),
+                    ]
+                } else {
+                    vec![]
+                };
+                Box::pin(async move { res })
+            }
+        }
+
+        let d = tempfile::tempdir().unwrap();
+        let mut a = agent(d.path());
+        a.set_memory_recall(Arc::new(MockRecall));
+
+        let mut sink = |_e: AgentEvent| {};
+        // Turn 1: matches rust
+        let _ = a.run_turn("tell me about rust", &mut sink).await;
+        let sys_content = a.session.messages[0].content.as_deref().unwrap();
+        assert!(sys_content.contains("<relevant_memories>"));
+        assert!(sys_content.contains("User loves Rust"));
+        assert!(sys_content.contains("Cargo workspace"));
+
+        // Turn 2: does not match rust -> resets to base prompt
+        let _ = a.run_turn("hello world", &mut sink).await;
+        let sys_content2 = a.session.messages[0].content.as_deref().unwrap();
+        assert!(!sys_content2.contains("<relevant_memories>"));
+        assert_eq!(sys_content2, "sys");
+    }
+
+    #[test]
+    fn session_resume_and_workspace_switch() {
+        let d = tempfile::tempdir().unwrap();
+        let mut a = agent(d.path());
+        assert_eq!(a.tools.root(), d.path());
+
+        // 1. Switch workspace
+        let other_dir = tempfile::tempdir().unwrap();
+        a.set_workspace(other_dir.path().to_path_buf());
+        assert_eq!(a.tools.root(), other_dir.path());
+        assert_eq!(a.session.workspace, other_dir.path());
+
+        // 2. New session with custom workspace
+        let third_dir = tempfile::tempdir().unwrap();
+        a.new_session(third_dir.path().to_path_buf());
+        assert_eq!(a.tools.root(), third_dir.path());
+        assert_eq!(a.session.workspace, third_dir.path());
+
+        // 3. Resume old session updates tools root to old workspace
+        let mut old = Session::new(d.path().to_path_buf());
+        old.messages.push(Message::user("prior query"));
+        a.resume(old);
+        assert_eq!(a.tools.root(), d.path());
+        assert_eq!(a.session.workspace, d.path());
+        assert_eq!(a.session.messages.len(), 2); // system + user
     }
 }

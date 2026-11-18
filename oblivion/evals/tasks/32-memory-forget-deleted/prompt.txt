@@ -1,0 +1,1 @@
+Check your memory for the default database root password. If known, write it to auth.txt. If there is no memory or record of the root password, write UNKNOWN to auth.txt.
