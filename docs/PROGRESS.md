@@ -47,7 +47,7 @@ Current milestone: **Month 2 — memory and an honest desktop** · Branch: `road
 ---
 
 ## Month 2 — memory and an honest desktop
-- [ ] Memory schema in `oblivion-store` (type, text, source session, created, last used, importance) with FTS5 search; migrations; tests
+- [x] Memory schema in `oblivion-store` (type, text, source session, created, last used, importance) with FTS5 search; migrations; tests — 2026-11-18, in-progress, cargo test: 106 passed; pytest: 50 passed; clippy: 0 warnings; FTS5 CRUD, ranking, triggers & migrations verified
 - [ ] `remember`, `recall`, `forget` tools with permission rules; tests
 - [ ] End-of-session extraction pass proposes memories (cheap model, budgeted); user can disable
 - [ ] Recall on each request within a ~500-token budget; per-project scoping; tests that one project's memory never appears in another

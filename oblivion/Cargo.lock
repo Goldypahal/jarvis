@@ -2136,6 +2136,7 @@ dependencies = [
  "oblivion-core",
  "oblivion-providers",
  "rusqlite",
+ "serde",
  "serde_json",
  "tempfile",
 ]
