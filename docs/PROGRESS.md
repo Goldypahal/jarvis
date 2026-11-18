@@ -50,7 +50,7 @@ Current milestone: **Month 2 — memory and an honest desktop** · Branch: `road
 - [x] Memory schema in `oblivion-store` (type, text, source session, created, last used, importance) with FTS5 search; migrations; tests — 2026-11-18, 6d4125d, cargo test: 106 passed; pytest: 50 passed; clippy: 0 warnings; FTS5 CRUD, ranking, triggers & migrations verified
 - [x] `remember`, `recall`, `forget` tools with permission rules; tests — 2026-11-18, a73691a, cargo test: 111 passed; pytest: 50 passed; clippy: 0 warnings; evals: 1/1 passed; lifecycle, permissions & toolbox verified
 - [x] End-of-session extraction pass proposes memories (cheap model, budgeted); user can disable — 2026-11-18, 7179626, cargo test: 118 passed; pytest: 50 passed; clippy: 0 warnings; evals: 1/1 passed; extraction, heuristics & disabling verified
-- [ ] Recall on each request within a ~500-token budget; per-project scoping; tests that one project's memory never appears in another
+- [x] Recall on each request within a ~500-token budget; per-project scoping; tests that one project's memory never appears in another — 2026-11-18, ef9dcf6, cargo test: 120 passed; clippy: 0 warnings; pytest: 50 passed; evals: 1/1 passed; project isolation & 500-token budget verified
 - [ ] Embeddings via Ollama + `sqlite-vec` (optional; falls back to FTS when not available)
 - [ ] Desktop "Memory" window: list, search, edit, delete, forget-by-topic, export
 - [ ] Sessions window: list, search, rename, resume, delete; work folder chosen per session (B10)

@@ -100,6 +100,8 @@ pub struct Agent {
     pub memory_auto_extract: bool,
     /// Maximum tokens budgeted for the memory extraction pass.
     pub memory_extract_tokens: usize,
+    pub memory_recall: Option<Arc<dyn crate::extract::MemoryRecall>>,
+    base_system_prompt: String,
     rules: Rules,
     store: Option<Arc<dyn SessionStore>>,
     approver: Box<dyn Approver>,
@@ -119,7 +121,9 @@ impl Agent {
         system_prompt: String,
     ) -> Self {
         let mut session = Session::new(tools.root().to_path_buf());
-        session.messages.push(Message::system(system_prompt));
+        session
+            .messages
+            .push(Message::system(system_prompt.clone()));
         Self {
             router,
             tools,
@@ -131,6 +135,8 @@ impl Agent {
             max_web_calls: 15,
             memory_auto_extract: true,
             memory_extract_tokens: 2000,
+            memory_recall: None,
+            base_system_prompt: system_prompt,
             rules: Rules::default(),
             store: None,
             approver,
@@ -138,6 +144,11 @@ impl Agent {
             turn_marks: Vec::new(),
             subagents: None,
         }
+    }
+
+    /// Provide a memory recall implementation to inject relevant memories into turns.
+    pub fn set_memory_recall(&mut self, recall: Arc<dyn crate::extract::MemoryRecall>) {
+        self.memory_recall = Some(recall);
     }
 
     /// Save the session as JSON files in `dir` after every step.
@@ -423,6 +434,25 @@ impl Agent {
         on_event: &mut (dyn FnMut(AgentEvent) + Send),
     ) -> Result<TurnSummary> {
         self.turn_marks.push(self.tools.journal().mark());
+        if let Some(ref recall) = self.memory_recall {
+            let project = self.tools.root().to_string_lossy();
+            let relevant = recall.recall_for_prompt(user_text, &project, 2000);
+            if !relevant.is_empty() {
+                let mem_lines = relevant
+                    .iter()
+                    .map(|m| format!("- {m}"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if !self.session.messages.is_empty() {
+                    self.session.messages[0].content = Some(format!(
+                        "{}\n\nRelevant memories from earlier sessions:\n<relevant_memories>\n{}\n</relevant_memories>",
+                        self.base_system_prompt, mem_lines
+                    ));
+                }
+            } else if !self.session.messages.is_empty() {
+                self.session.messages[0].content = Some(self.base_system_prompt.clone());
+            }
+        }
         self.session.messages.push(Message::user(user_text));
         self.save();
 
@@ -896,5 +926,45 @@ mod tests {
         a.approval = ApprovalMode::Yolo;
         assert!(a.needs_approval("shell", &cmd).is_none());
         assert!(a.needs_approval("read_file", &Risk::Safe).is_none());
+    }
+
+    #[tokio::test]
+    async fn recall_injects_memories_into_system_prompt() {
+        struct MockRecall;
+        impl crate::extract::MemoryRecall for MockRecall {
+            fn recall_for_prompt(
+                &self,
+                prompt: &str,
+                _project: &str,
+                _budget: usize,
+            ) -> Vec<String> {
+                if prompt.contains("rust") {
+                    vec![
+                        "[user_pref] User loves Rust".into(),
+                        "[project_fact] Cargo workspace".into(),
+                    ]
+                } else {
+                    vec![]
+                }
+            }
+        }
+
+        let d = tempfile::tempdir().unwrap();
+        let mut a = agent(d.path());
+        a.set_memory_recall(Arc::new(MockRecall));
+
+        let mut sink = |_e: AgentEvent| {};
+        // Turn 1: matches rust
+        let _ = a.run_turn("tell me about rust", &mut sink).await;
+        let sys_content = a.session.messages[0].content.as_deref().unwrap();
+        assert!(sys_content.contains("<relevant_memories>"));
+        assert!(sys_content.contains("User loves Rust"));
+        assert!(sys_content.contains("Cargo workspace"));
+
+        // Turn 2: does not match rust -> resets to base prompt
+        let _ = a.run_turn("hello world", &mut sink).await;
+        let sys_content2 = a.session.messages[0].content.as_deref().unwrap();
+        assert!(!sys_content2.contains("<relevant_memories>"));
+        assert_eq!(sys_content2, "sys");
     }
 }

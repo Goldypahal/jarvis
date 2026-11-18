@@ -15,6 +15,7 @@ use crate::{MemoryFilter, NewMemory, Store};
 pub struct MemoryTools {
     store: Arc<Store>,
     session_id: std::sync::Mutex<Option<String>>,
+    project: std::sync::Mutex<Option<String>>,
 }
 
 impl MemoryTools {
@@ -22,6 +23,7 @@ impl MemoryTools {
         Self {
             store,
             session_id: std::sync::Mutex::new(None),
+            project: std::sync::Mutex::new(None),
         }
     }
 
@@ -29,12 +31,27 @@ impl MemoryTools {
         Self {
             store,
             session_id: std::sync::Mutex::new(Some(session_id.into())),
+            project: std::sync::Mutex::new(None),
+        }
+    }
+
+    pub fn with_project(store: Arc<Store>, project: impl Into<String>) -> Self {
+        Self {
+            store,
+            session_id: std::sync::Mutex::new(None),
+            project: std::sync::Mutex::new(Some(project.into())),
         }
     }
 
     pub fn set_session(&self, session_id: impl Into<String>) {
         if let Ok(mut guard) = self.session_id.lock() {
             *guard = Some(session_id.into());
+        }
+    }
+
+    pub fn set_project(&self, project: impl Into<String>) {
+        if let Ok(mut guard) = self.project.lock() {
+            *guard = Some(project.into());
         }
     }
 
@@ -55,6 +72,15 @@ impl MemoryTools {
         if let Ok(guard) = self.session_id.lock() {
             if let Some(ref s) = *guard {
                 new_mem = new_mem.with_source_session(s);
+            }
+        }
+        if let Some(p) = args.get("project").and_then(Value::as_str) {
+            new_mem = new_mem.with_project(p);
+        } else if let Ok(guard) = self.project.lock() {
+            if let Some(ref p) = *guard {
+                if mem_type == "project_fact" || mem_type == "recipe" {
+                    new_mem = new_mem.with_project(p);
+                }
             }
         }
 
@@ -83,14 +109,22 @@ impl MemoryTools {
             .unwrap_or(5)
             .clamp(1, 20) as usize;
 
-        let filter = mem_type.map(|t| MemoryFilter {
-            mem_type: Some(t),
+        let project = args
+            .get("project")
+            .and_then(Value::as_str)
+            .map(String::from)
+            .or_else(|| self.project.lock().ok().and_then(|g| g.clone()));
+
+        let filter = MemoryFilter {
+            mem_type,
+            project,
+            include_global: true,
             ..Default::default()
-        });
+        };
 
         let results = self
             .store
-            .search_memories(query, filter.as_ref(), limit)
+            .search_memories(query, Some(&filter), limit)
             .map_err(|e| format!("failed to recall memories: {e}"))?;
 
         if results.is_empty() {
@@ -183,6 +217,10 @@ impl ToolProvider for MemoryTools {
                             "minimum": 1,
                             "maximum": 5,
                             "description": "Importance rating from 1 (low) to 5 (critical, e.g. core preference). Defaults to 3."
+                        },
+                        "project": {
+                            "type": "string",
+                            "description": "Optional project identifier to scope this memory to."
                         }
                     },
                     "required": ["text"]
@@ -208,6 +246,10 @@ impl ToolProvider for MemoryTools {
                             "minimum": 1,
                             "maximum": 20,
                             "description": "Maximum number of memories to return (defaults to 5)."
+                        },
+                        "project": {
+                            "type": "string",
+                            "description": "Optional project identifier to filter memories by."
                         }
                     },
                     "required": ["query"]

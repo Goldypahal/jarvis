@@ -624,7 +624,10 @@ async fn run() -> Result<()> {
         if let Some(b) = &browser {
             tools.add_provider(b.clone());
         }
-        let memory_tools = Arc::new(oblivion_store::MemoryTools::new(store.clone()));
+        let memory_tools = Arc::new(oblivion_store::MemoryTools::with_project(
+            store.clone(),
+            root.to_string_lossy(),
+        ));
         tools.add_provider(memory_tools);
         Agent::new(
             router,
@@ -666,6 +669,9 @@ async fn run() -> Result<()> {
         );
     }
     agent.persist_with(store.clone());
+    if cfg.memory.enabled {
+        agent.set_memory_recall(store.clone());
+    }
 
     if interactive_ui {
         let (worker, controls) = app::Worker::new(

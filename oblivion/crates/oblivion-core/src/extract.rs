@@ -33,6 +33,13 @@ pub struct ProposedMemory {
     pub importance: u32,
 }
 
+/// Trait for retrieving relevant memories to inject into prompt context.
+pub trait MemoryRecall: Send + Sync {
+    /// Retrieve formatted memory strings relevant to `prompt` within `budget_chars`
+    /// scoped to `project` (so project facts never leak to other projects).
+    fn recall_for_prompt(&self, prompt: &str, project: &str, budget_chars: usize) -> Vec<String>;
+}
+
 impl ProposedMemory {
     pub fn new(mem_type: impl Into<String>, text: impl Into<String>, importance: u32) -> Self {
         let mt = mem_type.into();

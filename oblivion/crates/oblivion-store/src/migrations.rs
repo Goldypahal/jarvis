@@ -7,7 +7,7 @@
 use anyhow::Result;
 use rusqlite::Connection;
 
-pub const CURRENT_VERSION: i64 = 2;
+pub const CURRENT_VERSION: i64 = 3;
 
 pub fn migrate(conn: &mut Connection) -> Result<()> {
     let tx = conn.transaction()?;
@@ -42,6 +42,7 @@ pub fn migrate(conn: &mut Connection) -> Result<()> {
                 mem_type       TEXT NOT NULL,
                 text           TEXT NOT NULL,
                 source_session TEXT,
+                project        TEXT,
                 created        TEXT NOT NULL,
                 last_used      TEXT NOT NULL,
                 importance     INTEGER NOT NULL DEFAULT 3
@@ -49,6 +50,7 @@ pub fn migrate(conn: &mut Connection) -> Result<()> {
             CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(mem_type);
             CREATE INDEX IF NOT EXISTS idx_memories_last_used ON memories(last_used);
             CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance);
+            CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project);
 
             CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
                 text,
@@ -70,6 +72,25 @@ pub fn migrate(conn: &mut Connection) -> Result<()> {
             END;",
         )?;
         tx.pragma_update(None, "user_version", 2)?;
+    }
+
+    if current_version < 3 {
+        let has_project: bool = tx
+            .query_row(
+                "SELECT count(*) FROM pragma_table_info('memories') WHERE name = 'project'",
+                [],
+                |r| r.get(0),
+            )
+            .map(|c: i64| c > 0)
+            .unwrap_or(false);
+
+        if !has_project {
+            tx.execute_batch(
+                "ALTER TABLE memories ADD COLUMN project TEXT;
+                 CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project);",
+            )?;
+        }
+        tx.pragma_update(None, "user_version", 3)?;
     }
 
     tx.commit()?;
@@ -130,13 +151,13 @@ mod tests {
              INSERT INTO usage (day, target, requests) VALUES ('2026-11-18', 'groq/test', 5);"
         ).unwrap();
 
-        // Run migration to v2
+        // Run migration to v3
         migrate(&mut conn).unwrap();
 
         let v: i64 = conn
             .query_row("PRAGMA user_version;", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 2);
+        assert_eq!(v, CURRENT_VERSION);
 
         // Verify existing data preserved
         let s_count: i64 = conn
@@ -154,9 +175,9 @@ mod tests {
             .unwrap();
         assert_eq!(u_count, 5);
 
-        // Verify memories table works
+        // Verify memories table works with project column
         conn.execute(
-            "INSERT INTO memories (mem_type, text, created, last_used, importance) VALUES ('fact', 'user likes rust', 'now', 'now', 5)",
+            "INSERT INTO memories (mem_type, text, project, created, last_used, importance) VALUES ('fact', 'user likes rust', 'proj-1', 'now', 'now', 5)",
             [],
         ).unwrap();
         let fts_count: i64 = conn

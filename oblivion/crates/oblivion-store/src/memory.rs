@@ -13,6 +13,7 @@ pub struct Memory {
     pub mem_type: String,
     pub text: String,
     pub source_session: Option<String>,
+    pub project: Option<String>,
     pub created: String,
     pub last_used: String,
     pub importance: u32,
@@ -24,6 +25,7 @@ pub struct NewMemory {
     pub mem_type: String,
     pub text: String,
     pub source_session: Option<String>,
+    pub project: Option<String>,
     pub importance: u32,
 }
 
@@ -33,6 +35,7 @@ impl NewMemory {
             mem_type: mem_type.into(),
             text: text.into(),
             source_session: None,
+            project: None,
             importance: importance.clamp(1, 5),
         }
     }
@@ -41,11 +44,18 @@ impl NewMemory {
         self.source_session = Some(session_id.into());
         self
     }
+
+    pub fn with_project(mut self, project: impl Into<String>) -> Self {
+        self.project = Some(project.into());
+        self
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MemoryFilter {
     pub mem_type: Option<String>,
     pub source_session: Option<String>,
+    pub project: Option<String>,
     pub min_importance: Option<u32>,
+    pub include_global: bool,
 }

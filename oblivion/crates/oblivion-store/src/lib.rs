@@ -37,12 +37,188 @@ fn today() -> String {
 
 fn sanitize_fts5_query(query: &str) -> String {
     let mut terms = Vec::new();
-    for word in query.split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-') {
-        if !word.is_empty() {
-            terms.push(format!("\"{word}\"*"));
+    for raw_word in query.split_whitespace() {
+        let word = raw_word.trim();
+        if word == "OR" {
+            if !terms.is_empty() && terms.last() != Some(&"OR".to_string()) {
+                terms.push("OR".to_string());
+            }
+            continue;
+        }
+        for part in word.split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-') {
+            let clean = part.trim();
+            if !clean.is_empty() && clean != "OR" {
+                terms.push(format!("{clean}*"));
+            }
         }
     }
+    while terms.last() == Some(&"OR".to_string()) {
+        terms.pop();
+    }
+    while terms.first() == Some(&"OR".to_string()) {
+        terms.remove(0);
+    }
     terms.join(" ")
+}
+
+fn sanitize_fts5_or_query(query: &str) -> String {
+    const STOPWORDS: &[&str] = &[
+        "a",
+        "about",
+        "above",
+        "after",
+        "again",
+        "against",
+        "all",
+        "am",
+        "an",
+        "and",
+        "any",
+        "are",
+        "aren't",
+        "as",
+        "at",
+        "be",
+        "because",
+        "been",
+        "before",
+        "being",
+        "below",
+        "between",
+        "both",
+        "but",
+        "by",
+        "can",
+        "can't",
+        "cannot",
+        "could",
+        "couldn't",
+        "did",
+        "didn't",
+        "do",
+        "does",
+        "doesn't",
+        "doing",
+        "don't",
+        "down",
+        "during",
+        "each",
+        "few",
+        "for",
+        "from",
+        "further",
+        "had",
+        "hadn't",
+        "has",
+        "hasn't",
+        "have",
+        "haven't",
+        "having",
+        "he",
+        "her",
+        "here",
+        "hers",
+        "herself",
+        "him",
+        "himself",
+        "his",
+        "how",
+        "i",
+        "if",
+        "in",
+        "into",
+        "is",
+        "isn't",
+        "it",
+        "it's",
+        "its",
+        "itself",
+        "let's",
+        "me",
+        "more",
+        "most",
+        "mustn't",
+        "my",
+        "myself",
+        "no",
+        "nor",
+        "not",
+        "of",
+        "off",
+        "on",
+        "once",
+        "only",
+        "or",
+        "other",
+        "ought",
+        "our",
+        "ours",
+        "ourselves",
+        "out",
+        "over",
+        "own",
+        "same",
+        "she",
+        "should",
+        "shouldn't",
+        "so",
+        "some",
+        "such",
+        "than",
+        "that",
+        "the",
+        "their",
+        "theirs",
+        "them",
+        "themselves",
+        "then",
+        "there",
+        "these",
+        "they",
+        "this",
+        "those",
+        "through",
+        "to",
+        "too",
+        "under",
+        "until",
+        "up",
+        "very",
+        "was",
+        "wasn't",
+        "we",
+        "were",
+        "weren't",
+        "what",
+        "when",
+        "where",
+        "which",
+        "while",
+        "who",
+        "whom",
+        "why",
+        "with",
+        "won't",
+        "would",
+        "wouldn't",
+        "you",
+        "your",
+        "yours",
+        "yourself",
+        "yourselves",
+    ];
+
+    let mut terms = Vec::new();
+    for word in query.split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-') {
+        let w = word.trim().to_lowercase();
+        if w.len() > 1 && !STOPWORDS.contains(&w.as_str()) {
+            terms.push(format!("{w}*"));
+        }
+    }
+    if terms.is_empty() {
+        return String::new();
+    }
+    terms.join(" OR ")
 }
 
 fn row_to_memory(r: &rusqlite::Row<'_>) -> rusqlite::Result<Memory> {
@@ -51,9 +227,10 @@ fn row_to_memory(r: &rusqlite::Row<'_>) -> rusqlite::Result<Memory> {
         mem_type: r.get(1)?,
         text: r.get(2)?,
         source_session: r.get(3)?,
-        created: r.get(4)?,
-        last_used: r.get(5)?,
-        importance: r.get::<_, i64>(6)? as u32,
+        project: r.get(4)?,
+        created: r.get(5)?,
+        last_used: r.get(6)?,
+        importance: r.get::<_, i64>(7)? as u32,
     })
 }
 
@@ -171,13 +348,13 @@ impl Store {
         let now = chrono::Utc::now().to_rfc3339();
         let importance = mem.importance.clamp(1, 5) as i64;
         conn.execute(
-            "INSERT INTO memories (mem_type, text, source_session, created, last_used, importance)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO memories (mem_type, text, source_session, project, created, last_used, importance)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6)",
             params![
                 mem.mem_type,
                 mem.text,
                 mem.source_session,
-                now,
+                mem.project,
                 now,
                 importance
             ],
@@ -188,6 +365,7 @@ impl Store {
             mem_type: mem.mem_type.clone(),
             text: mem.text.clone(),
             source_session: mem.source_session.clone(),
+            project: mem.project.clone(),
             created: now.clone(),
             last_used: now,
             importance: mem.importance.clamp(1, 5),
@@ -199,7 +377,7 @@ impl Store {
         let conn = self.conn.lock().unwrap();
         let row = conn
             .query_row(
-                "SELECT id, mem_type, text, source_session, created, last_used, importance
+                "SELECT id, mem_type, text, source_session, project, created, last_used, importance
                  FROM memories WHERE id = ?1",
                 params![id],
                 row_to_memory,
@@ -219,7 +397,7 @@ impl Store {
         let conn = self.conn.lock().unwrap();
         let existing: Option<Memory> = conn
             .query_row(
-                "SELECT id, mem_type, text, source_session, created, last_used, importance
+                "SELECT id, mem_type, text, source_session, project, created, last_used, importance
                  FROM memories WHERE id = ?1",
                 params![id],
                 row_to_memory,
@@ -281,6 +459,15 @@ impl Store {
                 sql.push_str(" AND source_session = ?");
                 dyn_params.push(Box::new(s.clone()));
             }
+            if let Some(ref proj) = f.project {
+                if f.include_global {
+                    sql.push_str(" AND (project = ? OR project IS NULL)");
+                    dyn_params.push(Box::new(proj.clone()));
+                } else {
+                    sql.push_str(" AND project = ?");
+                    dyn_params.push(Box::new(proj.clone()));
+                }
+            }
             if let Some(min_imp) = f.min_importance {
                 sql.push_str(" AND importance >= ?");
                 dyn_params.push(Box::new(min_imp as i64));
@@ -299,7 +486,7 @@ impl Store {
         limit: usize,
     ) -> Result<Vec<Memory>> {
         let conn = self.conn.lock().unwrap();
-        let mut sql = "SELECT id, mem_type, text, source_session, created, last_used, importance FROM memories WHERE 1=1".to_string();
+        let mut sql = "SELECT id, mem_type, text, source_session, project, created, last_used, importance FROM memories WHERE 1=1".to_string();
         let mut dyn_params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
         if let Some(f) = filter {
@@ -310,6 +497,15 @@ impl Store {
             if let Some(ref s) = f.source_session {
                 sql.push_str(" AND source_session = ?");
                 dyn_params.push(Box::new(s.clone()));
+            }
+            if let Some(ref proj) = f.project {
+                if f.include_global {
+                    sql.push_str(" AND (project = ? OR project IS NULL)");
+                    dyn_params.push(Box::new(proj.clone()));
+                } else {
+                    sql.push_str(" AND project = ?");
+                    dyn_params.push(Box::new(proj.clone()));
+                }
             }
             if let Some(min_imp) = f.min_importance {
                 sql.push_str(" AND importance >= ?");
@@ -341,7 +537,7 @@ impl Store {
         }
 
         let conn = self.conn.lock().unwrap();
-        let mut sql = "SELECT m.id, m.mem_type, m.text, m.source_session, m.created, m.last_used, m.importance
+        let mut sql = "SELECT m.id, m.mem_type, m.text, m.source_session, m.project, m.created, m.last_used, m.importance
                        FROM memories m
                        JOIN memories_fts f ON m.id = f.rowid
                        WHERE memories_fts MATCH ?".to_string();
@@ -357,6 +553,15 @@ impl Store {
             if let Some(ref s) = f.source_session {
                 sql.push_str(" AND m.source_session = ?");
                 dyn_params.push(Box::new(s.clone()));
+            }
+            if let Some(ref proj) = f.project {
+                if f.include_global {
+                    sql.push_str(" AND (m.project = ? OR m.project IS NULL)");
+                    dyn_params.push(Box::new(proj.clone()));
+                } else {
+                    sql.push_str(" AND m.project = ?");
+                    dyn_params.push(Box::new(proj.clone()));
+                }
             }
             if let Some(min_imp) = f.min_importance {
                 sql.push_str(" AND m.importance >= ?");
@@ -440,6 +645,54 @@ impl UsageLedger for Store {
     }
 }
 
+impl oblivion_core::MemoryRecall for Store {
+    fn recall_for_prompt(&self, prompt: &str, project: &str, budget_chars: usize) -> Vec<String> {
+        let filter = MemoryFilter {
+            project: Some(project.to_string()),
+            include_global: true,
+            ..Default::default()
+        };
+        let or_query = sanitize_fts5_or_query(prompt);
+        let mut memories = if !or_query.is_empty() {
+            self.search_memories(&or_query, Some(&filter), 10)
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
+        // If few or no memories matched prompt keywords, also fetch top-importance memories (e.g. core preferences)
+        if memories.len() < 3 {
+            let high_imp_filter = MemoryFilter {
+                project: Some(project.to_string()),
+                include_global: true,
+                min_importance: Some(4),
+                ..Default::default()
+            };
+            if let Ok(high_imp) = self.list_memories(Some(&high_imp_filter), 5) {
+                for m in high_imp {
+                    if !memories.iter().any(|existing| existing.id == m.id) {
+                        memories.push(m);
+                    }
+                }
+            }
+        }
+
+        let mut out = Vec::new();
+        let mut total_chars = 0;
+
+        for m in memories {
+            let line = format!("[{}] {}", m.mem_type, m.text);
+            if total_chars + line.len() > budget_chars {
+                break;
+            }
+            total_chars += line.len() + 1;
+            out.push(line);
+            let _ = self.touch_memory(m.id);
+        }
+        out
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -506,14 +759,36 @@ mod tests {
             .unwrap();
         conn.execute("INSERT INTO test_fts (content) VALUES ('hello world');", [])
             .unwrap();
-        let count: i64 = conn
+
+        // Test 1: plain match
+        let count1: i64 = conn
             .query_row(
                 "SELECT count(*) FROM test_fts WHERE test_fts MATCH 'hello';",
                 [],
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(count, 1);
+        assert_eq!(count1, 1);
+
+        // Test 2: prefix match
+        let count2: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM test_fts WHERE test_fts MATCH 'hel*';",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count2, 1);
+
+        // Test 3: OR match
+        let count3: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM test_fts WHERE test_fts MATCH 'hel* OR wor*';",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count3, 1);
     }
 
     #[test]
@@ -730,5 +1005,92 @@ mod tests {
         st.delete_memory(mem.id).unwrap();
         let r_del = st.search_memories("relativistic", None, 5).unwrap();
         assert_eq!(r_del.len(), 0);
+    }
+
+    #[test]
+    fn memory_recall_project_scoping_and_isolation() {
+        use oblivion_core::MemoryRecall;
+        let st = Store::in_memory().unwrap();
+
+        // 1. Global user preference (project = None)
+        st.add_memory(&NewMemory::new(
+            "user_pref",
+            "User prefers snake_case for identifiers",
+            5,
+        ))
+        .unwrap();
+
+        // 2. Project Alpha fact
+        st.add_memory(
+            &NewMemory::new(
+                "project_fact",
+                "Alpha repository uses Tokio 1.40 runtime on port 3000",
+                4,
+            )
+            .with_project("/workspace/alpha"),
+        )
+        .unwrap();
+
+        // 3. Project Beta fact
+        st.add_memory(
+            &NewMemory::new(
+                "project_fact",
+                "Beta repository uses Async-std 1.12 runtime on port 5000",
+                4,
+            )
+            .with_project("/workspace/beta"),
+        )
+        .unwrap();
+
+        // Test Alpha recall: must include Alpha fact, must NEVER include Beta fact
+        let alpha_recalled =
+            st.recall_for_prompt("runtime and port settings", "/workspace/alpha", 2000);
+        let alpha_joined = alpha_recalled.join("\n");
+        assert!(alpha_joined.contains("Alpha repository uses Tokio"));
+        assert!(!alpha_joined.contains("Beta repository"));
+
+        // Test Beta recall: must include Beta fact, must NEVER include Alpha fact
+        let beta_recalled =
+            st.recall_for_prompt("runtime and port settings", "/workspace/beta", 2000);
+        let beta_joined = beta_recalled.join("\n");
+        assert!(beta_joined.contains("Beta repository uses Async-std"));
+        assert!(!beta_joined.contains("Alpha repository"));
+
+        // Test Gamma recall: must NEVER include Alpha or Beta facts
+        let gamma_recalled =
+            st.recall_for_prompt("runtime and port settings", "/workspace/gamma", 2000);
+        let gamma_joined = gamma_recalled.join("\n");
+        assert!(!gamma_joined.contains("Alpha repository"));
+        assert!(!gamma_joined.contains("Beta repository"));
+
+        // Test global preference is accessible across all projects
+        let global_in_alpha = st.recall_for_prompt("identifiers style", "/workspace/alpha", 2000);
+        assert!(global_in_alpha.join("\n").contains("snake_case"));
+        let global_in_beta = st.recall_for_prompt("identifiers style", "/workspace/beta", 2000);
+        assert!(global_in_beta.join("\n").contains("snake_case"));
+    }
+
+    #[test]
+    fn memory_recall_respects_budget() {
+        use oblivion_core::MemoryRecall;
+        let st = Store::in_memory().unwrap();
+
+        for i in 1..=10 {
+            st.add_memory(&NewMemory::new(
+                "fact",
+                format!(
+                    "Important architecture note number {i}: very long descriptive text details"
+                ),
+                3,
+            ))
+            .unwrap();
+        }
+
+        // Small budget (150 chars): should stop once budget is reached
+        let small = st.recall_for_prompt("architecture note", "/workspace/test", 150);
+        assert!(!small.is_empty());
+        let total_chars: usize = small.iter().map(|s| s.len() + 1).sum();
+        assert!(total_chars <= 160);
+        assert!(small.len() < 5);
     }
 }

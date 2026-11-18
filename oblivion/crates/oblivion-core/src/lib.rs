@@ -11,7 +11,9 @@ pub mod subagent;
 
 pub use agent::{Agent, AgentEvent, Approver, Decision, TurnSummary};
 pub use config::{ApprovalMode, Config};
-pub use extract::{extract_heuristics, extract_memories, parse_proposals, ProposedMemory};
+pub use extract::{
+    extract_heuristics, extract_memories, parse_proposals, MemoryRecall, ProposedMemory,
+};
 pub use rules::Rules;
 pub use session::{JsonDir, Session, SessionStore};
 pub use subagent::SubagentFactory;
