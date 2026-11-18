@@ -1,79 +1,50 @@
-# NEXUS Web User Interface
+# Jarvis Web Desktop
 
-This web interface provides a modern, dark-themed UI for interacting with the NEXUS AI assistant, inspired by the portfolio site at https://www.parinazkassemi.com/
+The Jarvis Web Desktop is a modern executive desktop interface that hosts the **Oblivion** autonomous agent.
 
 ## Features
 
-- **Dark Theme UI**: Modern interface with accent colors and clean layout
-- **Chat Interface**: Real-time communication with NEXUS
-- **Mode Controls**: Activate/deactivate specialized modes (Deep Focus, Learning Companion, etc.)
-- **Skills Panel**: View and manage learned skills
-- **Responsive Design**: Works on desktop and mobile devices
-- **Typing Indicators**: Visual feedback when NEXUS is processing
-- **Skill Learning Integration**: Full access to the skill learning system
+- **Executive Desktop Canvas**: Themeable workspace (Ice Blue, Dark Charcoal, Sage Green, Dusky Purple) with quick-access nodes and customizable capability icons.
+- **30/70 Workspace Split**:
+  - Left 30%: Interactive chat space communicating directly with the Oblivion agent.
+  - Right 70%: Live execution workspace showing active task breakdowns, tool execution cards with diffs, and pending user approvals.
+- **Oblivion Slide-in Panel (Ctrl+J)**: Collapsible agent panel with streaming responses, task progress, model selection, and segmented approval controls (Ask / Auto-edit / Never ask).
+- **Security-First Design**:
+  - Bound to `127.0.0.1` by default with strict `Host` header enforcement.
+  - Token-authenticated `/api/oblivion/*` endpoints to prevent cross-origin drive-by attacks.
+  - Bundled local fonts and opt-in weather widget (zero unprompted remote requests).
 
-## UI Components
+## Quick Start
 
-### Header
-- Displays NEXUS title and subtitle with gradient text effect
-
-### Sidebar
-- **Modes Section**: Buttons to activate specialized modes
-- **Skills Section**: Lists all learned skills with proficiency levels
-- **Settings Section**: Placeholder for future settings
-
-### Chat Area
-- Message display area with user and NEXUS messages styled differently
-- Input field for sending messages to NEXUS
-- Real-time typing indicators when NEXUS is processing
-
-## Installation
-
-1. Install the required dependency:
-   ```
-   pip install -r web/requirements.txt
+1. **Build Oblivion**:
+   ```bash
+   cargo build --release --manifest-path oblivion/Cargo.toml -p oblivion-cli
    ```
 
-2. Run the web application:
+2. **Install Python Requirements**:
+   ```bash
+   pip install -r requirements.txt
    ```
+
+3. **Start the Web Desktop**:
+   ```bash
    python web/app.py
    ```
 
-3. Open your web browser and navigate to:
-   ```
-   http://localhost:5000
-   ```
+4. Navigate to `http://localhost:5000` in your browser.
 
-## API Endpoints
+## Architecture
 
-The web interface communicates with the NEXUS backend through these endpoints:
+- **`web/app.py`**: Flask server hosting the web templates, static assets, and the `/api/chat` route.
+- **`web/oblivion_bridge.py`**: Manages the child `oblivion --web` process, proxies API requests to it, and provides Server-Sent Events (SSE) streaming at `/api/oblivion/events`.
+- **`web/static/js/oblivion.js`**: Client-side state manager and event handler for the Oblivion panel and 30/70 workspace view.
+- **`web/static/js/app.js`**: Desktop canvas controller (clock, themes, desktop icon actions, modal transitions).
 
-- `POST /api/chat` - Send a message to NEXUS and get a response
-- `GET /api/skills` - Retrieve list of learned skills
-- `GET /api/status` - Get current system status
+## Testing
 
-## How It Works
-
-The web interface consists of:
-
-1. **Frontend** (in `web/` directory):
-   - `templates/index.html` - Main HTML structure
-   - `static/css/style.css` - Dark theme styling
-   - `static/js/app.js` - UI logic and API communication
-
-2. **Backend** (in `web/` directory):
-   - `app.py` - Flask application serving the UI and handling API requests
-   - `nexus.py` - Adapter wrapping existing NEXUS core components
-
-## Dependencies
-
-- Flask 2.3.3
-
-## Notes
-
-- The web interface uses the same RAG path as specified in your requirements: `D:\Desktop\RAG`
-- Memory is stored in `nexus_web_memory.db` (separate from the console version)
-- All existing NEXUS functionality is preserved and accessible through the web UI
-- The UI is designed to be intuitive and follows modern web design principles
-
-Enjoy interacting with NEXUS through this modern web interface!
+Run the web test suite:
+```bash
+python -m pytest -q tests
+node --check web/static/js/app.js
+node --check web/static/js/oblivion.js
+```
