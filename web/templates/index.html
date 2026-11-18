@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="jarvis-token" content="{{ jarvis_token }}">
-    <title>JARVIS / NEXUS - Interactive Executive Desktop</title>
+    <title>Jarvis - Executive Desktop</title>
 
     <link rel="stylesheet" href="/static/fonts/fonts.css">
     <link rel="stylesheet" href="/static/css/style.css">
@@ -30,7 +30,7 @@
                 </svg>
             </div>
             <div class="lock-name">JARVIS EXECUTIVE OS</div>
-            <div class="lock-role">NEURAL AI & REASONING SYSTEM</div>
+            <div class="lock-role">AUTONOMOUS AGENT DESKTOP</div>
         </div>
 
         <div class="lock-cta" id="unlock-btn">
@@ -38,7 +38,7 @@
             <svg viewBox="0 0 24 24" width="14" height="14"><path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" stroke-width="2" fill="none"/></svg>
         </div>
 
-        <div class="lock-hint">JARVIS SYSTEM V2.4 • TOUCH OR CLICK ANYWHERE</div>
+        <div class="lock-hint">JARVIS DESKTOP • TOUCH OR CLICK ANYWHERE</div>
     </div>
 
     <!-- ==========================================================================
@@ -96,7 +96,7 @@
                 </div>
                 <div class="profile-bio-text">
                     <h2 class="bio-title">JARVIS EXECUTIVE SYSTEM</h2>
-                    <p class="bio-p">I turn complex ideas and goals into intuitive, beautifully crafted digital workflows. Powered by dual-process System 1/2 neural reasoning, task orchestration, RAG skill learning, and persistent memory.</p>
+                    <p class="bio-p">Jarvis executive desktop powered by the Oblivion Rust engine. Sandboxed tools, approval workflows, skills, MCP connectors, and live execution tracing.</p>
                     <a href="#" id="bio-learn-more" class="bio-link">MORE ABOUT JARVIS →</a>
                 </div>
             </section>
@@ -200,31 +200,23 @@
                 </div>
             </div>
 
-            <!-- System Streak & Capabilities Widget -->
+            <!-- Engine & Status Widget -->
             <div class="widget-box languages-widget">
                 <div class="widget-title-row">
-                    <span>CAPABILITIES & STREAK</span>
-                    <span class="sub-lbl">JARVIS CORE</span>
+                    <span>ENGINE &amp; STATUS</span>
+                    <span class="sub-lbl">OBLIVION</span>
                 </div>
-                <div class="streak-val-row">
-                    <span class="fire-icon">🔥</span>
-                    <span class="streak-num">231</span>
-                    <span class="streak-lbl">DAY STREAK</span>
+                <div class="engine-status-row">
+                    <span class="status-indicator-dot">●</span>
+                    <span class="engine-ver">Oblivion v0.5</span>
+                    <span class="engine-type">Rust</span>
                 </div>
-                <div class="skill-bars-list">
-                    <div class="skill-bar-item">
-                        <div class="sb-info"><span>System 1/2 Reasoning</span> <span class="lvl">fluent</span></div>
-                    </div>
-                    <div class="skill-bar-item">
-                        <div class="sb-info"><span>Task Orchestration</span> <span class="lvl">level 60</span></div>
-                        <div class="sb-bar"><div class="sb-fill" style="width: 85%;"></div></div>
-                    </div>
-                    <div class="skill-bar-item">
-                        <div class="sb-info"><span>RAG Knowledge Retrieval</span> <span class="lvl">level 31</span></div>
-                        <div class="sb-bar"><div class="sb-fill" style="width: 65%;"></div></div>
-                    </div>
+                <div class="engine-capabilities-list">
+                    <div class="cap-item"><span>Sandboxed Tools</span> <span class="cap-badge">active</span></div>
+                    <div class="cap-item"><span>File &amp; Workspace</span> <span class="cap-badge">active</span></div>
+                    <div class="cap-item"><span>MCP &amp; Skills</span> <span class="cap-badge">ready</span></div>
                 </div>
-                <div class="retro-mac-icon hide-mobile">💻</div>
+                <div class="retro-mac-icon hide-mobile">🦀</div>
             </div>
 
         </aside>
@@ -234,26 +226,23 @@
             <div class="dock-container">
                 <span class="dock-title">TECH STACK / JARVIS CAPABILITIES</span>
                 <div class="dock-icons-row">
-                    <button class="dock-app-btn" title="Python Code Execution Engine" data-action="exec">
-                        <div class="app-icon py-icon">🐍</div>
+                    <button class="dock-app-btn" title="Terminal &amp; Command Execution" data-action="terminal">
+                        <div class="app-icon py-icon">💻</div>
                     </button>
-                    <button class="dock-app-btn" title="RAG Knowledge & Vector DB" data-action="rag">
-                        <div class="app-icon rag-icon">⚡</div>
+                    <button class="dock-app-btn" title="File System &amp; Workspace" data-action="files">
+                        <div class="app-icon rag-icon">📁</div>
                     </button>
-                    <button class="dock-app-btn" title="Task Orchestrator & Planner" data-action="tasks">
-                        <div class="app-icon task-icon">🎯</div>
+                    <button class="dock-app-btn" title="Web Search &amp; Fetch" data-action="web">
+                        <div class="app-icon task-icon">🌐</div>
                     </button>
-                    <button class="dock-app-btn" title="Memory Vault & Persistence" data-action="memory">
-                        <div class="app-icon mem-icon">💾</div>
-                    </button>
-                    <button class="dock-app-btn" title="Neural Reasoning Engine" data-action="reasoning">
-                        <div class="app-icon neural-icon">🧠</div>
-                    </button>
-                    <button class="dock-app-btn" title="Skill Learning Lab" data-action="skills">
+                    <button class="dock-app-btn" title="Oblivion Skills" data-action="skills">
                         <div class="app-icon skill-icon">📘</div>
                     </button>
+                    <button class="dock-app-btn" title="Model Context Protocol (MCP)" data-action="mcp">
+                        <div class="app-icon mem-icon">🔌</div>
+                    </button>
                     
-                    <!-- Chat Icon (i / Message Icon for Opening 30/70 Split Window) -->
+                    <!-- Chat Icon (Oblivion Assistant) -->
                     <button class="dock-app-btn chat-dock-btn active" id="open-chat-dock-btn" title="Oblivion assistant (Ctrl+J)">
                         <div class="app-icon chat-icon">💬</div>
                         <span class="ob-badge" id="ob-dock-badge" hidden></span>

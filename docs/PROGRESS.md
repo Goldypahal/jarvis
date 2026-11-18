@@ -28,7 +28,7 @@ Current milestone: **v0.5 "One brain"** · Branch: `roadmap/m1`
 - [x] B1: `/api/chat` forwards to Oblivion through the bridge (send + read events until `turn_end`); test with a fake Oblivion — 2026-11-17, 72ab777, pytest tests/test_chat_bridge.py: 5 passed; total pytest: 25 passed; cargo test: 92 passed
 - [x] B1/B3: the 30/70 workspace window uses the same live event stream as the panel (chat left, tool cards/diffs/tasks right) and has working approve/deny buttons — 2026-11-17, d9a318a, pytest: 27 passed; node check: clean; browser UI verified in light & dark themes; cargo test: 92 passed
 - [x] Move `nexus/`, `web/nexus_adapter.py`, `examples/`, `benchmarks/` and NEXUS tests to `legacy/`; the web app no longer imports them; all remaining tests pass — 2026-11-17, 392745a, moved to legacy/; web/app.py decoupled; pytest: 19 passed in tests/ & 8 passed in legacy/tests/; cargo test: 92 passed
-- [ ] Remove now-dead routes and UI controls that only served NEXUS (modes, fake skill learning)
+- [x] Remove now-dead routes and UI controls that only served NEXUS (modes, fake skill learning) — 2026-11-18, 5884308, pytest: 21 passed; node check: clean; browser UI verified in light & dark themes
 - [ ] Q7: rewrite `README.md`, `WEB_README.md`, `RUN_WEB_INTERFACE.md` to describe what is true; one "Getting started" path
 
 ### Week 3 — prove it

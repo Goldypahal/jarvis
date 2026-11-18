@@ -1,4 +1,4 @@
-// Parinaz Kassemi Screenshot-Matched Desktop Controller for JARVIS / NEXUS
+// Jarvis Desktop Controller for Oblivion Agent
 
 document.addEventListener('DOMContentLoaded', () => {
     initLockScreen();
@@ -159,13 +159,26 @@ function initDesktopIcons() {
         });
     });
 
-    // Dock app buttons
-    const dockBtns = document.querySelectorAll('.dock-app-btn');
+    // Bio header link
+    const bioLearnMore = document.getElementById('bio-learn-more');
+    if (bioLearnMore) {
+        bioLearnMore.addEventListener('click', (e) => {
+            e.preventDefault();
+            openSplitModalWithContext('jarvis-architecture');
+        });
+    }
+
+    // Dock app buttons (excluding chat dock btn which toggles Oblivion panel)
+    const dockBtns = document.querySelectorAll('.dock-app-btn:not(#open-chat-dock-btn)');
     dockBtns.forEach(btn => {
         btn.addEventListener('click', () => {
             dockBtns.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            openSplitModal();
+            if (btn.dataset.action) {
+                openSplitModalWithContext(btn.dataset.action);
+            } else {
+                openSplitModal();
+            }
         });
     });
 }
@@ -243,7 +256,20 @@ function openSplitModalWithContext(actionName) {
     openSplitModal();
     const input = document.getElementById('split-user-input');
     if (input) {
-        input.value = `Explain the ${actionName} workflow`;
+        const promptMap = {
+            'terminal': 'Run command: ',
+            'files': 'List files in workspace',
+            'web': 'Search the web for ',
+            'skills': 'List skills',
+            'mcp': 'Show connected MCP servers',
+            'jarvis-architecture': 'Tell me about the Jarvis desktop and Oblivion engine architecture',
+            'open-research': 'Research topic: ',
+            'open-pictures': 'Generate picture: ',
+            'open-docs': 'Summarize document: ',
+            'open-notebook': 'Take notes on: ',
+            'open-casestudies': 'Analyze case study: '
+        };
+        input.value = promptMap[actionName] || `Explain the ${actionName} workflow`;
         input.focus();
     }
 }
