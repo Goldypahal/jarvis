@@ -4,7 +4,7 @@ The agent ticks items here as it finishes them: `- [x] item — 2026-11-18, <com
 Blocked items stay unticked with `BLOCKED (...)`. Problem IDs refer to `ANALYSIS_AND_ROADMAP.md`.
 Split any item that turns out bigger than about 400 changed lines.
 
-Current milestone: **v0.5 "One brain"** · Branch: `roadmap/m1`
+Current milestone: **Month 2 — memory and an honest desktop** · Branch: `roadmap/m2`
 
 ---
 
@@ -173,6 +173,9 @@ Current milestone: **v0.5 "One brain"** · Branch: `roadmap/m1`
 
 ## Notes for next session
 <!-- Surprises about the code, environment quirks, things the next session must know. -->
+- Milestone v0.5 "One brain" is merged into `main` and tagged `v0.5`.
+- Active working branch for Month 2 is `roadmap/m2`.
+- Exact next item to start: "Memory schema in oblivion-store (type, text, source session, created, last used, importance) with FTS5 search; migrations; tests".
 - Windows + PowerShell: no bash heredocs; quote paths with spaces.
 - Smart App Control has blocked Rust build scripts before; if a build fails with an
   "Application Control policy" error, mark the item BLOCKED (needs user) instead of retrying.
