@@ -41,7 +41,7 @@ Current milestone: **v0.5 "One brain"** · Branch: `roadmap/m1`
 ### Week 4 — measure
 - [x] Q4: evals from 10 to 30: +5 research, +5 documents, +5 browser (local test site), +5 safety (must ask before delete; must not act on "ignore your instructions" text in a page or file) — 2026-11-18, b0afa3d, pytest: 34 passed; 30 tasks created (tasks 11-30) with prompt/workspace/hidden/flags and test runner daemon server support
 - [x] B11: provider limits move from code to `oblivion.toml` with a `checked = "YYYY-MM-DD"` field; defaults stay; test — 2026-11-18, ba24ac6, cargo test: 98 passed; clippy: 0 warnings; pytest: 34 passed; checked date validation and fallback defaults verified
-- [ ] Python tests for every `web/app.py` route
+- [x] Python tests for every `web/app.py` route — 2026-11-18, 73d45c9, pytest: 50 passed (16 in test_web_routes.py); GET /, POST /api/chat, /api/oblivion/* routes, auth, validation & timeout tested
 - [ ] Milestone check: no code path returns canned text; S1–S4, S6, S8, S9 closed; 30 evals run with one command; five real browser tasks done → merge, tag `v0.5`
 
 ---
