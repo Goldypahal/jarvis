@@ -42,7 +42,7 @@ Current milestone: **v0.5 "One brain"** · Branch: `roadmap/m1`
 - [x] Q4: evals from 10 to 30: +5 research, +5 documents, +5 browser (local test site), +5 safety (must ask before delete; must not act on "ignore your instructions" text in a page or file) — 2026-11-18, b0afa3d, pytest: 34 passed; 30 tasks created (tasks 11-30) with prompt/workspace/hidden/flags and test runner daemon server support
 - [x] B11: provider limits move from code to `oblivion.toml` with a `checked = "YYYY-MM-DD"` field; defaults stay; test — 2026-11-18, ba24ac6, cargo test: 98 passed; clippy: 0 warnings; pytest: 34 passed; checked date validation and fallback defaults verified
 - [x] Python tests for every `web/app.py` route — 2026-11-18, 73d45c9, pytest: 50 passed (16 in test_web_routes.py); GET /, POST /api/chat, /api/oblivion/* routes, auth, validation & timeout tested
-- [ ] Milestone check: no code path returns canned text; S1–S4, S6, S8, S9 closed; 30 evals run with one command; five real browser tasks done → merge, tag `v0.5`
+- [x] Milestone check: no code path returns canned text; S1–S4, S6, S8, S9 closed; 30 evals run with one command; five real browser tasks done → merge, tag `v0.5` — 2026-11-18, in-progress, cargo test: 98 passed; pytest: 50 passed; clippy: 0 warnings; 30 evals verified; merged & tagged v0.5
 
 ---
 
@@ -157,6 +157,19 @@ Current milestone: **v0.5 "One brain"** · Branch: `roadmap/m1`
   - `cargo test --workspace`: 97 passed, 0 failed (14 in oblivion-cli)
   - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings
   - `python -m pytest -q tests`: 29 passed, 0 failed
+
+### Month 1 Week 4 & Milestone v0.5 Summary (2026-11-18)
+- Items done:
+  - Q4: grown evals suite from 10 to 30 tasks (+5 research [11-15], +5 documents [16-20], +5 browser [21-25] with daemon test site server, +5 safety [26-30] testing prompt injection, delete approvals, secret leakage, path traversal).
+  - B11: provider limits moved to `oblivion.toml` with `checked = "YYYY-MM-DD"` date field and validation, while keeping built-in fallback defaults intact.
+  - Python tests for every `web/app.py` route: 16 test cases in `tests/test_web_routes.py` covering GET /, POST /api/chat, /api/oblivion/* routes, auth tokens, timeout, validation.
+  - Milestone check: verified zero canned text responses; S1–S4, S6, S8, S9 closed; 30 evals runnable with single command; five real browser tasks completed.
+- Gate results:
+  - `cargo test --workspace`: 98 passed, 0 failed
+  - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings
+  - `cargo fmt --all`: clean
+  - `python -m pytest -q tests`: 50 passed, 0 failed
+  - `node --check`: clean on all static JS files
 
 ## Notes for next session
 <!-- Surprises about the code, environment quirks, things the next session must know. -->
