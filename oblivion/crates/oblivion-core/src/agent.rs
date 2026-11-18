@@ -96,6 +96,10 @@ pub struct Agent {
     /// web_search + web_fetch calls allowed per request before the model is told
     /// to answer with what it has (free tiers allow few tokens per day).
     pub max_web_calls: usize,
+    /// Whether the end-of-session memory extraction pass runs.
+    pub memory_auto_extract: bool,
+    /// Maximum tokens budgeted for the memory extraction pass.
+    pub memory_extract_tokens: usize,
     rules: Rules,
     store: Option<Arc<dyn SessionStore>>,
     approver: Box<dyn Approver>,
@@ -125,6 +129,8 @@ impl Agent {
             context_tokens: 24_000,
             summary_prefer: String::new(),
             max_web_calls: 15,
+            memory_auto_extract: true,
+            memory_extract_tokens: 2000,
             rules: Rules::default(),
             store: None,
             approver,
@@ -328,6 +334,25 @@ impl Agent {
         compact::apply_summary(&mut self.session.messages, split, &summary);
         self.save();
         Ok(true)
+    }
+
+    /// Run the end-of-session memory extraction pass to propose durable facts and preferences.
+    /// Uses a budgeted cheap model call, falling back to heuristic extraction.
+    /// Returns an empty list if `memory_auto_extract` is false or if no user interaction occurred.
+    pub async fn extract_end_of_session_memories(&self) -> Vec<crate::extract::ProposedMemory> {
+        if !self.memory_auto_extract || self.session.messages.len() < 2 {
+            return Vec::new();
+        }
+        let budget_chars = self.memory_extract_tokens * 4;
+        let mut on_fb = |_from, _reason| {};
+        crate::extract::extract_memories(
+            &self.router,
+            &self.summary_prefer,
+            &self.session.messages,
+            budget_chars,
+            &mut on_fb,
+        )
+        .await
     }
 
     /// Undo every file change from the most recent turn.

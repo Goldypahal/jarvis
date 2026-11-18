@@ -30,6 +30,12 @@ context_tokens = 24000  # shrink the conversation when it grows past about this 
 max_web_calls = 15      # web searches + fetches per request (sub-agents get 8 each)
 # shell = "powershell"  # powershell | cmd | bash | sh (default: powershell on Windows, bash elsewhere)
 
+# Long-term memory across sessions.
+# auto_extract: runs a cheap, budgeted model pass after sessions to propose memories.
+[memory]
+enabled = true
+auto_extract = true
+
 # Rules are "tool(pattern)"; * matches anything. Deny wins over allow.
 # Allowed calls run without asking; denied calls are refused.
 [permissions]
@@ -326,10 +332,36 @@ fn yes() -> bool {
     true
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemorySettings {
+    #[serde(default = "yes")]
+    pub enabled: bool,
+    #[serde(default = "yes")]
+    pub auto_extract: bool,
+    #[serde(default = "default_extract_max_tokens")]
+    pub max_tokens: usize,
+}
+
+impl Default for MemorySettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            auto_extract: true,
+            max_tokens: default_extract_max_tokens(),
+        }
+    }
+}
+
+fn default_extract_max_tokens() -> usize {
+    2000
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
     pub agent: AgentSettings,
+    #[serde(default)]
+    pub memory: MemorySettings,
     #[serde(default)]
     pub providers: Vec<ProviderEntry>,
     #[serde(default)]

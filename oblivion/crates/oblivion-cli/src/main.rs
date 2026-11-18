@@ -638,6 +638,8 @@ async fn run() -> Result<()> {
     agent.context_tokens = cfg.agent.context_tokens;
     agent.max_web_calls = cfg.agent.max_web_calls;
     agent.summary_prefer = cfg.routing.summary.clone();
+    agent.memory_auto_extract = cfg.memory.enabled && cfg.memory.auto_extract;
+    agent.memory_extract_tokens = cfg.memory.max_tokens;
     agent.set_subagents(oblivion_core::SubagentFactory {
         router: agent.router.share(),
         root: root.clone(),
@@ -727,6 +729,7 @@ async fn run() -> Result<()> {
             current_tracer.clone(),
         )
         .await;
+        extract_and_persist_memories(&agent, &store).await;
         hub.shutdown().await;
         if let Some(b) = &browser {
             b.shutdown().await;
@@ -782,11 +785,33 @@ async fn run() -> Result<()> {
         )
         .await;
     }
+    extract_and_persist_memories(&agent, &store).await;
     hub.shutdown().await;
     if let Some(b) = &browser {
         b.shutdown().await;
     }
     Ok(())
+}
+
+async fn extract_and_persist_memories(agent: &Agent, store: &Arc<oblivion_store::Store>) {
+    if agent.memory_auto_extract {
+        let proposals = agent.extract_end_of_session_memories().await;
+        if !proposals.is_empty() {
+            println!(
+                "\n{DIM}Learned {} memories from this session:{RESET}",
+                proposals.len()
+            );
+            for p in &proposals {
+                println!(
+                    "  {DIM}• [{}] (importance {}): {}{RESET}",
+                    p.mem_type, p.importance, p.text
+                );
+                let new_mem = oblivion_store::NewMemory::new(&p.mem_type, &p.text, p.importance)
+                    .with_source_session(&agent.session.id);
+                let _ = store.add_memory(&new_mem);
+            }
+        }
+    }
 }
 
 /// `oblivion --web`: serve the page, then run the agent until Ctrl+C or /exit.
