@@ -20,6 +20,8 @@ pub struct Target {
     pub max_input_tokens: Option<u32>,
     /// Free-tier requests per day; the target is skipped once it is used up.
     pub requests_per_day: Option<u32>,
+    /// Date limits were last verified (YYYY-MM-DD).
+    pub checked: Option<String>,
 }
 
 impl Target {
@@ -29,6 +31,7 @@ impl Target {
             model: model.into(),
             max_input_tokens: None,
             requests_per_day: None,
+            checked: None,
         }
     }
 
@@ -55,6 +58,7 @@ pub struct TargetStatus {
     pub used_today: Option<u64>,
     pub requests_per_day: Option<u32>,
     pub max_input_tokens: Option<u32>,
+    pub checked: Option<String>,
 }
 
 /// Cooldowns, shared by every router made with [`Router::share`] so parallel
@@ -170,6 +174,7 @@ impl Router {
                     used_today: self.ledger.as_ref().map(|l| l.requests_today(&label)),
                     requests_per_day: t.requests_per_day,
                     max_input_tokens: t.max_input_tokens,
+                    checked: t.checked.clone(),
                     label,
                 }
             })

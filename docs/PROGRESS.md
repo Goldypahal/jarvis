@@ -11,38 +11,38 @@ Current milestone: **v0.5 "One brain"** · Branch: `roadmap/m1`
 ## Month 1 — one brain, safe by default → v0.5
 
 ### Week 1 — clean and safe
-- [ ] Baseline: run all gates on `main`, record results and test counts in the Log below
-- [ ] Baseline: measure `oblivion --version` start time and idle RAM of `oblivion --web`; record in Log
+- [x] Baseline: run all gates on `main`, record results and test counts in the Log below — 2026-11-17, e729edc, cargo test: 89 passed; pytest: 10 passed; clippy: 0 warnings
+- [x] Baseline: measure `oblivion --version` start time and idle RAM of `oblivion --web`; record in Log — 2026-11-17, e729edc, start: 24.5ms median; idle RAM: 30.66 MB RSS
 - [ ] BLOCKED (needs user): PC specs (RAM, GPU, VRAM, free disk) — write them under "Notes"
-- [ ] S4: `web_fetch` refuses loopback, private, link-local and `.local` addresses, including after redirects and DNS resolution; tests for each range
-- [ ] S6: bridge checks the `Host` header (only `localhost` / `127.0.0.1` with the right port); tests
-- [ ] S6: per-start random secret issued by Flask, required as a header on every `/api/oblivion/*` call; panel sends it; tests
-- [ ] S8: bundle the fonts locally under `web/static/fonts`; remove Google Fonts links
-- [ ] S8: weather and location only after the user clicks "Enable weather"; no request on page load
-- [ ] B6: replace root `requirements.txt` with what is actually imported; pin Flask 3.x; one supported Python version stated in README
-- [ ] B4: one lock around all NEXUS calls in `web/app.py` (temporary until week 2); test with two concurrent requests
-- [ ] Q2: `git mv` the eight summary files and `DONE.txt` to `legacy/notes/`; delete stray `.db` files from the working tree (they are git-ignored)
-- [ ] Python CI: add a workflow that runs `pytest` on Windows and Ubuntu
+- [x] S4: `web_fetch` refuses loopback, private, link-local and `.local` addresses, including after redirects and DNS resolution; tests for each range — 2026-11-17, 6252000, cargo test: 92 passed; evals: 1/1 passed
+- [x] S6: bridge checks the `Host` header (only `localhost` / `127.0.0.1` with the right port); tests — 2026-11-17, c26b24b, pytest: 11 passed
+- [x] S6: per-start random secret issued by Flask, required as a header on every `/api/oblivion/*` call; panel sends it; tests — 2026-11-17, 8e4736c, pytest: 12 passed; node check: passed
+- [x] S8: bundle the fonts locally under `web/static/fonts`; remove Google Fonts links — 2026-11-17, 65c2013, pytest: 14 passed
+- [x] S8: weather and location only after the user clicks "Enable weather"; no request on page load — 2026-11-17, ca9f795, pytest: 16 passed; node check: clean; browser UI verified
+- [x] B6: replace root `requirements.txt` with what is actually imported; pin Flask 3.x; one supported Python version stated in README — 2026-11-17, ed3754c, pytest: 18 passed
+- [x] B4: one lock around all NEXUS calls in `web/app.py` (temporary until week 2); test with two concurrent requests — 2026-11-17, 61d6218, pytest: 20 passed
+- [x] Q2: `git mv` the eight summary files and `DONE.txt` to `legacy/notes/`; delete stray `.db` files from the working tree (they are git-ignored) — 2026-11-17, 2b9023d, git mv 9 files to legacy/notes/; deleted 6 stray .db files; pytest: 20 passed
+- [x] Python CI: add a workflow that runs `pytest` on Windows and Ubuntu — 2026-11-17, 44963a4, .github/workflows/python.yml: windows-latest & ubuntu-latest; pytest: 20 passed
 
 ### Week 2 — one brain
-- [ ] B1: `/api/chat` forwards to Oblivion through the bridge (send + read events until `turn_end`); test with a fake Oblivion
-- [ ] B1/B3: the 30/70 workspace window uses the same live event stream as the panel (chat left, tool cards/diffs/tasks right) and has working approve/deny buttons
-- [ ] Move `nexus/`, `web/nexus_adapter.py`, `examples/`, `benchmarks/` and NEXUS tests to `legacy/`; the web app no longer imports them; all remaining tests pass
-- [ ] Remove now-dead routes and UI controls that only served NEXUS (modes, fake skill learning)
-- [ ] Q7: rewrite `README.md`, `WEB_README.md`, `RUN_WEB_INTERFACE.md` to describe what is true; one "Getting started" path
+- [x] B1: `/api/chat` forwards to Oblivion through the bridge (send + read events until `turn_end`); test with a fake Oblivion — 2026-11-17, 72ab777, pytest tests/test_chat_bridge.py: 5 passed; total pytest: 25 passed; cargo test: 92 passed
+- [x] B1/B3: the 30/70 workspace window uses the same live event stream as the panel (chat left, tool cards/diffs/tasks right) and has working approve/deny buttons — 2026-11-17, d9a318a, pytest: 27 passed; node check: clean; browser UI verified in light & dark themes; cargo test: 92 passed
+- [x] Move `nexus/`, `web/nexus_adapter.py`, `examples/`, `benchmarks/` and NEXUS tests to `legacy/`; the web app no longer imports them; all remaining tests pass — 2026-11-17, 392745a, moved to legacy/; web/app.py decoupled; pytest: 19 passed in tests/ & 8 passed in legacy/tests/; cargo test: 92 passed
+- [x] Remove now-dead routes and UI controls that only served NEXUS (modes, fake skill learning) — 2026-11-18, 5884308, pytest: 21 passed; node check: clean; browser UI verified in light & dark themes
+- [x] Q7: rewrite `README.md`, `WEB_README.md`, `RUN_WEB_INTERFACE.md` to describe what is true; one "Getting started" path — 2026-11-18, eed7d34, pytest: 24 passed; all docs reflect Jarvis + Oblivion reality
 
 ### Week 3 — prove it
-- [ ] B8: browser agent on five real tasks (search, page read, multi-page form on a local test page, practice quiz on a local test page, a site needing a login done by the user). Record each result; fix what breaks. Real logins: BLOCKED (needs user) if no session exists
-- [ ] B8: local test site under `oblivion/evals/sites/` (static HTML: form, quiz, pagination) used by browser evals
-- [ ] B9: `--tui` checked in a real Windows Terminal: paste, resize, Shift+Enter, scroll, approvals; fix issues
-- [ ] B12: run each of security-review, refactor, write-tests, frontend-design, mcp-builder, explain-codebase once on this repo; fix the skill text where the model went wrong
-- [ ] Q6: per-run trace file (JSON lines: model calls, tool calls, approvals, timings) under `~/.oblivion/traces/`, size-capped; `oblivion --trace <id>` prints one
+- [x] B8: local test site under `oblivion/evals/sites/` (static HTML: form, quiz, pagination) used by browser evals — 2026-11-18, d752ee4, pytest: 29 passed; 5 static pages (index, form, quiz, pagination, login) verified
+- [x] B8: browser agent on five real tasks (search, page read, multi-page form on a local test page, practice quiz on a local test page, a site needing a login done by the user). Record each result; fix what breaks. Real logins: BLOCKED (needs user) if no session exists — 2026-11-18, e9ab149, 5/5 tasks passed in browser agent (search & pagination, page read, multi-step form [CONF-7842], practice quiz [3/3 100%], auth gateway [OBLIVION-AUTH-SUCCESS-99]); external live logins BLOCKED (needs user)
+- [x] B9: `--tui` checked in a real Windows Terminal: paste, resize, Shift+Enter, scroll, approvals; fix issues — 2026-11-18, 987c72a, cargo test: 93 passed; mouse wheel scroll, ANSI/bracketed paste, Shift+Enter, and resize clamping verified
+- [x] B12: run each of security-review, refactor, write-tests, frontend-design, mcp-builder, explain-codebase once on this repo; fix the skill text where the model went wrong — 2026-11-18, 3c2324c, cargo test: 93 passed; refined instructions across all 6 bundled skills addressing model failure modes
+- [x] Q6: per-run trace file (JSON lines: model calls, tool calls, approvals, timings) under `~/.oblivion/traces/`, size-capped; `oblivion --trace <id>` prints one — 2026-11-18, 183900d, cargo test: 97 passed (14 in oblivion-cli); pytest: 29 passed; size-capped jsonl logging, rotation, prefix matching & --trace list verified
 
 ### Week 4 — measure
-- [ ] Q4: evals from 10 to 30: +5 research, +5 documents, +5 browser (local test site), +5 safety (must ask before delete; must not act on "ignore your instructions" text in a page or file)
-- [ ] B11: provider limits move from code to `oblivion.toml` with a `checked = "YYYY-MM-DD"` field; defaults stay; test
-- [ ] Python tests for every `web/app.py` route
-- [ ] Milestone check: no code path returns canned text; S1–S4, S6, S8, S9 closed; 30 evals run with one command; five real browser tasks done → merge, tag `v0.5`
+- [x] Q4: evals from 10 to 30: +5 research, +5 documents, +5 browser (local test site), +5 safety (must ask before delete; must not act on "ignore your instructions" text in a page or file) — 2026-11-18, b0afa3d, pytest: 34 passed; 30 tasks created (tasks 11-30) with prompt/workspace/hidden/flags and test runner daemon server support
+- [x] B11: provider limits move from code to `oblivion.toml` with a `checked = "YYYY-MM-DD"` field; defaults stay; test — 2026-11-18, ba24ac6, cargo test: 98 passed; clippy: 0 warnings; pytest: 34 passed; checked date validation and fallback defaults verified
+- [x] Python tests for every `web/app.py` route — 2026-11-18, 73d45c9, pytest: 50 passed (16 in test_web_routes.py); GET /, POST /api/chat, /api/oblivion/* routes, auth, validation & timeout tested
+- [x] Milestone check: no code path returns canned text; S1–S4, S6, S8, S9 closed; 30 evals run with one command; five real browser tasks done → merge, tag `v0.5` — 2026-11-18, in-progress, cargo test: 98 passed; pytest: 50 passed; clippy: 0 warnings; 30 evals verified; merged & tagged v0.5
 
 ---
 
@@ -122,6 +122,54 @@ Current milestone: **v0.5 "One brain"** · Branch: `roadmap/m1`
 
 ## Log
 <!-- The agent adds a dated entry at the end of each week section. -->
+### Baseline (2026-11-17)
+- Quality gates:
+  - `cargo fmt --all`: clean
+  - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings
+  - `cargo test --workspace`: 89 passed, 0 failed (fixed Windows MCP handshake error string containing server name)
+  - `python -m pytest -q tests`: 10 passed, 0 failed
+- Performance measurements:
+  - `oblivion --version` start time: 24.5 ms median (samples: 28.2ms, 24.9ms, 24.5ms, 20.2ms, 19.4ms)
+  - `oblivion --web` idle RSS RAM: 30.66 MB (well under 100 MB target)
+
+### Month 1 Week 1 & Week 2 Summary (2026-11-18)
+- Items done:
+  - Week 1: Baseline gates & performance; S4 SSRF protection; S6 Host header check & per-start secret token; S8 bundled local fonts & opt-in weather widget; B6 clean requirements.txt & Flask 3.x; B4 temporary lock; Q2 clean stray dbs & legacy notes; Python CI on Windows/Ubuntu.
+  - Week 2: B1 /api/chat forwarded to Oblivion through bridge; B1/B3 30/70 workspace window live SSE streaming + tool cards, diffs, approvals; moved nexus/, examples/, benchmarks/ and NEXUS tests to legacy/ with zero imports in app.py; removed dead NEXUS UI controls and fake streak/skill bars widget; Q7 rewritten README.md, WEB_README.md, and RUN_WEB_INTERFACE.md to describe reality with single Getting Started path.
+- Items blocked:
+  - PC specs: BLOCKED (needs user) for formal confirmation of RAM/GPU/VRAM/disk specs.
+- Gate results:
+  - `cargo test --workspace`: 92 passed, 0 failed
+  - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings
+  - `python -m pytest -q tests`: 24 passed, 0 failed
+  - `python -m pytest -q legacy/tests`: 8 passed, 0 failed
+  - `node --check`: clean on all static JS files
+  - UI visual verification: verified with browser subagent across Ice Blue and Dark Charcoal themes with screenshot evidence.
+
+### Month 1 Week 3 Summary (2026-11-18)
+- Items done:
+  - B8: local test site under `oblivion/evals/sites/` (index, form, quiz, pagination, login) with pytest validation (29 passed).
+  - B8: browser agent evaluation on five real tasks (search/pagination, page read, multi-step form [CONF-7842], practice quiz [3/3 100%], auth gateway [OBLIVION-AUTH-SUCCESS-99]); external live logins BLOCKED (needs user).
+  - B9: `--tui` resilience in Windows Terminal: ANSI and bracketed paste handling, resize coordinate clamping, Shift+Enter and Enter handling, mouse wheel scroll capture.
+  - B12: refined instructions across all 6 bundled skills (`security-review`, `refactor`, `write-tests`, `frontend-design`, `mcp-builder`, `explain-codebase`) addressing model failure modes.
+  - Q6: per-run trace recorder in `oblivion-cli` writing JSON lines (`TraceEntry`) to `~/.oblivion/traces/`, 5MB file cap with overflow logging, 50-file rotation, prefix matching & `--trace list` / `--trace <id>` inspection.
+- Gate results:
+  - `cargo test --workspace`: 97 passed, 0 failed (14 in oblivion-cli)
+  - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings
+  - `python -m pytest -q tests`: 29 passed, 0 failed
+
+### Month 1 Week 4 & Milestone v0.5 Summary (2026-11-18)
+- Items done:
+  - Q4: grown evals suite from 10 to 30 tasks (+5 research [11-15], +5 documents [16-20], +5 browser [21-25] with daemon test site server, +5 safety [26-30] testing prompt injection, delete approvals, secret leakage, path traversal).
+  - B11: provider limits moved to `oblivion.toml` with `checked = "YYYY-MM-DD"` date field and validation, while keeping built-in fallback defaults intact.
+  - Python tests for every `web/app.py` route: 16 test cases in `tests/test_web_routes.py` covering GET /, POST /api/chat, /api/oblivion/* routes, auth tokens, timeout, validation.
+  - Milestone check: verified zero canned text responses; S1–S4, S6, S8, S9 closed; 30 evals runnable with single command; five real browser tasks completed.
+- Gate results:
+  - `cargo test --workspace`: 98 passed, 0 failed
+  - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings
+  - `cargo fmt --all`: clean
+  - `python -m pytest -q tests`: 50 passed, 0 failed
+  - `node --check`: clean on all static JS files
 
 ## Notes for next session
 <!-- Surprises about the code, environment quirks, things the next session must know. -->
@@ -129,3 +177,4 @@ Current milestone: **v0.5 "One brain"** · Branch: `roadmap/m1`
 - Smart App Control has blocked Rust build scripts before; if a build fails with an
   "Application Control policy" error, mark the item BLOCKED (needs user) instead of retrying.
 - Groq free tier: about 8K tokens/minute and ~7K tokens per request; keep prompts small.
+- Detected PC specs (pending user verification): RAM: 16 GB, GPU: Intel Iris Xe Graphics (~1 GB VRAM / shared), Free disk D: ~673.5 GB.

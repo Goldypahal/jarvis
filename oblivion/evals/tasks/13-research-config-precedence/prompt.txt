@@ -1,0 +1,1 @@
+Inspect default_config.json, user_config.json, and env_vars.json. Resolution order is: default < user < env. Resolve the final configuration object and write it to resolved.json.

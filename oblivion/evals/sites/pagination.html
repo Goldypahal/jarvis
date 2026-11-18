@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paginated Catalog - Oblivion Evals</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 750px; margin: 40px auto; padding: 0 20px; line-height: 1.6; }
+        .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; gap: 15px; }
+        #search { padding: 8px 14px; width: 280px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.95rem; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #e5e7eb; }
+        th { background: #f3f4f6; font-weight: 600; color: #374151; }
+        tr:hover { background: #f9fafb; }
+        .pagination-bar { display: flex; justify-content: space-between; align-items: center; }
+        .page-buttons { display: flex; gap: 6px; }
+        .page-btn { padding: 6px 12px; border: 1px solid #d1d5db; background: #fff; border-radius: 4px; cursor: pointer; text-decoration: none; color: #111; font-weight: 500; }
+        .page-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+        .page-btn:disabled, .page-btn.disabled { opacity: 0.5; cursor: not-allowed; }
+        .page-info { color: #6b7280; font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+    <h1>System Components Catalog</h1>
+    <p>Browse components, search by keyword, and navigate through pages.</p>
+
+    <div class="toolbar">
+        <input type="text" id="search" name="search" placeholder="Search components..." oninput="handleSearch()">
+        <span class="page-info" id="results-count">Showing 1-5 of 15 items</span>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Component Name</th>
+                <th>Crate / Module</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody id="catalog-body">
+            <!-- Dynamically populated -->
+        </tbody>
+    </table>
+
+    <div class="pagination-bar">
+        <button class="page-btn" id="btn-prev" onclick="changePage(currentPage - 1)">Previous</button>
+        <div class="page-buttons" id="page-num-container">
+            <button class="page-btn active" id="btn-p1" onclick="changePage(1)">Page 1</button>
+            <button class="page-btn" id="btn-p2" onclick="changePage(2)">Page 2</button>
+            <button class="page-btn" id="btn-p3" onclick="changePage(3)">Page 3</button>
+        </div>
+        <button class="page-btn" id="btn-next" onclick="changePage(currentPage + 1)">Next</button>
+    </div>
+
+    <script>
+        const ITEMS = [
+            { id: "CMP-01", name: "Agent Loop", crate: "oblivion-core", status: "Active" },
+            { id: "CMP-02", name: "Session Store", crate: "oblivion-store", status: "Active" },
+            { id: "CMP-03", name: "Provider Router", crate: "oblivion-providers", status: "Active" },
+            { id: "CMP-04", name: "File Tools", crate: "oblivion-tools", status: "Active" },
+            { id: "CMP-05", name: "Shell Runner", crate: "oblivion-tools", status: "Active" },
+            { id: "CMP-06", name: "Web Fetch & Search", crate: "oblivion-tools", status: "Active" },
+            { id: "CMP-07", name: "MCP Protocol Hub", crate: "oblivion-mcp", status: "Active" },
+            { id: "CMP-08", name: "Browser Tool", crate: "oblivion-mcp", status: "Active" },
+            { id: "CMP-09", name: "Skill Discovery", crate: "oblivion-skills", status: "Active" },
+            { id: "CMP-10", name: "TUI Interface", crate: "oblivion-cli", status: "Active" },
+            { id: "CMP-11", name: "Web Bridge & SSE", crate: "oblivion-cli", status: "Active" },
+            { id: "CMP-12", name: "Memory Compact", crate: "oblivion-core", status: "Active" },
+            { id: "CMP-13", name: "Rule Engine", crate: "oblivion-core", status: "Active" },
+            { id: "CMP-14", name: "Flask Desktop", crate: "web", status: "Active" },
+            { id: "CMP-15", name: "30/70 Workspace", crate: "web", status: "Active" }
+        ];
+
+        let currentPage = 1;
+        const pageSize = 5;
+        let filteredItems = [...ITEMS];
+
+        function renderTable() {
+            const start = (currentPage - 1) * pageSize;
+            const end = start + pageSize;
+            const pageSlice = filteredItems.slice(start, end);
+
+            const tbody = document.getElementById('catalog-body');
+            tbody.innerHTML = '';
+
+            if (pageSlice.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#888;">No components found.</td></tr>';
+            } else {
+                pageSlice.forEach(item => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `<td>${item.id}</td><td><strong>${item.name}</strong></td><td><code>${item.crate}</code></td><td>${item.status}</td>`;
+                    tbody.appendChild(tr);
+                });
+            }
+
+            const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
+            document.getElementById('results-count').textContent = `Showing ${filteredItems.length ? start + 1 : 0}-${Math.min(end, filteredItems.length)} of ${filteredItems.length} items (Page ${currentPage} of ${totalPages})`;
+
+            document.getElementById('btn-prev').disabled = currentPage <= 1;
+            document.getElementById('btn-next').disabled = currentPage >= totalPages;
+
+            document.querySelectorAll('.page-buttons .page-btn').forEach((btn, idx) => {
+                const pNum = idx + 1;
+                btn.style.display = pNum <= totalPages ? 'inline-block' : 'none';
+                btn.classList.toggle('active', pNum === currentPage);
+            });
+        }
+
+        function changePage(page) {
+            const totalPages = Math.ceil(filteredItems.length / pageSize);
+            if (page >= 1 && page <= totalPages) {
+                currentPage = page;
+                renderTable();
+            }
+        }
+
+        function handleSearch() {
+            const q = document.getElementById('search').value.toLowerCase().trim();
+            filteredItems = ITEMS.filter(item => 
+                item.name.toLowerCase().includes(q) || 
+                item.crate.toLowerCase().includes(q) || 
+                item.id.toLowerCase().includes(q)
+            );
+            currentPage = 1;
+            renderTable();
+        }
+
+        renderTable();
+    </script>
+</body>
+</html>

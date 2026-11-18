@@ -1,0 +1,1 @@
+Read system_spec.md. Extract the minimum required RAM in gigabytes (as an integer number) and the list of exposed TCP ports (as an array of integers) into a JSON file named spec_summary.json with keys 'min_ram_gb' and 'ports'.

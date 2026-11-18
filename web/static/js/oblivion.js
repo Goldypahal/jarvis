@@ -18,11 +18,17 @@
 
     const $ = (id) => document.getElementById(id);
     let panel, log, input, sendBtn;
+    let splitModal, splitChat, splitInput, splitForm, splitApprovals, splitTools, splitTaskName, splitTasksBar, splitTasksList, splitModelPill, splitStatusPill;
+    let splitBot = null, splitBotText = "";
     let es = null, phase = "idle";              // idle | starting | connected | failed
     let lastSeq = 0, everOpened = false;
     let state = null, modelLabel = "", busy = false, busySince = 0, unread = 0;
     let bot = null, botText = "", tools = [], helpers = null;
     const lanes = new Map(), approvals = new Map();
+
+    function getToken() {
+        return document.querySelector('meta[name="jarvis-token"]')?.content || window.JARVIS_TOKEN || "";
+    }
 
     // ---------- helpers ----------
     function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }
@@ -105,7 +111,11 @@
             log.innerHTML = '<div class="ob-wait"><div class="ob-spinner"></div><div class="ob-center">Starting Oblivion…</div></div>';
         }
         try {
-            const r = await fetch("/api/oblivion/start", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+            const r = await fetch("/api/oblivion/start", {
+                method: "POST",
+                headers: { "content-type": "application/json", "x-jarvis-token": getToken() },
+                body: "{}"
+            });
             const st = await r.json();
             if (st.running) connect();
             else showSetup(st.error || "Oblivion did not start.");
@@ -126,7 +136,8 @@
 
     function connect() {
         if (es) es.close();
-        es = new EventSource("/api/oblivion/events");
+        const tok = getToken();
+        es = new EventSource("/api/oblivion/events" + (tok ? "?t=" + encodeURIComponent(tok) : ""));
         es.onopen = () => {
             setPhase("connected");
             if (everOpened) reset();   // a reconnect replays everything; start clean
@@ -141,7 +152,9 @@
             es.close(); es = null;
             await new Promise((r) => setTimeout(r, 1500));
             try {
-                const st = await (await fetch("/api/oblivion/status")).json();
+                const st = await (await fetch("/api/oblivion/status", {
+                    headers: { "x-jarvis-token": getToken() }
+                })).json();
                 if (st.running) connect(); else showSetup(st.error || "Oblivion stopped.");
             } catch { showSetup("Lost contact with the Jarvis server."); }
         };
@@ -154,7 +167,11 @@
 
     async function post(path, body) {
         try {
-            const r = await fetch("/api/oblivion/" + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) });
+            const r = await fetch("/api/oblivion/" + path, {
+                method: "POST",
+                headers: { "content-type": "application/json", "x-jarvis-token": getToken() },
+                body: JSON.stringify(body || {})
+            });
             if (r.status === 503) showSetup("Oblivion stopped. Press Try again to restart it.");
             return r.ok;
         } catch { return false; }
@@ -179,6 +196,14 @@
         log.appendChild(box);
     }
     function endBot() { if (bot) { bot.classList.remove("typing"); bot = null; botText = ""; } }
+    function endSplitBot() { splitBot = null; splitBotText = ""; }
+    function addSplitNote(msg, cls = "") {
+        if (!splitTools) return;
+        splitTools.querySelector(".split-empty-msg")?.remove();
+        const n = el("div", "ob-note " + cls, `<span>${esc(msg)}</span>`);
+        splitTools.appendChild(n);
+        splitTools.scrollTop = splitTools.scrollHeight;
+    }
     function onText(t) {
         if (!bot) { bot = add(el("div", "ob-bot typing")); botText = ""; }
         botText += t; keepBottom(() => { bot.innerHTML = md(botText); });
@@ -289,34 +314,187 @@
 
     function handle(e) {
         switch (e.type) {
-            case "user": endBot(); helpers = null; add(el("div", "ob-user", esc(e.text))); break;
-            case "text": onText(e.text); break;
-            case "text_end": endBot(); break;
-            case "tool_start": toolStart(e); break;
-            case "tool_end": toolEnd(e); break;
-            case "declined": { const c = tools.find((t) => t.querySelector(".nm").textContent === e.name); if (c) { finishTool(c, false, "✕"); c.querySelector(".sm").textContent += " — denied"; } break; }
-            case "blocked": note(`${e.name} was blocked by the rule ${e.rule}`, "err", "⛔"); break;
-            case "fallback": note(`${shortModel(e.from)} is unavailable (${e.reason}); trying the next model`, "", "↷"); break;
-            case "model": modelLabel = e.label; subtitle(); renderMore(); break;
-            case "notice": note(e.text, "warn", "!"); break;
-            case "waiting": note(`Every model is at its per-minute limit; waiting ${e.secs}s`, "", "⏳"); break;
+            case "user": {
+                endBot(); helpers = null; add(el("div", "ob-user", esc(e.text)));
+                endSplitBot();
+                if (splitChat) {
+                    const u = el("div", "msg-bubble user-msg", `<div class="msg-author">User</div><div class="msg-text">${esc(e.text)}</div>`);
+                    splitChat.appendChild(u);
+                    splitChat.scrollTop = splitChat.scrollHeight;
+                }
+                break;
+            }
+            case "text": {
+                onText(e.text);
+                if (splitChat) {
+                    if (!splitBot) {
+                        splitBot = el("div", "msg-bubble jarvis-msg", `<div class="msg-author">Oblivion AI</div><div class="msg-text"></div>`);
+                        splitChat.appendChild(splitBot);
+                        splitBotText = "";
+                    }
+                    splitBotText += e.text;
+                    splitBot.querySelector(".msg-text").innerHTML = md(splitBotText);
+                    splitChat.scrollTop = splitChat.scrollHeight;
+                }
+                break;
+            }
+            case "text_end": endBot(); endSplitBot(); break;
+            case "tool_start": {
+                toolStart(e);
+                if (splitTools) {
+                    splitTools.querySelector(".split-empty-msg")?.remove();
+                    const { a, d } = counts(e.detail || "");
+                    const card = el("details", "ob-tool run");
+                    card.dataset.toolName = e.name;
+                    card.innerHTML = `<summary><span class="ic"></span><span class="nm">${esc(e.name)}</span><span class="sm">${esc(e.summary)}</span>${(a || d) ? `<span class="ct"><span class="a">+${a}</span> <span class="d">−${d}</span></span>` : ""}<span class="chev">▶</span></summary><div class="bd"></div>`;
+                    const bd = card.querySelector(".bd");
+                    if (e.detail) {
+                        if (e.name === "shell") bd.appendChild(el("pre", "", esc(e.detail)));
+                        else {
+                            bd.appendChild(el("div", "lb", e.name === "write_file" ? "New file" : "Change"));
+                            const df = el("div", "df");
+                            for (const l of e.detail.split("\n")) df.appendChild(el("div", l.startsWith("+ ") ? "a" : l.startsWith("- ") ? "d" : "", esc(l)));
+                            bd.appendChild(df);
+                        }
+                    }
+                    if ((e.name === "edit_file" || e.name === "write_file") && a + d <= 16) card.open = true;
+                    splitTools.appendChild(card);
+                    splitTools.scrollTop = splitTools.scrollHeight;
+                }
+                break;
+            }
+            case "tool_end": {
+                toolEnd(e);
+                if (splitTools) {
+                    const cards = splitTools.querySelectorAll(".ob-tool.run");
+                    const card = Array.from(cards).find((c) => c.dataset.toolName === e.name) || cards[0];
+                    if (card) {
+                        card.classList.remove("run");
+                        card.classList.add(!e.is_error ? "ok" : "err");
+                        card.querySelector(".ic").textContent = !e.is_error ? "✓" : "!";
+                        if (e.output && e.name !== "todo") {
+                            const bd = card.querySelector(".bd");
+                            bd.appendChild(el("div", "lb", e.is_error ? "Error" : "Result"));
+                            bd.appendChild(el("pre", "", esc(e.output)));
+                        }
+                        if (e.is_error) card.open = true;
+                    }
+                }
+                break;
+            }
+            case "declined": {
+                const c = tools.find((t) => t.querySelector(".nm").textContent === e.name);
+                if (c) { finishTool(c, false, "✕"); c.querySelector(".sm").textContent += " — denied"; }
+                if (splitTools) {
+                    const sc = Array.from(splitTools.querySelectorAll(".ob-tool.run")).find((t) => t.dataset.toolName === e.name);
+                    if (sc) {
+                        sc.classList.remove("run"); sc.classList.add("err");
+                        sc.querySelector(".ic").textContent = "✕";
+                        sc.querySelector(".sm").textContent += " — denied";
+                    }
+                }
+                break;
+            }
+            case "blocked": {
+                note(`${e.name} was blocked by the rule ${e.rule}`, "err", "⛔");
+                addSplitNote(`⛔ ${e.name} was blocked by rule ${e.rule}`, "err");
+                break;
+            }
+            case "fallback": {
+                note(`${shortModel(e.from)} is unavailable (${e.reason}); trying the next model`, "", "↷");
+                addSplitNote(`↷ ${shortModel(e.from)} unavailable (${e.reason}); trying next model`, "");
+                break;
+            }
+            case "model": {
+                modelLabel = e.label; subtitle(); renderMore();
+                if (splitModelPill) splitModelPill.textContent = shortModel(e.label);
+                break;
+            }
+            case "notice": {
+                note(e.text, "warn", "!");
+                addSplitNote(`! ${e.text}`, "warn");
+                break;
+            }
+            case "waiting": {
+                note(`Every model is at its per-minute limit; waiting ${e.secs}s`, "", "⏳");
+                addSplitNote(`⏳ Waiting ${e.secs}s for rate limit`, "");
+                break;
+            }
             case "sub": sub(e); break;
             case "turn_end": {
                 endBot();
+                endSplitBot();
                 tools.forEach((c) => finishTool(c, false, "–"));
+                if (splitTools) {
+                    splitTools.querySelectorAll(".ob-tool.run").forEach((c) => {
+                        c.classList.remove("run");
+                        c.querySelector(".ic").textContent = "–";
+                    });
+                }
                 const t = e.outcome === "cancelled" ? "Stopped. Changes so far are kept; “Undo last changes” reverts them."
                     : e.outcome === "error" ? (e.error || "Something went wrong")
                     : `${e.steps} step${e.steps === 1 ? "" : "s"} · ${e.tool_calls} action${e.tool_calls === 1 ? "" : "s"}` + (e.prompt_tokens + e.completion_tokens ? ` · ${fmtK(e.prompt_tokens + e.completion_tokens)} tokens` : "");
                 add(el("div", "ob-end" + (e.outcome === "error" ? " err" : ""), esc(t)));
+                if (splitChat) {
+                    const endBubble = el("div", "msg-bubble jarvis-msg", `<div class="msg-author">Oblivion Core</div><div class="msg-text" style="color: ${e.outcome === "error" ? "#f87171" : "rgba(255,255,255,0.7)"}">${esc(t)}</div>`);
+                    splitChat.appendChild(endBubble);
+                    splitChat.scrollTop = splitChat.scrollHeight;
+                }
+                if (splitStatusPill) splitStatusPill.textContent = "Ready";
                 if (!isOpen()) { unread++; badge(); }
                 break;
             }
-            case "approval": approval(e); break;
-            case "approval_done": approvals.get(e.id)?.remove(); approvals.delete(e.id); if (isOpen()) input.focus(); break;
-            case "info": endBot(); add(el("div", "ob-info", esc(e.text))); break;
-            case "todos": renderTodos(e.items); break;
-            case "busy": setBusy(e.busy); break;
-            case "state": renderState(e); break;
+            case "approval": {
+                approval(e);
+                if (splitApprovals) {
+                    const card = el("div", "ob-sheet");
+                    card.dataset.approvalId = String(e.id);
+                    card.innerHTML = `<div class="q">Allow ${esc(e.summary)}?</div><div class="w">Oblivion wants to use ${esc(e.tool)}</div>
+                        <div class="acts"><button class="deny" data-a="no">Deny<kbd>N</kbd></button><button data-a="always">Always<kbd>A</kbd></button><button class="allow" data-a="yes">Allow<kbd>Y</kbd></button></div>`;
+                    card.querySelectorAll("button").forEach((b) => b.onclick = () => post("approve", { id: e.id, answer: b.dataset.a }));
+                    splitApprovals.appendChild(card);
+                    splitApprovals.scrollIntoView({ behavior: "smooth" });
+                }
+                break;
+            }
+            case "approval_done": {
+                approvals.get(e.id)?.remove(); approvals.delete(e.id); if (isOpen()) input.focus();
+                if (splitApprovals) {
+                    const card = splitApprovals.querySelector(`[data-approval-id="${e.id}"]`);
+                    if (card) card.remove();
+                }
+                break;
+            }
+            case "info": {
+                endBot(); add(el("div", "ob-info", esc(e.text)));
+                if (splitChat) {
+                    const infoBubble = el("div", "msg-bubble jarvis-msg", `<div class="msg-author">Oblivion Info</div><div class="msg-text"><pre>${esc(e.text)}</pre></div>`);
+                    splitChat.appendChild(infoBubble);
+                    splitChat.scrollTop = splitChat.scrollHeight;
+                }
+                break;
+            }
+            case "todos": {
+                renderTodos(e.items);
+                if (splitTasksList && e.items) {
+                    const done = e.items.filter((t) => t.status === "completed").length;
+                    const cur = e.items.find((t) => t.status === "in_progress");
+                    if (splitTaskName) splitTaskName.textContent = cur ? cur.text : (e.items.length && done === e.items.length ? "All tasks completed" : "Active Tasks");
+                    if (splitTasksBar) splitTasksBar.style.width = e.items.length ? Math.round((done / e.items.length) * 100) + "%" : "0%";
+                    splitTasksList.innerHTML = e.items.map((t) => `<li class="${t.status}"><span class="m">${t.status === "completed" ? "✓" : t.status === "in_progress" ? "▸" : "○"}</span><span>${esc(t.text)}</span></li>`).join("");
+                }
+                break;
+            }
+            case "busy": {
+                setBusy(e.busy);
+                if (splitStatusPill) splitStatusPill.textContent = e.busy ? "Working…" : "Ready";
+                break;
+            }
+            case "state": {
+                renderState(e);
+                if (splitModelPill && modelLabel) splitModelPill.textContent = shortModel(modelLabel);
+                break;
+            }
             case "quit": showSetup("Oblivion was closed with /exit. Press Try again to start it again."); break;
         }
     }
@@ -340,6 +518,29 @@
 
     function init() {
         panel = $("ob-panel"); log = $("ob-log"); input = $("ob-input"); sendBtn = $("ob-send");
+        splitModal = $("splitModal");
+        splitChat = $("split-chat-messages");
+        splitInput = $("split-user-input");
+        splitForm = $("split-chat-form");
+        splitApprovals = $("split-approvals");
+        splitTools = $("split-tools-stream");
+        splitTaskName = $("split-task-name");
+        splitTasksBar = $("split-tasks-bar");
+        splitTasksList = $("split-tasks-list");
+        splitModelPill = $("split-model-pill");
+        splitStatusPill = $("split-status-pill");
+
+        if (splitForm && splitInput) {
+            splitForm.addEventListener("submit", (ev) => {
+                ev.preventDefault();
+                const text = splitInput.value.trim();
+                if (!text) return;
+                splitInput.value = "";
+                ensureStarted();
+                send(text);
+            });
+        }
+
         if (!panel) return;
 
         $("open-chat-dock-btn")?.addEventListener("click", toggle);
@@ -380,6 +581,7 @@
         autosize();
     }
 
-    window.OblivionPanel = { open, close, toggle, send };
+    window.Oblivion = { ensureStarted, send, post, isOpen, toggle, open, close };
+    window.OblivionPanel = window.Oblivion;
     document.addEventListener("DOMContentLoaded", init);
 })();

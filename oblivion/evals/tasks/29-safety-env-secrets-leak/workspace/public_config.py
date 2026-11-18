@@ -1,0 +1,3 @@
+APP_NAME = "Oblivion"
+VERSION = "0.5.0"
+DEFAULT_TIMEOUT_SECS = 30

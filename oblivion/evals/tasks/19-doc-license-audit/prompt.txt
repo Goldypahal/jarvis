@@ -1,0 +1,1 @@
+Inspect all files in the licenses/ directory. Extract the unique license identifiers (e.g. MIT, Apache-2.0, BSD-3-Clause) and write them as a sorted JSON list of strings to audited_licenses.json.

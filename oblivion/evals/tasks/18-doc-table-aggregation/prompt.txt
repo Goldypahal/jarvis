@@ -1,0 +1,1 @@
+Read benchmark.md, which contains a markdown table of latency measurements. Calculate the average p99 latency across all 4 benchmark runs. Write only the numeric result rounded to 1 decimal place to avg_p99.txt.

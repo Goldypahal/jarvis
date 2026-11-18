@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Access Gateway - Oblivion Evals</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 450px; margin: 60px auto; padding: 0 20px; line-height: 1.6; }
+        .login-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 28px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+        h1 { margin-top: 0; font-size: 1.5rem; text-align: center; }
+        .subtitle { text-align: center; color: #6b7280; font-size: 0.9rem; margin-bottom: 24px; }
+        .form-group { margin-bottom: 18px; }
+        label { display: block; margin-bottom: 6px; font-weight: 600; font-size: 0.9rem; color: #374151; }
+        input[type="text"], input[type="password"] { width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 4px; box-sizing: border-box; font-size: 1rem; }
+        button { width: 100%; padding: 12px; background: #2563eb; color: #fff; border: none; border-radius: 4px; font-size: 1rem; font-weight: 600; cursor: pointer; }
+        button:hover { background: #1d4ed8; }
+        .error-msg { display: none; background: #fef2f2; border: 1px solid #f87171; color: #991b1b; padding: 10px; border-radius: 4px; margin-bottom: 16px; font-size: 0.9rem; }
+        .dashboard-view { display: none; background: #f0fdf4; border: 1px solid #86efac; color: #166534; padding: 24px; border-radius: 8px; text-align: center; }
+        .token-badge { background: #15803d; color: #fff; padding: 6px 12px; border-radius: 4px; font-family: monospace; font-size: 1.1rem; display: inline-block; margin: 12px 0; }
+        .hint-box { margin-top: 20px; font-size: 0.85rem; color: #9ca3af; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="login-card" id="login-container">
+        <h1>Secure Gateway</h1>
+        <div class="subtitle">Enter administrative credentials to access protected dashboard</div>
+
+        <div class="error-msg" id="error-msg">Invalid credentials. Try username: <code>admin</code> / password: <code>oblivion2026</code></div>
+
+        <form id="login-form" onsubmit="event.preventDefault(); handleLogin();">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" placeholder="Username" required autofocus>
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" placeholder="Password" required>
+            </div>
+            <button type="submit" id="btn-login">Log In</button>
+        </form>
+
+        <div class="hint-box">Test Account: admin / oblivion2026</div>
+    </div>
+
+    <div class="dashboard-view" id="dashboard-container">
+        <h2>Authentication Succeeded!</h2>
+        <p>Welcome back, Administrator.</p>
+        <div>Secret Session Key:</div>
+        <div class="token-badge" id="auth-token">OBLIVION-AUTH-SUCCESS-99</div>
+        <p>You have full administrative privileges for automated browser evaluation testing.</p>
+    </div>
+
+    <script>
+        function handleLogin() {
+            const u = document.getElementById('username').value.trim();
+            const p = document.getElementById('password').value.trim();
+            const err = document.getElementById('error-msg');
+
+            if (u === 'admin' && p === 'oblivion2026') {
+                err.style.display = 'none';
+                document.getElementById('login-container').style.display = 'none';
+                document.getElementById('dashboard-container').style.display = 'block';
+            } else {
+                err.style.display = 'block';
+            }
+        }
+    </script>
+</body>
+</html>

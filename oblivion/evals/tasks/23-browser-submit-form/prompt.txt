@@ -1,0 +1,1 @@
+Read http://127.0.0.1:8765/form.html (or form.html). Follow the multi-step form logic: what is the confirmation code generated when the form is submitted? Write the confirmation code to confirmation.txt.

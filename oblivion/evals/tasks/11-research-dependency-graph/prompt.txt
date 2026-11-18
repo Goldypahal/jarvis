@@ -1,0 +1,1 @@
+Analyze the Python modules in the workspace. Find all modules that import no other project modules (leaf dependencies), sort their filenames alphabetically, and write them as a JSON list to leaves.json.

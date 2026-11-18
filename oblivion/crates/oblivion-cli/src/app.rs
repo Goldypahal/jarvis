@@ -6,6 +6,7 @@
 //! [`Approvals::answer`]. Interfaces only send text in and read events out.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -335,6 +336,8 @@ pub struct Worker {
     busy: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     approvals: Arc<Approvals>,
+    traces_dir: Option<PathBuf>,
+    tracer_slot: Option<Arc<Mutex<Option<Arc<crate::trace::Tracer>>>>>,
 }
 
 /// Build the channels first: the agent needs `approvals.approver()` when it is created.
@@ -374,9 +377,21 @@ impl Worker {
                 busy,
                 stop,
                 approvals,
+                traces_dir: None,
+                tracer_slot: None,
             },
             controls,
         )
+    }
+
+    pub fn with_traces(
+        mut self,
+        dir: PathBuf,
+        slot: Arc<Mutex<Option<Arc<crate::trace::Tracer>>>>,
+    ) -> Self {
+        self.traces_dir = Some(dir);
+        self.tracer_slot = Some(slot);
+        self
     }
 
     fn send_state(&self) {
@@ -436,7 +451,43 @@ impl Worker {
         let _ = self.tx.send(UiEvent::Busy { busy: true });
         let tx = self.tx.clone();
         let todos = self.agent.tools.todos_shared();
+
+        let tracer = self.traces_dir.as_ref().and_then(|dir| {
+            crate::trace::Tracer::start(dir, task, self.agent.tools.root()).map(Arc::new)
+        });
+        if let (Some(slot), Some(t)) = (&self.tracer_slot, &tracer) {
+            *slot.lock().unwrap() = Some(t.clone());
+        }
+        let tracer_ev = tracer.clone();
+
         let mut on_event = move |e: AgentEvent| {
+            if let Some(t) = &tracer_ev {
+                match &e {
+                    AgentEvent::Model(m) => t.record_model(m),
+                    AgentEvent::Fallback { from, reason } => t.record_fallback(from, reason),
+                    AgentEvent::ToolStart {
+                        name,
+                        summary,
+                        detail,
+                    } => {
+                        t.record_tool_start(name, summary, detail);
+                    }
+                    AgentEvent::ToolEnd {
+                        name,
+                        preview,
+                        is_error,
+                        ..
+                    } => {
+                        t.record_tool_end(name, preview, *is_error);
+                    }
+                    AgentEvent::Declined { name } => t.record_declined(name),
+                    AgentEvent::Notice(msg) => t.record(crate::trace::TraceEntry::Notice {
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                        text: msg.clone(),
+                    }),
+                    _ => {}
+                }
+            }
             let todo_changed = matches!(&e, AgentEvent::ToolEnd { name, .. } if name == "todo");
             let _ = tx.send(e.into());
             if todo_changed {
@@ -465,6 +516,9 @@ impl Worker {
         };
         let end = match result {
             None => {
+                if let Some(t) = &tracer {
+                    t.finish(0, 0, 0, 0, "cancelled", None);
+                }
                 self.approvals.decline_all();
                 self.agent.repair();
                 UiEvent::TurnEnd {
@@ -476,23 +530,44 @@ impl Worker {
                     error: None,
                 }
             }
-            Some(Err(e)) => UiEvent::TurnEnd {
-                steps: 0,
-                tool_calls: 0,
-                prompt_tokens: 0,
-                completion_tokens: 0,
-                outcome: "error".into(),
-                error: Some(format!("{e:#}")),
-            },
-            Some(Ok(s)) => UiEvent::TurnEnd {
-                steps: s.steps,
-                tool_calls: s.tool_calls,
-                prompt_tokens: s.usage.prompt_tokens,
-                completion_tokens: s.usage.completion_tokens,
-                outcome: "done".into(),
-                error: None,
-            },
+            Some(Err(e)) => {
+                let err_msg = format!("{e:#}");
+                if let Some(t) = &tracer {
+                    t.finish(0, 0, 0, 0, "error", Some(&err_msg));
+                }
+                UiEvent::TurnEnd {
+                    steps: 0,
+                    tool_calls: 0,
+                    prompt_tokens: 0,
+                    completion_tokens: 0,
+                    outcome: "error".into(),
+                    error: Some(err_msg),
+                }
+            }
+            Some(Ok(s)) => {
+                if let Some(t) = &tracer {
+                    t.finish(
+                        s.steps,
+                        s.tool_calls,
+                        s.usage.prompt_tokens,
+                        s.usage.completion_tokens,
+                        "done",
+                        None,
+                    );
+                }
+                UiEvent::TurnEnd {
+                    steps: s.steps,
+                    tool_calls: s.tool_calls,
+                    prompt_tokens: s.usage.prompt_tokens,
+                    completion_tokens: s.usage.completion_tokens,
+                    outcome: "done".into(),
+                    error: None,
+                }
+            }
         };
+        if let Some(slot) = &self.tracer_slot {
+            *slot.lock().unwrap() = None;
+        }
         self.busy.store(false, Ordering::SeqCst);
         let _ = self.tx.send(end);
         let _ = self.tx.send(UiEvent::Busy { busy: false });

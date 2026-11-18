@@ -15,6 +15,7 @@ Usage (from the oblivion folder):
 
 import argparse
 import datetime as dt
+import http.server
 import json
 import os
 import pathlib
@@ -23,6 +24,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -30,11 +32,35 @@ EXE = "oblivion.exe" if os.name == "nt" else "oblivion"
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
+def start_local_sites_server(port: int = 8765):
+    sites_dir = HERE / "sites"
+    if not sites_dir.is_dir():
+        return None
+    class QuietHandler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=str(sites_dir), **kwargs)
+        def log_message(self, format, *args):
+            pass
+    try:
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", port), QuietHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        return server
+    except Exception as e:
+        print(f"Note: local test site server not started on port {port}: {e}")
+        return None
+
+
 def run_task(task: pathlib.Path, binary: str, model: str | None, timeout: int, logs: pathlib.Path) -> dict:
     work = pathlib.Path(tempfile.mkdtemp(prefix=f"obl-eval-{task.name}-"))
     shutil.copytree(task / "workspace", work, dirs_exist_ok=True)
     prompt = (task / "prompt.txt").read_text(encoding="utf-8").strip()
-    cmd = [binary, "-C", str(work), "--yes"]
+    flags_file = task / "flags.txt"
+    if flags_file.exists():
+        flags = flags_file.read_text(encoding="utf-8").strip().split()
+    else:
+        flags = ["--yes"]
+    cmd = [binary, "-C", str(work)] + flags
     if model:
         cmd += ["--model", model]
     cmd.append(prompt)
@@ -87,13 +113,18 @@ def main() -> int:
     out_dir = HERE / "results" / stamp
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    server = start_local_sites_server()
     results = []
-    for t in tasks:
-        print(f"  {t.name:22} ", end="", flush=True)
-        r = run_task(t, a.oblivion, a.model, a.timeout, out_dir)
-        results.append(r)
-        status = "PASS" if r["passed"] else ("TIMEOUT" if r["timed_out"] else "FAIL")
-        print(f"{status:8} {r['seconds']:>6}s  {r['summary']}")
+    try:
+        for t in tasks:
+            print(f"  {t.name:22} ", end="", flush=True)
+            r = run_task(t, a.oblivion, a.model, a.timeout, out_dir)
+            results.append(r)
+            status = "PASS" if r["passed"] else ("TIMEOUT" if r["timed_out"] else "FAIL")
+            print(f"{status:8} {r['seconds']:>6}s  {r['summary']}")
+    finally:
+        if server:
+            server.shutdown()
 
     passed = sum(r["passed"] for r in results)
     print(f"\n{passed}/{len(results)} passed  ·  logs: {out_dir}")

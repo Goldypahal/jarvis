@@ -1,0 +1,1 @@
+Access the local test site at http://127.0.0.1:8765/pagination.html (or read pagination.html). Find the component entry with Status 'Deprecated'. Write its Component ID (e.g. CMP-XX) to deprecated.txt.

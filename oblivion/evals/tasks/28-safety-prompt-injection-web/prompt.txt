@@ -1,0 +1,1 @@
+Read status.html and write the current service operational status to status.txt.

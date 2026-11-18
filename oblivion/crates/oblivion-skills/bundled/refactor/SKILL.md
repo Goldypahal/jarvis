@@ -5,22 +5,26 @@ license: MIT
 ---
 # Refactor safely
 
-The rule: behaviour stays exactly the same. Every step is small and verified.
+The rule: behaviour stays exactly the same. Every step is small, surgical, and verified.
 
 1. **Agree on the goal** in one line (e.g. "split the 900-line handler into modules", "remove the three
-   copies of the date parsing"). Ask if it is vague.
-2. **Get a safety net.** Find and run the existing tests; note the result. If the code you will touch
-   has no tests, write characterisation tests first (they record what the code does today, even odd
-   behaviour) - use the write-tests skill.
-3. **Find all usages** before renaming or moving anything: `grep` for the name across the repo,
-   including strings, configs, templates and docs.
-4. **Change in small steps**, one kind of change at a time (rename, then extract, then move), running
-   the tests or at least the build after each step. Common moves:
+   copies of the date parsing"). Ask if the scope is vague.
+2. **Get a safety net.** Find and run the existing tests; record the baseline result. If the code you will touch
+   has no tests, write characterisation tests first (recording current behaviour, even quirky edge cases) using
+   the write-tests skill. Never refactor without working tests.
+3. **Find all usages** before renaming or moving anything: search for the identifier across the repo,
+   including call sites, type definitions, configs, templates, docstrings, and tests.
+4. **Change in small, surgical steps**, one kind of change at a time (rename, then extract, then move):
+   - Never rewrite entire multi-hundred line files to adjust a function; use precise, targeted contiguous edits.
    - Extract a function for a block with a clear purpose; name it after what it does.
-   - Replace duplicated code with one shared function.
-   - Flatten deep nesting with early returns; replace flag arguments with two clear functions.
-   - Split a large file by responsibility; keep public names working (re-export) unless told otherwise.
-   - Delete dead code only after `grep` shows nothing uses it.
-5. **Do not mix in fixes or features.** If you find a bug, note it and tell the user; fix it separately.
-6. **Finish**: tests and linter pass, the diff is reviewed (`git diff --stat`, then skim), and you report
-   what moved where and anything that needs the user's attention (public API changes, found bugs).
+   - Replace duplicated code with a single shared helper.
+   - Flatten deep nesting with early returns; replace ambiguous flag arguments with two distinct functions.
+   - Split large files by single responsibility; preserve public backwards compatibility (via re-exports) unless explicitly asked to break it.
+   - Delete dead code only after searching confirms nothing references it.
+5. **Run tests after every single step.** Build and run tests immediately after extracting a helper or renaming a symbol.
+   If a test breaks, revert the immediate change or fix it before proceeding.
+6. **Do not mix in fixes or features.** If you find a bug during refactoring, note it and report it separately;
+   do not alter behaviour or patch logic during the refactoring pass.
+7. **Finish cleanly**: verify that all tests and linters pass (`cargo clippy`, `pytest`, `cargo fmt`).
+   Review the diff (`git diff --stat`, then inspect changes). Report what moved where, public API notes,
+   and any unrelated issues discovered during the process.

@@ -351,9 +351,51 @@ a, button, .desktop-icon-item, .dock-app-btn, .theme-circle {
 
 /* Weather Widget */
 .weather-widget {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 8px;
+    min-height: 82px;
+}
+
+.weather-data {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 8px;
+    width: 100%;
+}
+
+.weather-opt-in {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 6px 4px;
+    text-align: center;
+}
+
+.weather-opt-in-text {
+    font-size: 0.65rem;
+    font-family: "JetBrains Mono", monospace;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.enable-weather-btn {
+    background: rgba(0, 242, 254, 0.12);
+    border: 1px solid rgba(0, 242, 254, 0.35);
+    color: #00f2fe;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.68rem;
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+}
+
+.enable-weather-btn:hover {
+    background: rgba(0, 242, 254, 0.22);
+    border-color: #00f2fe;
 }
 
 .city-name { font-size: 0.65rem; font-family: "JetBrains Mono", monospace; color: rgba(255,255,255,0.7); }
@@ -402,20 +444,18 @@ a, button, .desktop-icon-item, .dock-app-btn, .theme-circle {
 .track-progress-fill { width: 45%; height: 100%; background: #ffffff; }
 .music-link { font-family: "JetBrains Mono", monospace; font-size: 0.68rem; color: rgba(255,255,255,0.8); text-decoration: none; }
 
-/* Languages & Streak Widget */
+/* Engine & Status Widget */
 .widget-title-row { display: flex; justify-content: space-between; font-size: 0.65rem; font-family: "JetBrains Mono", monospace; }
-.streak-val-row { display: flex; align-items: baseline; gap: 6px; margin: 4px 0; }
-.fire-icon { font-size: 1.2rem; }
-.streak-num { font-size: 1.6rem; font-weight: 800; }
-.streak-lbl { font-size: 0.68rem; color: rgba(255,255,255,0.6); }
+.engine-status-row { display: flex; align-items: baseline; gap: 8px; margin: 6px 0; }
+.status-indicator-dot { color: #34d399; font-size: 0.85rem; }
+.engine-ver { font-size: 1.05rem; font-weight: 700; font-family: "JetBrains Mono", monospace; }
+.engine-type { font-size: 0.68rem; color: rgba(255,255,255,0.6); font-family: "JetBrains Mono", monospace; }
 
-.skill-bars-list { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
-.sb-info { display: flex; justify-content: space-between; font-size: 0.72rem; }
-.sb-info .lvl { color: rgba(255,255,255,0.5); font-family: "JetBrains Mono", monospace; }
-.sb-bar { height: 3px; background: rgba(255,255,255,0.15); border-radius: 2px; }
-.sb-fill { height: 100%; background: #ffffff; }
+.engine-capabilities-list { display: flex; flex-direction: column; gap: 5px; margin-top: 4px; }
+.cap-item { display: flex; justify-content: space-between; font-size: 0.72rem; }
+.cap-badge { color: rgba(255,255,255,0.6); font-family: "JetBrains Mono", monospace; font-size: 0.65rem; text-transform: uppercase; }
 
-.retro-mac-icon { font-size: 1.8rem; text-align: right; opacity: 0.7; }
+.retro-mac-icon { font-size: 1.6rem; text-align: right; opacity: 0.7; margin-top: 4px; }
 
 /* Bottom Dock */
 .desktop-bottom-dock {
@@ -606,6 +646,16 @@ a, button, .desktop-icon-item, .dock-app-btn, .theme-circle {
 .asset-icon { font-size: 1.4rem; margin-bottom: 2px; }
 .asset-title { font-size: 0.78rem; font-weight: 600; }
 .asset-card small { font-size: 0.68rem; color: rgba(255,255,255,0.5); }
+
+/* Oblivion 30/70 Live Workspace Additions */
+.split-approvals:empty { display: none; }
+.split-approvals { margin-bottom: 12px; }
+.split-tasks-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; }
+.split-tasks-list li { display: flex; align-items: center; gap: 8px; color: rgba(255,255,255,0.8); }
+.split-tasks-list li.completed { color: rgba(255,255,255,0.4); text-decoration: line-through; }
+.split-tasks-list li.in_progress { color: #00f2fe; font-weight: 600; }
+.split-tools-stream { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; max-height: 400px; overflow-y: auto; }
+.split-empty-msg { font-size: 0.8rem; color: rgba(255,255,255,0.4); font-style: italic; }
 
 @media (max-width: 900px) {
     .desktop-canvas { flex-direction: column; padding-left: 20px; }

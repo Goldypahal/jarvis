@@ -52,9 +52,17 @@ pub fn models_text(agent: &Agent) -> String {
                 (Some(u), None) => format!(" {u} today"),
                 _ => String::new(),
             };
+            let checked = match &st.checked {
+                Some(c) => format!(" (checked {c})"),
+                None => String::new(),
+            };
             match st.cooldown {
-                Some(d) => format!("… {} (cooling down {}s){used}", st.label, d.as_secs()),
-                None => format!("✓ {}{used}", st.label),
+                Some(d) => format!(
+                    "… {} (cooling down {}s){used}{checked}",
+                    st.label,
+                    d.as_secs()
+                ),
+                None => format!("✓ {}{used}{checked}", st.label),
             }
         })
         .collect::<Vec<_>>()

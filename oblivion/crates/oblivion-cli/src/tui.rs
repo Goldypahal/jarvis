@@ -14,8 +14,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use crossterm::event::{
-    DisableBracketedPaste, EnableBracketedPaste, Event, EventStream, KeyCode, KeyEvent,
-    KeyEventKind, KeyModifiers,
+    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture, Event,
+    EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEventKind,
 };
 use futures_util::StreamExt;
 use oblivion_core::Decision;
@@ -358,14 +358,14 @@ impl Model {
                     self.set_input("");
                 }
             }
-            KeyCode::Enter
+            KeyCode::Enter | KeyCode::Char('\n')
                 if k.modifiers.contains(KeyModifiers::SHIFT)
                     || k.modifiers.contains(KeyModifiers::ALT) =>
             {
                 self.input.insert(self.cursor, '\n');
                 self.cursor += 1;
             }
-            KeyCode::Enter => {
+            KeyCode::Enter | KeyCode::Char('\r') | KeyCode::Char('\n') => {
                 let text = self.input_text();
                 if text.trim().is_empty() {
                     return None;
@@ -424,9 +424,26 @@ impl Model {
     }
 
     pub fn paste(&mut self, text: &str) {
-        for c in text.replace("\r\n", "\n").chars() {
-            self.input.insert(self.cursor, c);
-            self.cursor += 1;
+        let clean = text.replace("\r\n", "\n").replace('\r', "\n");
+        let mut chars = clean.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '\x1b' {
+                // Skip ANSI escape sequence \x1b[...]
+                if chars.peek() == Some(&'[') {
+                    chars.next();
+                    while let Some(&next) = chars.peek() {
+                        chars.next();
+                        if next.is_ascii_alphabetic() {
+                            break;
+                        }
+                    }
+                }
+                continue;
+            }
+            if !c.is_control() || c == '\n' || c == '\t' {
+                self.input.insert(self.cursor, c);
+                self.cursor += 1;
+            }
         }
     }
 }
@@ -795,10 +812,12 @@ pub fn draw(f: &mut Frame, m: &mut Model) {
         Text::from(shown)
     };
     f.render_widget(Paragraph::new(text).block(block), input_area);
-    if m.approvals.is_empty() {
+    if m.approvals.is_empty() && area.width > 0 && area.height > 0 {
+        let max_x = area.width.saturating_sub(1);
+        let max_y = area.height.saturating_sub(1);
         f.set_cursor_position(Position {
-            x: input_area.x + 1 + cur_col as u16,
-            y: input_area.y + 1 + (cur_row - first_row) as u16,
+            x: (input_area.x + 1 + cur_col as u16).min(max_x),
+            y: (input_area.y + 1 + (cur_row - first_row) as u16).min(max_y),
         });
     }
 
@@ -949,7 +968,7 @@ pub async fn run(
     events: UnboundedReceiver<UiEvent>,
 ) -> Result<()> {
     let terminal = ratatui::try_init()?;
-    let _ = crossterm::execute!(std::io::stdout(), EnableBracketedPaste);
+    let _ = crossterm::execute!(std::io::stdout(), EnableBracketedPaste, EnableMouseCapture);
     let ui = tokio::spawn(ui_loop(terminal, controls.clone(), events));
     let work = worker.run();
     tokio::pin!(work);
@@ -960,7 +979,11 @@ pub async fn run(
     };
     // Release an approval that may still be waiting, then give the terminal back.
     controls.cancel();
-    let _ = crossterm::execute!(std::io::stdout(), DisableBracketedPaste);
+    let _ = crossterm::execute!(
+        std::io::stdout(),
+        DisableBracketedPaste,
+        DisableMouseCapture
+    );
     ratatui::restore();
     let _ = std::io::stdout().flush();
     result
@@ -984,6 +1007,14 @@ async fn ui_loop(
                     }
                 }
                 Some(Ok(Event::Paste(p))) => model.paste(&p),
+                Some(Ok(Event::Mouse(m))) => match m.kind {
+                    MouseEventKind::ScrollUp => model.scroll += 3,
+                    MouseEventKind::ScrollDown => model.scroll = model.scroll.saturating_sub(3),
+                    _ => {}
+                },
+                Some(Ok(Event::Resize(_, _))) => {
+                    let _ = terminal.clear();
+                }
                 Some(Ok(_)) => {}
                 Some(Err(e)) => return Err(e.into()),
                 None => break,
@@ -1215,5 +1246,48 @@ mod tests {
         let s = screen(&mut m, 120, 30);
         assert!(s.contains("more lines (PgDn)"));
         assert!(m.scroll < 10_000, "scroll is clamped to the content");
+    }
+
+    #[test]
+    fn windows_terminal_paste_newlines_and_resize_resilience() {
+        let mut m = sample();
+        // Paste with lone \r and control chars
+        m.paste("foo\rbar\x1b[31mbaz\0");
+        assert_eq!(m.input_text(), "foo\nbarbaz");
+
+        // Char('\n') with Shift inserts newline
+        m.key(
+            KeyEvent::new(KeyCode::Char('\n'), KeyModifiers::SHIFT),
+            None,
+        );
+        m.key(key(KeyCode::Char('z')), None);
+        assert_eq!(m.input_text(), "foo\nbarbaz\nz");
+
+        // Submit with Char('\r')
+        let sent = m.key(key(KeyCode::Char('\r')), None);
+        assert_eq!(sent.as_deref(), Some("foo\nbarbaz\nz"));
+        assert!(m.input.is_empty());
+
+        // Extreme resize: width 15, height 5 and 5, 2 should not panic
+        let _ = screen(&mut m, 15, 5);
+        let _ = screen(&mut m, 5, 2);
+
+        // Approval with uppercase Y and Esc
+        m.apply(UiEvent::Approval {
+            id: 42,
+            tool: "write_file".into(),
+            summary: "write test.txt".into(),
+        });
+        assert!(screen(&mut m, 120, 30).contains("Approval needed"));
+        m.key(key(KeyCode::Char('Y')), None);
+        assert!(m.approvals.is_empty());
+
+        m.apply(UiEvent::Approval {
+            id: 43,
+            tool: "run_command".into(),
+            summary: "cargo build".into(),
+        });
+        m.key(key(KeyCode::Esc), None);
+        assert!(m.approvals.is_empty());
     }
 }

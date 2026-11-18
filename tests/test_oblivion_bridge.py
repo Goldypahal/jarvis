@@ -15,7 +15,9 @@ def make_app(tmp_path, binary=None):
         binary=binary or str(tmp_path / "missing-oblivion"), workdir=str(tmp_path)
     )
     oblivion_bridge.register(app, bridge)
-    return app.test_client(), bridge
+    client = app.test_client()
+    client.environ_base["HTTP_X_JARVIS_TOKEN"] = app.config["JARVIS_TOKEN"]
+    return client, bridge
 
 
 def test_missing_binary_explains_how_to_build(tmp_path):
@@ -44,3 +46,74 @@ def test_ready_line_is_recognised_with_colours():
     line = "\x1b[36m  http://127.0.0.1:53211/#t=" + "ab" * 32 + "\x1b[0m"
     m = oblivion_bridge.READY_RE.search(line)
     assert m and m.group(1) == "53211" and len(m.group(2)) == 64
+
+
+def test_host_header_validation(tmp_path):
+    client, _ = make_app(tmp_path)
+    # Reject foreign/attacker Host headers (e.g. DNS rebinding)
+    for bad_host in ("evil.com", "evil.com:5000", "attacker.local", "192.168.1.1:5000"):
+        r = client.get("/api/oblivion/status", headers={"Host": bad_host})
+        assert r.status_code == 403, bad_host
+        r = client.post("/api/oblivion/start", json={}, headers={"Host": bad_host})
+        assert r.status_code == 403, bad_host
+
+    # Test wrong port rejection when allowed port is configured
+    app = flask.Flask(__name__)
+    bridge = oblivion_bridge.OblivionBridge(
+        binary=str(tmp_path / "missing-oblivion"), workdir=str(tmp_path)
+    )
+    oblivion_bridge.register(app, bridge, allowed_port=5000)
+    c = app.test_client()
+    c.environ_base["HTTP_X_JARVIS_TOKEN"] = app.config["JARVIS_TOKEN"]
+    # Wrong port
+    r = c.get("/api/oblivion/status", headers={"Host": "localhost:9999"})
+    assert r.status_code == 403
+    r = c.get("/api/oblivion/status", headers={"Host": "127.0.0.1:9999"})
+    assert r.status_code == 403
+    # Right port
+    r = c.get("/api/oblivion/status", headers={"Host": "localhost:5000"})
+    assert r.status_code == 200
+    r = c.get("/api/oblivion/status", headers={"Host": "127.0.0.1:5000"})
+    assert r.status_code == 200
+
+
+def test_secret_token_required(tmp_path):
+    app = flask.Flask(__name__)
+    bridge = oblivion_bridge.OblivionBridge(
+        binary=str(tmp_path / "missing-oblivion"), workdir=str(tmp_path)
+    )
+    oblivion_bridge.register(app, bridge)
+    token = app.config["JARVIS_TOKEN"]
+    assert token and len(token) >= 32
+    c = app.test_client()
+
+    # Missing token -> 403
+    for path in (
+        "/api/oblivion/status",
+        "/api/oblivion/start",
+        "/api/oblivion/send",
+        "/api/oblivion/approve",
+        "/api/oblivion/cancel",
+    ):
+        r = (
+            c.post(path, json={"text": "hi"})
+            if path != "/api/oblivion/status"
+            else c.get(path)
+        )
+        assert r.status_code == 403, f"{path} without token should be 403"
+    r = c.get("/api/oblivion/events")
+    assert r.status_code == 403
+
+    # Wrong token -> 403
+    bad_headers = {"X-Jarvis-Token": "wrong-token-xyz"}
+    r = c.get("/api/oblivion/status", headers=bad_headers)
+    assert r.status_code == 403
+    r = c.post("/api/oblivion/start", json={}, headers=bad_headers)
+    assert r.status_code == 403
+
+    # Correct token -> accepted (200 for status, etc.)
+    good_headers = {"X-Jarvis-Token": token}
+    r = c.get("/api/oblivion/status", headers=good_headers)
+    assert r.status_code == 200
+    st = c.post("/api/oblivion/start", json={}, headers=good_headers).get_json()
+    assert st["running"] is False
