@@ -132,6 +132,20 @@ Current milestone: **v0.5 "One brain"** · Branch: `roadmap/m1`
   - `oblivion --version` start time: 24.5 ms median (samples: 28.2ms, 24.9ms, 24.5ms, 20.2ms, 19.4ms)
   - `oblivion --web` idle RSS RAM: 30.66 MB (well under 100 MB target)
 
+### Month 1 Week 1 & Week 2 Summary (2026-11-18)
+- Items done:
+  - Week 1: Baseline gates & performance; S4 SSRF protection; S6 Host header check & per-start secret token; S8 bundled local fonts & opt-in weather widget; B6 clean requirements.txt & Flask 3.x; B4 temporary lock; Q2 clean stray dbs & legacy notes; Python CI on Windows/Ubuntu.
+  - Week 2: B1 /api/chat forwarded to Oblivion through bridge; B1/B3 30/70 workspace window live SSE streaming + tool cards, diffs, approvals; moved nexus/, examples/, benchmarks/ and NEXUS tests to legacy/ with zero imports in app.py; removed dead NEXUS UI controls and fake streak/skill bars widget; Q7 rewritten README.md, WEB_README.md, and RUN_WEB_INTERFACE.md to describe reality with single Getting Started path.
+- Items blocked:
+  - PC specs: BLOCKED (needs user) for formal confirmation of RAM/GPU/VRAM/disk specs.
+- Gate results:
+  - `cargo test --workspace`: 92 passed, 0 failed
+  - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings
+  - `python -m pytest -q tests`: 24 passed, 0 failed
+  - `python -m pytest -q legacy/tests`: 8 passed, 0 failed
+  - `node --check`: clean on all static JS files
+  - UI visual verification: verified with browser subagent across Ice Blue and Dark Charcoal themes with screenshot evidence.
+
 ## Notes for next session
 <!-- Surprises about the code, environment quirks, things the next session must know. -->
 - Windows + PowerShell: no bash heredocs; quote paths with spaces.
