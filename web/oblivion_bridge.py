@@ -615,6 +615,31 @@ def register(app, bridge=None, allowed_port=None, token=None):
         code, text, ct = b.request("POST", f"/api/sessions/{session_id}/workspace", body=body)
         return Response(text, status=code, mimetype=ct)
 
+    @app.route("/api/oblivion/system/agents-md", methods=["GET", "POST"])
+    @app.route("/api/system/agents-md", methods=["GET", "POST"])
+    def oblivion_agents_md():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        if request.method == "POST":
+            body = request.get_json(silent=True)
+            code, text, ct = b.request("POST", "/api/system/agents-md", body=body)
+        else:
+            code, text, ct = b.request("GET", "/api/system/agents-md")
+        return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/system/agents-md/apply", methods=["POST"])
+    @app.route("/api/system/agents-md/apply", methods=["POST"])
+    def oblivion_agents_md_apply():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        body = request.get_json(silent=True)
+        code, text, ct = b.request("POST", "/api/system/agents-md/apply", body=body)
+        return Response(text, status=code, mimetype=ct)
+
     return bridge
 
 

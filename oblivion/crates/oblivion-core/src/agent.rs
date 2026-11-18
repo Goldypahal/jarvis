@@ -394,6 +394,23 @@ impl Agent {
         .await
     }
 
+    /// Check if any extracted memories warrant a proposed update to AGENTS.md.
+    pub fn propose_agents_md_update(
+        &self,
+        memories: &[crate::extract::ProposedMemory],
+    ) -> Option<crate::agents_md::AgentsMdProposal> {
+        crate::agents_md::propose_update(self.tools.root(), memories)
+    }
+
+    /// Apply an AGENTS.md proposal to disk and records a snapshot in the undo journal.
+    pub fn apply_agents_md_update(
+        &self,
+        proposal: &crate::agents_md::AgentsMdProposal,
+    ) -> std::io::Result<()> {
+        let _ = self.tools.journal().snapshot(&proposal.path);
+        crate::agents_md::apply_update(proposal)
+    }
+
     /// Undo every file change from the most recent turn.
     pub fn undo_last_turn(&mut self) -> Result<Option<UndoReport>> {
         match self.turn_marks.pop() {

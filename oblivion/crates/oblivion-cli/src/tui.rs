@@ -1085,6 +1085,7 @@ mod tests {
             todos: vec![],
             skills: vec!["code-review".into(), "deep-research".into()],
             browser: false,
+            instructions_file: Some("AGENTS.md".into()),
         }));
         m.apply(UiEvent::User {
             text: "add a version flag".into(),

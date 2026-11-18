@@ -144,6 +144,7 @@ pub struct StateView {
     pub todos: Vec<TodoView>,
     pub skills: Vec<String>,
     pub browser: bool,
+    pub instructions_file: Option<String>,
 }
 
 impl From<AgentEvent> for UiEvent {
@@ -238,6 +239,8 @@ pub fn state_view(agent: &Agent, skills: &SkillSet, browser: bool) -> StateView 
         todos: todo_views(&agent.tools.todos().items()),
         skills: skills.all().map(|s| s.name.clone()).collect(),
         browser,
+        instructions_file: oblivion_core::prompt::project_instructions(agent.tools.root())
+            .map(|(name, _)| name),
     }
 }
 

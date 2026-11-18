@@ -766,6 +766,9 @@ async fn run() -> Result<()> {
         root.display(),
         agent.approval
     );
+    if let Some((name, _)) = prompt::project_instructions(&root) {
+        println!("{DIM}Loaded project instructions from {name}{RESET}");
+    }
     let stdin = std::io::stdin();
     loop {
         print!("\n{GREEN}❯{RESET} ");
@@ -832,6 +835,41 @@ async fn extract_and_persist_memories(agent: &Agent, store: &Arc<oblivion_store:
                 let new_mem = oblivion_store::NewMemory::new(&p.mem_type, &p.text, p.importance)
                     .with_source_session(&agent.session.id);
                 let _ = store.add_memory(&new_mem);
+            }
+
+            if let Some(proposal) = agent.propose_agents_md_update(&proposals) {
+                let filename = proposal
+                    .path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy();
+                println!("\n{BOLD}Project instructions update available for {filename}:{RESET}");
+                for add in &proposal.additions {
+                    println!("  {GREEN}+ {add}{RESET}");
+                }
+                let stdin = std::io::stdin();
+                if stdin.is_terminal() {
+                    print!("Update {filename}? [y/N]: ");
+                    let _ = std::io::stdout().flush();
+                    let mut ans = String::new();
+                    if stdin.read_line(&mut ans).is_ok() {
+                        let a = ans.trim().to_lowercase();
+                        if a == "y" || a == "yes" {
+                            match agent.apply_agents_md_update(&proposal) {
+                                Ok(()) => println!("{GREEN}✓ Updated {filename}{RESET}"),
+                                Err(e) => {
+                                    eprintln!("{RED}✗ Failed to update {filename}: {e}{RESET}")
+                                }
+                            }
+                        } else {
+                            println!("{DIM}Skipped updating {filename}.{RESET}");
+                        }
+                    }
+                } else {
+                    println!(
+                        "{DIM}Run /agents-md update to apply these additions to {filename}.{RESET}"
+                    );
+                }
             }
         }
     }

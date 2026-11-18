@@ -1,6 +1,7 @@
 //! Oblivion's agent core: configuration, system prompt, sessions and the loop.
 
 pub mod agent;
+pub mod agents_md;
 pub mod compact;
 pub mod config;
 pub mod extract;
@@ -10,6 +11,7 @@ pub mod session;
 pub mod subagent;
 
 pub use agent::{Agent, AgentEvent, Approver, Decision, TurnSummary};
+pub use agents_md::AgentsMdProposal;
 pub use config::{ApprovalMode, Config};
 pub use extract::{
     extract_heuristics, extract_memories, parse_proposals, MemoryRecall, ProposedMemory,

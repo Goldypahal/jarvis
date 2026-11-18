@@ -144,6 +144,11 @@ pub fn router(state: WebState) -> Router {
         .route("/cancel", post(cancel))
         .route("/api/system/dashboard", get(get_dashboard))
         .route(
+            "/api/system/agents-md",
+            get(get_agents_md).post(apply_agents_md),
+        )
+        .route("/api/system/agents-md/apply", post(apply_agents_md))
+        .route(
             "/api/memory",
             get(list_or_search_memories).post(create_memory),
         )
@@ -747,6 +752,9 @@ async fn get_dashboard(
                 UiEvent::Model { label } => {
                     model_label = label.clone();
                 }
+                UiEvent::State(s) => {
+                    workspace_path = s.root.clone();
+                }
                 UiEvent::SessionResumed { workspace, .. } => {
                     workspace_path = workspace.clone();
                 }
@@ -779,6 +787,133 @@ async fn get_dashboard(
         sessions_count,
         engine,
     }))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentsMdResponse {
+    pub file: String,
+    pub exists: bool,
+    pub content: String,
+    pub loaded_at_start: Option<String>,
+    pub proposed_additions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentsMdApplyResponse {
+    pub status: String,
+    pub file: String,
+    pub added_count: usize,
+    pub additions: Vec<String>,
+}
+
+async fn get_agents_md(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<AgentsMdResponse>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let mut workspace_path = std::env::current_dir()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
+    {
+        let h = st.bus.history.lock().unwrap();
+        for env in h.iter() {
+            match &env.event {
+                UiEvent::State(s) => {
+                    workspace_path = s.root.clone();
+                }
+                UiEvent::SessionResumed { workspace, .. } => {
+                    workspace_path = workspace.clone();
+                }
+                _ => {}
+            }
+        }
+    }
+    let root = std::path::PathBuf::from(workspace_path);
+    let loaded_at_start = oblivion_core::prompt::project_instructions(&root).map(|(name, _)| name);
+    let agents_path = root.join("AGENTS.md");
+    let exists = agents_path.is_file();
+    let content = if exists {
+        std::fs::read_to_string(&agents_path).unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    let mems = st.store.list_memories(None, 50).unwrap_or_default();
+    let proposed_mems: Vec<oblivion_core::extract::ProposedMemory> = mems
+        .into_iter()
+        .map(|m| oblivion_core::extract::ProposedMemory::new(m.mem_type, m.text, m.importance))
+        .collect();
+    let proposed_additions = oblivion_core::agents_md::propose_update(&root, &proposed_mems)
+        .map(|p| p.additions)
+        .unwrap_or_default();
+
+    Ok(Json(AgentsMdResponse {
+        file: "AGENTS.md".to_string(),
+        exists,
+        content,
+        loaded_at_start,
+        proposed_additions,
+    }))
+}
+
+async fn apply_agents_md(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<AgentsMdApplyResponse>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let mut workspace_path = std::env::current_dir()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
+    {
+        let h = st.bus.history.lock().unwrap();
+        for env in h.iter() {
+            match &env.event {
+                UiEvent::State(s) => {
+                    workspace_path = s.root.clone();
+                }
+                UiEvent::SessionResumed { workspace, .. } => {
+                    workspace_path = workspace.clone();
+                }
+                _ => {}
+            }
+        }
+    }
+    let root = std::path::PathBuf::from(workspace_path);
+    let mems = st.store.list_memories(None, 50).unwrap_or_default();
+    let proposed_mems: Vec<oblivion_core::extract::ProposedMemory> = mems
+        .into_iter()
+        .map(|m| oblivion_core::extract::ProposedMemory::new(m.mem_type, m.text, m.importance))
+        .collect();
+
+    match oblivion_core::agents_md::propose_update(&root, &proposed_mems) {
+        Some(proposal) => {
+            let additions = proposal.additions.clone();
+            let count = additions.len();
+            match oblivion_core::agents_md::apply_update(&proposal) {
+                Ok(()) => Ok(Json(AgentsMdApplyResponse {
+                    status: "ok".to_string(),
+                    file: "AGENTS.md".to_string(),
+                    added_count: count,
+                    additions,
+                })),
+                Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+            }
+        }
+        None => Ok(Json(AgentsMdApplyResponse {
+            status: "up_to_date".to_string(),
+            file: "AGENTS.md".to_string(),
+            added_count: 0,
+            additions: Vec::new(),
+        })),
+    }
 }
 
 fn scan_recent_files(root: &std::path::Path, max_count: usize) -> Vec<DashboardFile> {
@@ -1510,5 +1645,102 @@ mod live {
         assert_eq!(data.engine.model, "groq:llama-3.3-70b-versatile");
 
         assert!(data.recent_files.iter().any(|f| f.name == "notes.md"));
+    }
+
+    #[tokio::test]
+    async fn web_agents_md_endpoints_work() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(oblivion_store::Store::open(&dir.path().join("test.db")).unwrap());
+        let (url, _seen) = crate::testkit::fake_server(vec![]).await;
+        let (_worker, controls, _events) = crate::testkit::worker(&url, dir.path());
+
+        let bus = Arc::new(Bus::default());
+        let token = "test-token-agents-md";
+        let state = WebState {
+            token: token.into(),
+            controls,
+            bus: bus.clone(),
+            store: store.clone(),
+        };
+
+        let (listener, addr) = bind(0).await.unwrap();
+        let base = format!("http://{addr}");
+        tokio::spawn(async move {
+            axum::serve(listener, router(state)).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+
+        // Write initial AGENTS.md in workspace dir
+        let ws_dir = dir.path().join("workspace");
+        std::fs::create_dir_all(&ws_dir).unwrap();
+        let initial_text = "# Project Rules\n- cargo test before PR\n";
+        std::fs::write(ws_dir.join("AGENTS.md"), initial_text).unwrap();
+
+        // Publish state with the workspace dir
+        bus.publish(UiEvent::State(crate::app::StateView {
+            version: "0.1.0".into(),
+            root: ws_dir.to_string_lossy().into_owned(),
+            session: "test-sess-1".into(),
+            approval: "ask".into(),
+            models: vec![],
+            todos: vec![],
+            skills: vec![],
+            browser: false,
+            instructions_file: Some("AGENTS.md".into()),
+        }));
+
+        // Add a project fact memory
+        let mem = oblivion_store::NewMemory::new(
+            "project_fact",
+            "SQLite database is stored in store.db",
+            5,
+        );
+        store.add_memory(&mem).unwrap();
+
+        // 1. GET /api/system/agents-md
+        let res = client
+            .get(format!("{base}/api/system/agents-md"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let resp: AgentsMdResponse = res.json().await.unwrap();
+        assert_eq!(resp.file, "AGENTS.md");
+        assert!(resp.exists);
+        assert!(resp.content.contains("cargo test before PR"));
+        assert_eq!(resp.proposed_additions.len(), 1);
+        assert_eq!(
+            resp.proposed_additions[0],
+            "SQLite database is stored in store.db"
+        );
+
+        // 2. POST /api/system/agents-md/apply
+        let apply_res = client
+            .post(format!("{base}/api/system/agents-md/apply"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(apply_res.status(), StatusCode::OK);
+        let apply_resp: AgentsMdApplyResponse = apply_res.json().await.unwrap();
+        assert_eq!(apply_resp.status, "ok");
+        assert_eq!(apply_resp.added_count, 1);
+
+        // Verify file on disk
+        let disk_content = std::fs::read_to_string(ws_dir.join("AGENTS.md")).unwrap();
+        assert!(disk_content.contains("cargo test before PR"));
+        assert!(disk_content.contains("SQLite database is stored in store.db"));
+
+        // 3. GET /api/system/agents-md now reports no pending additions
+        let res2 = client
+            .get(format!("{base}/api/system/agents-md"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        let resp2: AgentsMdResponse = res2.json().await.unwrap();
+        assert_eq!(resp2.proposed_additions.len(), 0);
     }
 }

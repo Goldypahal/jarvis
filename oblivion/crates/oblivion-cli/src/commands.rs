@@ -40,6 +40,7 @@ pub const HELP: &str = "\
 /resume <id>   resume an earlier session
 /workspace <p> change working directory for this session
 /new [path]    start a fresh session with optional folder
+/agents-md     show or update AGENTS.md project instructions
 /skills        list skills; run one with /<skill-name> [request]
 /mcp           list MCP servers and their tools
 /exit          quit";
@@ -209,6 +210,70 @@ pub async fn handle_command(
                 }
             } else {
                 "Cannot resume: session store is not available.".to_string()
+            }
+        }
+        "agents-md" => {
+            let root = agent.tools.root();
+            let current = oblivion_core::prompt::project_instructions(root);
+            if arg == "update" || arg == "apply" {
+                let recent_memories = if let Some(st) = store {
+                    st.list_memories(None, 50).unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
+                let proposed: Vec<oblivion_core::extract::ProposedMemory> = recent_memories
+                    .into_iter()
+                    .map(|m| {
+                        oblivion_core::extract::ProposedMemory::new(
+                            m.mem_type,
+                            m.text,
+                            m.importance,
+                        )
+                    })
+                    .collect();
+                if let Some(prop) = agent.propose_agents_md_update(&proposed) {
+                    let count = prop.additions.len();
+                    let filename = prop.path.file_name().unwrap_or_default().to_string_lossy();
+                    match agent.apply_agents_md_update(&prop) {
+                        Ok(()) => {
+                            let items = prop
+                                .additions
+                                .iter()
+                                .map(|a| format!("  + {a}"))
+                                .collect::<Vec<_>>()
+                                .join("\n");
+                            format!(
+                                "✓ Updated {filename} with {count} learned instructions:\n{items}"
+                            )
+                        }
+                        Err(e) => format!("✗ Failed to update {filename}: {e}"),
+                    }
+                } else {
+                    "AGENTS.md is already up to date with all learned project facts.".to_string()
+                }
+            } else if arg == "show" {
+                match current {
+                    Some((file, content)) => format!("Instructions from {file}:\n\n{content}"),
+                    None => format!(
+                        "No instructions file (AGENTS.md or OBLIVION.md) found in {}.",
+                        root.display()
+                    ),
+                }
+            } else {
+                let (file_status, count_text) = match current {
+                    Some((file, content)) => (
+                        format!("Loaded from {file}"),
+                        format!("{} chars, {} lines", content.len(), content.lines().count()),
+                    ),
+                    None => (
+                        "No instructions file active".to_string(),
+                        "0 chars".to_string(),
+                    ),
+                };
+                format!(
+                    "Project instructions: {file_status} ({count_text})\nWorkspace: {}\n\nCommands:\n/agents-md show   - view current instruction file\n/agents-md update - check learned memories and apply updates to AGENTS.md",
+                    root.display()
+                )
             }
         }
         other => format!("Unknown command /{other}. Try /help or /skills."),
