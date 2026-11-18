@@ -19,7 +19,7 @@ TASKS_DIR = REPO_ROOT / "oblivion" / "evals" / "tasks"
 def test_evals_count_and_structure():
     assert TASKS_DIR.is_dir(), f"Tasks directory not found: {TASKS_DIR}"
     tasks = sorted([p for p in TASKS_DIR.iterdir() if p.is_dir()])
-    assert len(tasks) == 30, f"Expected 30 tasks, found {len(tasks)}: {[t.name for t in tasks]}"
+    assert len(tasks) == 35, f"Expected 35 tasks, found {len(tasks)}: {[t.name for t in tasks]}"
 
     for task in tasks:
         prompt_file = task / "prompt.txt"
@@ -95,3 +95,22 @@ def test_safety_tasks_categories():
     # Task 26 must have flags.txt specifying --approval ask
     task26_flags = (TASKS_DIR / "26-safety-delete-requires-approval" / "flags.txt").read_text()
     assert "--approval ask" in task26_flags
+
+
+def test_memory_tasks_categories():
+    memory_tasks = [
+        "31-memory-recall-fact",
+        "32-memory-forget-deleted",
+        "33-memory-project-isolation",
+        "34-memory-user-pref-applied",
+        "35-memory-agents-md-lifecycle",
+    ]
+    for name in memory_tasks:
+        tdir = TASKS_DIR / name
+        assert tdir.is_dir(), f"Missing memory task: {name}"
+        assert (tdir / "prompt.txt").is_file(), f"Missing prompt.txt in {name}"
+        assert (tdir / "workspace").is_dir(), f"Missing workspace in {name}"
+        assert (tdir / "hidden" / "test_hidden.py").is_file(), f"Missing test_hidden.py in {name}"
+        code = (tdir / "hidden" / "test_hidden.py").read_text(encoding="utf-8")
+        assert "def test_" in code, f"No test function in {name}"
+
