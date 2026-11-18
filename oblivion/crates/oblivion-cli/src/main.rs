@@ -435,8 +435,12 @@ async fn run() -> Result<()> {
                 Some((_, keys::KeySource::Store)) => "key: key store",
                 None => "no key needed",
             };
+            let checked_str = match &t.checked {
+                Some(date) => format!(" · checked {date}"),
+                None => String::new(),
+            };
             println!(
-                "  {GREEN}✓{RESET} {}  {DIM}{limits} · {source}{RESET}",
+                "  {GREEN}✓{RESET} {}  {DIM}{limits}{checked_str} · {source}{RESET}",
                 t.label()
             );
         }

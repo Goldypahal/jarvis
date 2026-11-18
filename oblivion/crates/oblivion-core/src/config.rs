@@ -21,6 +21,7 @@ pub const DEFAULT_CONFIG: &str = r#"# Oblivion configuration
 # Free-tier limits (optional per provider; built-in defaults exist for openrouter and groq):
 #   requests_per_day = 1000    skip this provider once today's allowance is used
 #   max_input_tokens = 7000    send bigger requests to another provider instead
+#   checked = "2026-11-18"     date limits were last verified (YYYY-MM-DD)
 
 [agent]
 max_steps = 50          # tool-call rounds per request before stopping
@@ -49,6 +50,7 @@ base_url = "https://openrouter.ai/api/v1"
 api_key_env = "OPENROUTER_API_KEY"
 models = ["qwen/qwen3-coder:free", "openai/gpt-oss-120b:free"]
 requests_per_day = 50
+checked = "2026-11-18"
 headers = { "HTTP-Referer" = "https://github.com/Goldypahal/jarvis", "X-Title" = "Oblivion" }
 
 # Groq: fast; per model about 30 req/min, 1,000 req/day and only ~8,000 tokens/min on
@@ -60,6 +62,7 @@ api_key_env = "GROQ_API_KEY"
 models = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]
 requests_per_day = 1000
 max_input_tokens = 7000
+checked = "2026-11-18"
 
 # NVIDIA API catalog: about 40 req/min for prototyping. Keys: https://build.nvidia.com
 [[providers]]
@@ -306,6 +309,8 @@ pub struct ProviderEntry {
     pub requests_per_day: Option<u32>,
     #[serde(default)]
     pub max_input_tokens: Option<u32>,
+    #[serde(default)]
+    pub checked: Option<String>,
 }
 
 /// Free-tier limits used when the config does not set them (Nov 2026 figures).
@@ -524,6 +529,7 @@ impl Config {
                 targets.push(Target {
                     requests_per_day: p.requests_per_day.or(known_rpd),
                     max_input_tokens: p.max_input_tokens.or(known_max),
+                    checked: p.checked.clone(),
                     ..Target::new(provider.clone(), m.clone())
                 });
             }
@@ -562,6 +568,15 @@ impl Config {
                     "provider '{}' base_url must start with http:// or https://",
                     p.name
                 );
+            }
+            if let Some(date) = &p.checked {
+                if chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").is_err() {
+                    bail!(
+                        "provider '{}' has invalid checked date '{}'; expected YYYY-MM-DD",
+                        p.name,
+                        date
+                    );
+                }
             }
         }
         Ok(())
@@ -611,6 +626,36 @@ mod tests {
         assert!(skipped
             .iter()
             .any(|s| s.name == "ollama" && s.reason.contains("disabled")));
+    }
+
+    #[test]
+    fn provider_checked_date_validation_and_propagation() {
+        let toml = r#"
+[[providers]]
+name = "custom"
+base_url = "https://custom.ai/api/v1"
+models = ["m1"]
+requests_per_day = 250
+max_input_tokens = 8000
+checked = "2026-11-18"
+"#;
+        let c = Config::parse(toml).unwrap();
+        c.validate().unwrap();
+        let (targets, _) = c.targets(&|_| Some("key".into()));
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].requests_per_day, Some(250));
+        assert_eq!(targets[0].max_input_tokens, Some(8000));
+        assert_eq!(targets[0].checked.as_deref(), Some("2026-11-18"));
+
+        let bad_toml = r#"
+[[providers]]
+name = "custom"
+base_url = "https://custom.ai/api/v1"
+models = ["m1"]
+checked = "18-11-2026"
+"#;
+        let c_bad = Config::parse(bad_toml).unwrap();
+        assert!(c_bad.validate().is_err());
     }
 }
 
