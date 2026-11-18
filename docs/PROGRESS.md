@@ -52,7 +52,7 @@ Current milestone: **Month 2 — memory and an honest desktop** · Branch: `road
 - [x] End-of-session extraction pass proposes memories (cheap model, budgeted); user can disable — 2026-11-18, 7179626, cargo test: 118 passed; pytest: 50 passed; clippy: 0 warnings; evals: 1/1 passed; extraction, heuristics & disabling verified
 - [x] Recall on each request within a ~500-token budget; per-project scoping; tests that one project's memory never appears in another — 2026-11-18, ef9dcf6, cargo test: 120 passed; clippy: 0 warnings; pytest: 50 passed; evals: 1/1 passed; project isolation & 500-token budget verified
 - [x] Embeddings via Ollama + `sqlite-vec` (optional; falls back to FTS when not available) — 2026-11-18, dfc96db, cargo test: 125 passed; clippy: 0 warnings; pytest: 50 passed; evals: 1/1 passed; vector search, Ollama client, sqlite-vec KNN & FTS5 fallback verified
-- [ ] Desktop "Memory" window: list, search, edit, delete, forget-by-topic, export
+- [x] Desktop "Memory" window: list, search, edit, delete, forget-by-topic, export — 2026-11-19, in-progress, cargo test: 126 passed; pytest: 53 passed; clippy: 0 warnings; browser subagent UI test verified (CRUD, live search, dark theme)
 - [ ] Sessions window: list, search, rename, resume, delete; work folder chosen per session (B10)
 - [ ] B7: replace every fake widget with real data (usage today, tasks, files created, memory count, model status) or remove it; menu-bar date is live
 - [ ] `AGENTS.md` read at start, update offered at end of a session

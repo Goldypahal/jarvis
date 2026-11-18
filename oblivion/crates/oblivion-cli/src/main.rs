@@ -694,7 +694,15 @@ async fn run() -> Result<()> {
             controls.send(cli.prompt.join(" "));
         }
         let result = if cli.web {
-            run_web(worker, controls, ev_rx, cli.port, !cli.no_open).await
+            run_web(
+                worker,
+                controls,
+                store.clone(),
+                ev_rx,
+                cli.port,
+                !cli.no_open,
+            )
+            .await
         } else {
             tui::run(worker, controls, ev_rx).await
         };
@@ -831,6 +839,7 @@ async fn extract_and_persist_memories(agent: &Agent, store: &Arc<oblivion_store:
 async fn run_web(
     worker: app::Worker,
     controls: app::Controls,
+    store: Arc<oblivion_store::Store>,
     events: tokio::sync::mpsc::UnboundedReceiver<app::UiEvent>,
     port: u16,
     open: bool,
@@ -845,6 +854,7 @@ async fn run_web(
         token: token.into(),
         controls: controls.clone(),
         bus: bus.clone(),
+        store,
     };
     tokio::spawn(web::pump(events, bus));
     tokio::spawn(async move {

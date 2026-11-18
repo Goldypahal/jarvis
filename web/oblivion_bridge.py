@@ -133,24 +133,50 @@ class OblivionBridge:
 
     # ---------- requests ----------
 
-    def post(self, path, body):
-        """Forward a POST to Oblivion. Returns (status_code, text)."""
+    def request(self, method, path, body=None, params=None):
+        """Forward an HTTP request to Oblivion. Returns (status_code, text, content_type)."""
         if not self.running():
-            return 503, "Oblivion is not running"
+            return 503, "Oblivion is not running", "text/plain"
+        import urllib.parse
+
+        url_path = path
+        if params:
+            query_str = urllib.parse.urlencode(params)
+            sep = "&" if "?" in url_path else "?"
+            url_path = f"{url_path}{sep}{query_str}"
+
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=15)
         try:
-            conn.request(
-                "POST",
-                path,
-                body=json.dumps(body or {}),
-                headers={"content-type": "application/json", "x-oblivion-token": self.token},
-            )
+            headers = {"x-oblivion-token": self.token}
+            encoded_body = None
+            if body is not None:
+                headers["content-type"] = "application/json"
+                encoded_body = json.dumps(body)
+            conn.request(method.upper(), url_path, body=encoded_body, headers=headers)
             res = conn.getresponse()
-            return res.status, res.read().decode("utf-8", "replace")
+            ct = res.getheader("content-type", "application/json")
+            return res.status, res.read().decode("utf-8", "replace"), ct
         except OSError as e:
-            return 502, f"Could not reach Oblivion: {e}"
+            return 502, f"Could not reach Oblivion: {e}", "text/plain"
         finally:
             conn.close()
+
+    def post(self, path, body):
+        """Forward a POST to Oblivion. Returns (status_code, text)."""
+        code, text, _ = self.request("POST", path, body=body)
+        return code, text
+
+    def get(self, path, params=None):
+        """Forward a GET to Oblivion. Returns (status_code, text, content_type)."""
+        return self.request("GET", path, params=params)
+
+    def put(self, path, body):
+        """Forward a PUT to Oblivion. Returns (status_code, text, content_type)."""
+        return self.request("PUT", path, body=body)
+
+    def delete(self, path):
+        """Forward a DELETE to Oblivion. Returns (status_code, text, content_type)."""
+        return self.request("DELETE", path)
 
     def events(self):
         """Yield Oblivion's event stream (Server-Sent Events) as raw bytes."""
@@ -431,6 +457,72 @@ def register(app, bridge=None, allowed_port=None, token=None):
     @app.post("/api/oblivion/cancel")
     def oblivion_cancel():
         return forward("/cancel")
+
+    @app.route("/api/oblivion/memory", methods=["GET", "POST"])
+    @app.route("/api/memory", methods=["GET", "POST"])
+    def oblivion_memory():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        if request.method == "GET":
+            params = dict(request.args)
+            code, text, ct = b.get("/api/memory", params=params)
+            return Response(text, status=code, mimetype=ct)
+        else:
+            body = request.get_json(silent=True)
+            if body is None:
+                return jsonify({"error": "expected a JSON body"}), 400
+            code, text, ct = b.request("POST", "/api/memory", body=body)
+            return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/memory/<int:mem_id>", methods=["PUT", "DELETE"])
+    @app.route("/api/memory/<int:mem_id>", methods=["PUT", "DELETE"])
+    def oblivion_memory_item(mem_id):
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        if request.method == "PUT":
+            body = request.get_json(silent=True)
+            if body is None:
+                return jsonify({"error": "expected a JSON body"}), 400
+            code, text, ct = b.put(f"/api/memory/{mem_id}", body)
+            return Response(text, status=code, mimetype=ct)
+        else:
+            code, text, ct = b.delete(f"/api/memory/{mem_id}")
+            return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/memory/forget", methods=["POST"])
+    @app.route("/api/memory/forget", methods=["POST"])
+    def oblivion_memory_forget():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        body = request.get_json(silent=True)
+        if body is None:
+            return jsonify({"error": "expected a JSON body"}), 400
+        code, text, ct = b.request("POST", "/api/memory/forget", body=body)
+        return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/memory/export", methods=["GET"])
+    @app.route("/api/memory/export", methods=["GET"])
+    def oblivion_memory_export():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        params = dict(request.args)
+        code, text, ct = b.get("/api/memory/export", params=params)
+        fmt = request.args.get("format", "json")
+        ext = "md" if fmt in ("markdown", "md") else "json"
+        return Response(
+            text,
+            status=code,
+            mimetype=ct,
+            headers={"Content-Disposition": f'attachment; filename="memories.{ext}"'},
+        )
 
     return bridge
 

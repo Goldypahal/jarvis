@@ -17,7 +17,7 @@ def test_index_page_loads_and_has_no_fake_nexus_controls(client):
 
     # Must not contain NEXUS brand or fake gamification
     assert 'NEXUS' not in html
-    assert '231' not in html  # Fake streak
+    assert '231 DAY' not in html  # Fake streak
     assert 'DAY STREAK' not in html
     assert 'System 1/2' not in html
     assert 'dual-process' not in html

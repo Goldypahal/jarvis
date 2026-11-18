@@ -251,3 +251,287 @@ body[data-theme="black"] .ob-seg button.on { background: rgba(99, 99, 102, 0.7);
 @media (prefers-reduced-motion: reduce) {
     .ob-panel, .ob-panel * { transition: none !important; animation: none !important; }
 }
+
+/* ==========================================================================
+   Memory Window (#memoryModal) Styles
+   ========================================================================== */
+.memory-window-frame {
+    width: min(920px, calc(100vw - 32px));
+    height: min(720px, calc(100vh - 80px));
+    display: flex;
+    flex-direction: column;
+}
+.memory-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.mem-btn-sm {
+    background: rgba(255, 255, 255, 0.20);
+    border: 0.5px solid rgba(255, 255, 255, 0.35);
+    color: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.mem-btn-sm:hover {
+    background: rgba(255, 255, 255, 0.35);
+}
+.memory-window-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 16px;
+    gap: 14px;
+    background: rgba(245, 245, 247, 0.55);
+}
+body[data-theme="black"] .memory-window-body {
+    background: rgba(24, 24, 26, 0.75);
+}
+.memory-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    justify-content: space-between;
+}
+.memory-search-box {
+    flex: 1;
+    min-width: 240px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.75);
+    border: 1px solid rgba(0, 0, 0, 0.10);
+    border-radius: 10px;
+    padding: 6px 12px;
+}
+body[data-theme="black"] .memory-search-box {
+    background: rgba(40, 40, 44, 0.85);
+    border-color: rgba(255, 255, 255, 0.12);
+    color: #fff;
+}
+.memory-search-box input {
+    flex: 1;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: inherit;
+    font-size: 13.5px;
+}
+.memory-filters {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.mem-select, .mem-input, .mem-textarea {
+    background: rgba(255, 255, 255, 0.75);
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 13px;
+    color: inherit;
+    outline: none;
+}
+body[data-theme="black"] .mem-select,
+body[data-theme="black"] .mem-input,
+body[data-theme="black"] .mem-textarea {
+    background: rgba(40, 40, 44, 0.85);
+    border-color: rgba(255, 255, 255, 0.14);
+    color: #fff;
+}
+.mem-btn {
+    border: none;
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.1s, opacity 0.15s;
+}
+.mem-btn:hover {
+    transform: translateY(-1px);
+}
+.mem-btn-primary {
+    background: var(--accent-color, #2F6FD0);
+    color: #fff;
+}
+.mem-btn-warn {
+    background: rgba(217, 48, 37, 0.12);
+    color: #d93025;
+    border: 1px solid rgba(217, 48, 37, 0.30);
+}
+.mem-btn-warn:hover {
+    background: #d93025;
+    color: #fff;
+}
+.memory-editor-pane {
+    background: rgba(255, 255, 255, 0.85);
+    border: 1px solid rgba(0, 0, 0, 0.10);
+    border-radius: 12px;
+    padding: 14px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+body[data-theme="black"] .memory-editor-pane {
+    background: rgba(36, 36, 40, 0.95);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+.editor-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+.editor-header h4 {
+    margin: 0;
+    font-size: 14px;
+}
+.editor-close-btn {
+    border: none;
+    background: transparent;
+    font-size: 16px;
+    cursor: pointer;
+    color: inherit;
+    opacity: 0.6;
+}
+.form-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.form-group label {
+    font-size: 11px;
+    font-weight: 600;
+    opacity: 0.75;
+    text-transform: uppercase;
+}
+.flex-1 { flex: 1; }
+.w-32 { width: 110px; }
+.mem-textarea {
+    width: 100%;
+    resize: vertical;
+    box-sizing: border-box;
+}
+.editor-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 10px;
+}
+.memory-list-scroll {
+    flex: 1;
+    overflow-y: auto;
+    border-radius: 12px;
+}
+.memory-items-container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.memory-card {
+    background: rgba(255, 255, 255, 0.80);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 12px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: box-shadow 0.15s, transform 0.15s;
+}
+body[data-theme="black"] .memory-card {
+    background: rgba(34, 34, 38, 0.85);
+    border-color: rgba(255, 255, 255, 0.10);
+    color: #e5e5e7;
+}
+.memory-card:hover {
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+    transform: translateY(-1px);
+}
+.mem-card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+.mem-card-tags {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.mem-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.mem-badge-user_pref { background: rgba(0, 122, 255, 0.14); color: #007aff; }
+.mem-badge-project_fact { background: rgba(175, 82, 222, 0.14); color: #af52de; }
+.mem-badge-recipe { background: rgba(52, 199, 89, 0.14); color: #34c759; }
+.mem-badge-fact { background: rgba(255, 149, 0, 0.14); color: #ff9500; }
+.mem-badge-past_outcome { background: rgba(88, 86, 214, 0.14); color: #5856d6; }
+.mem-proj-tag {
+    font-size: 11px;
+    opacity: 0.7;
+    background: rgba(128, 128, 128, 0.14);
+    padding: 2px 6px;
+    border-radius: 6px;
+    font-family: monospace;
+}
+.mem-stars {
+    font-size: 12px;
+    color: #f5a623;
+}
+.mem-time {
+    font-size: 11px;
+    opacity: 0.55;
+    margin-left: auto;
+}
+.mem-card-content {
+    font-size: 13.5px;
+    line-height: 1.45;
+    word-break: break-word;
+    user-select: text;
+}
+.mem-card-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 2px;
+}
+.mem-btn-ghost {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 3px 6px;
+    border-radius: 4px;
+    opacity: 0.65;
+    transition: opacity 0.15s, background 0.15s;
+    color: inherit;
+}
+.mem-btn-ghost:hover {
+    opacity: 1;
+    background: rgba(128, 128, 128, 0.12);
+}
+.mem-btn-danger:hover {
+    color: #d93025;
+}
+.memory-empty {
+    text-align: center;
+    padding: 40px 10px;
+    opacity: 0.6;
+    font-size: 14px;
+}

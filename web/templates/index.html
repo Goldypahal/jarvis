@@ -241,6 +241,9 @@
                     <button class="dock-app-btn" title="Model Context Protocol (MCP)" data-action="mcp">
                         <div class="app-icon mem-icon">🔌</div>
                     </button>
+                    <button class="dock-app-btn" id="open-memory-dock-btn" title="Memory &amp; Knowledge Base (Ctrl+M)" data-action="memory">
+                        <div class="app-icon memory-dock-icon">🧠</div>
+                    </button>
                     
                     <!-- Chat Icon (Oblivion Assistant) -->
                     <button class="dock-app-btn chat-dock-btn active" id="open-chat-dock-btn" title="Oblivion assistant (Ctrl+J)">
@@ -333,6 +336,97 @@
     </div>
 
     <!-- ==========================================================================
+         5b. Long-Term Memory Window Modal (#memoryModal)
+         ========================================================================== -->
+    <div id="memoryModal" class="split-modal-overlay">
+        <div class="split-window-frame memory-window-frame">
+            <!-- Header Bar -->
+            <div class="split-frame-header">
+                <div class="traffic-lights">
+                    <button class="tl tl-close" id="close-memory-modal-btn" title="Close"></button>
+                    <button class="tl tl-min" title="Minimize"></button>
+                    <button class="tl tl-max" title="Maximize"></button>
+                </div>
+                <div class="split-frame-title">🧠 JARVIS LONG-TERM MEMORY &amp; KNOWLEDGE</div>
+                <div class="memory-header-actions">
+                    <span id="memory-count-badge" class="split-frame-badge">0 memories</span>
+                    <button id="memory-export-json-btn" class="mem-btn-sm" title="Export as JSON">JSON</button>
+                    <button id="memory-export-md-btn" class="mem-btn-sm" title="Export as Markdown">MD</button>
+                </div>
+            </div>
+
+            <!-- Memory Window Body -->
+            <div class="memory-window-body">
+                <!-- Toolbar: Search, Category Filter, Actions -->
+                <div class="memory-toolbar">
+                    <div class="memory-search-box">
+                        <span class="search-icon">🔍</span>
+                        <input type="search" id="memory-search-input" placeholder="Search memories (FTS5 full-text + semantic vectors)..." autocomplete="off">
+                    </div>
+                    <div class="memory-filters">
+                        <select id="memory-type-filter" class="mem-select">
+                            <option value="">All Categories</option>
+                            <option value="user_pref">User Preferences</option>
+                            <option value="project_fact">Project Facts</option>
+                            <option value="recipe">Recipes &amp; Guides</option>
+                            <option value="fact">General Facts</option>
+                            <option value="past_outcome">Past Outcomes</option>
+                        </select>
+                        <button id="memory-forget-topic-btn" class="mem-btn mem-btn-warn" title="Forget everything matching a query or topic">Forget Topic</button>
+                        <button id="memory-new-btn" class="mem-btn mem-btn-primary">+ Add Memory</button>
+                    </div>
+                </div>
+
+                <!-- Add/Edit Memory Form Pane -->
+                <div id="memory-editor-pane" class="memory-editor-pane" style="display: none;">
+                    <div class="editor-header">
+                        <h4 id="memory-editor-title">New Memory</h4>
+                        <button id="memory-editor-close-btn" class="editor-close-btn" type="button">✕</button>
+                    </div>
+                    <form id="memory-editor-form">
+                        <input type="hidden" id="edit-memory-id" value="">
+                        <div class="form-row">
+                            <div class="form-group flex-1">
+                                <label for="edit-memory-type">Category</label>
+                                <select id="edit-memory-type" class="mem-select" required>
+                                    <option value="user_pref">user_pref (User Preference)</option>
+                                    <option value="project_fact">project_fact (Project Specific Fact)</option>
+                                    <option value="recipe">recipe (Code recipe or guideline)</option>
+                                    <option value="fact">fact (General Fact)</option>
+                                    <option value="past_outcome">past_outcome (Execution Outcome)</option>
+                                </select>
+                            </div>
+                            <div class="form-group w-32">
+                                <label for="edit-memory-importance">Importance (1-5)</label>
+                                <input type="number" id="edit-memory-importance" min="1" max="5" value="3" class="mem-input" required>
+                            </div>
+                            <div class="form-group flex-1">
+                                <label for="edit-memory-project">Project Scope (Optional)</label>
+                                <input type="text" id="edit-memory-project" placeholder="e.g. /workspace/project" class="mem-input">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="edit-memory-text">Memory Content</label>
+                            <textarea id="edit-memory-text" rows="3" class="mem-textarea" placeholder="Enter concise, durable fact or rule to remember..." required></textarea>
+                        </div>
+                        <div class="editor-actions">
+                            <button type="button" id="memory-editor-cancel-btn" class="mem-btn">Cancel</button>
+                            <button type="submit" id="memory-editor-save-btn" class="mem-btn mem-btn-primary">Save Memory</button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Memory List Container -->
+                <div class="memory-list-scroll">
+                    <div id="memory-items-container" class="memory-items-container">
+                        <div class="memory-loading">Loading memories...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================================================
          6. Oblivion panel (slides in from the right; see static/js/oblivion.js)
          ========================================================================== -->
     <aside id="ob-panel" class="ob-panel" aria-label="Oblivion assistant" aria-hidden="true">
@@ -374,5 +468,6 @@
 
     <script src="/static/js/app.js"></script>
     <script src="/static/js/oblivion.js"></script>
+    <script src="/static/js/memory.js"></script>
 </body>
 </html>

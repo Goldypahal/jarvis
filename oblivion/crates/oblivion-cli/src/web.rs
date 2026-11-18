@@ -11,11 +11,11 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use futures_util::stream::{self, Stream, StreamExt};
 use oblivion_core::Decision;
@@ -106,6 +106,7 @@ pub struct WebState {
     pub token: Arc<str>,
     pub controls: Controls,
     pub bus: Arc<Bus>,
+    pub store: Arc<oblivion_store::Store>,
 }
 
 impl WebState {
@@ -137,6 +138,13 @@ pub fn router(state: WebState) -> Router {
         .route("/send", post(send))
         .route("/approve", post(approve))
         .route("/cancel", post(cancel))
+        .route(
+            "/api/memory",
+            get(list_or_search_memories).post(create_memory),
+        )
+        .route("/api/memory/{id}", put(update_memory).delete(delete_memory))
+        .route("/api/memory/forget", post(forget_memories_topic))
+        .route("/api/memory/export", get(export_memories))
         .with_state(state)
 }
 
@@ -239,6 +247,264 @@ async fn cancel(
     }
     st.controls.cancel();
     StatusCode::NO_CONTENT
+}
+
+async fn list_or_search_memories(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q_map): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<oblivion_store::Memory>>, StatusCode> {
+    if !st.authorized(&headers, &q_map) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let query_str = q_map.get("q").map(String::as_str).unwrap_or("").trim();
+    let mem_type = q_map.get("type").filter(|t| !t.is_empty()).cloned();
+    let project = q_map.get("project").filter(|p| !p.is_empty()).cloned();
+    let limit = q_map
+        .get("limit")
+        .and_then(|l| l.parse::<usize>().ok())
+        .unwrap_or(50)
+        .clamp(1, 200);
+
+    let filter = oblivion_store::MemoryFilter {
+        mem_type,
+        project,
+        include_global: true,
+        ..Default::default()
+    };
+
+    let memories = if query_str.is_empty() {
+        st.store
+            .list_memories(Some(&filter), limit)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    } else {
+        st.store
+            .search_memories(query_str, Some(&filter), limit)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    };
+
+    Ok(Json(memories))
+}
+
+#[derive(Deserialize)]
+struct CreateMemoryBody {
+    #[serde(rename = "type")]
+    mem_type: Option<String>,
+    text: String,
+    importance: Option<u32>,
+    project: Option<String>,
+}
+
+async fn create_memory(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Json(body): Json<CreateMemoryBody>,
+) -> Result<(StatusCode, Json<oblivion_store::Memory>), StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let text = body.text.trim();
+    if text.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let mem_type = body.mem_type.as_deref().unwrap_or("fact");
+    let importance = body.importance.unwrap_or(3).clamp(1, 5);
+
+    let mut new_mem = oblivion_store::NewMemory::new(mem_type, text, importance);
+    if let Some(ref proj) = body.project {
+        if !proj.trim().is_empty() {
+            new_mem = new_mem.with_project(proj);
+        }
+    }
+
+    let created = st
+        .store
+        .add_memory(&new_mem)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if let Some(embedder) = st.store.embedder() {
+        if let Ok(vec) = embedder.embed(&created.text).await {
+            let _ = st
+                .store
+                .save_memory_embedding(created.id, embedder.model_name(), &vec);
+        }
+    }
+
+    Ok((StatusCode::CREATED, Json(created)))
+}
+
+#[derive(Deserialize)]
+struct UpdateMemoryBody {
+    text: Option<String>,
+    #[serde(rename = "type")]
+    mem_type: Option<String>,
+    importance: Option<u32>,
+}
+
+async fn update_memory(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Path(id): Path<i64>,
+    Json(body): Json<UpdateMemoryBody>,
+) -> Result<Json<oblivion_store::Memory>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let updated = st
+        .store
+        .update_memory(
+            id,
+            body.text.as_deref(),
+            body.mem_type.as_deref(),
+            body.importance,
+        )
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    if let Some(embedder) = st.store.embedder() {
+        if let Ok(vec) = embedder.embed(&updated.text).await {
+            let _ = st
+                .store
+                .save_memory_embedding(updated.id, embedder.model_name(), &vec);
+        }
+    }
+
+    Ok(Json(updated))
+}
+
+async fn delete_memory(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let deleted = st
+        .store
+        .delete_memory(id)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if deleted {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+#[derive(Deserialize)]
+struct ForgetTopicBody {
+    query: String,
+}
+
+#[derive(Serialize)]
+struct ForgetTopicResponse {
+    deleted_count: usize,
+    query: String,
+}
+
+async fn forget_memories_topic(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Json(body): Json<ForgetTopicBody>,
+) -> Result<Json<ForgetTopicResponse>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let query = body.query.trim();
+    if query.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let matches = st
+        .store
+        .search_memories(query, None, 100)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let mut count = 0;
+    for m in matches {
+        if let Ok(true) = st.store.delete_memory(m.id) {
+            count += 1;
+        }
+    }
+
+    Ok(Json(ForgetTopicResponse {
+        deleted_count: count,
+        query: query.to_string(),
+    }))
+}
+
+async fn export_memories(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q_map): Query<HashMap<String, String>>,
+) -> Result<Response, StatusCode> {
+    if !st.authorized(&headers, &q_map) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let memories = st
+        .store
+        .list_memories(None, 1000)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let format = q_map.get("format").map(String::as_str).unwrap_or("json");
+    if format == "markdown" || format == "md" {
+        let mut md = String::from("# Jarvis Long-Term Memories\n\n");
+        let categories = [
+            "user_pref",
+            "project_fact",
+            "recipe",
+            "fact",
+            "past_outcome",
+        ];
+        for cat in categories {
+            let cat_items: Vec<_> = memories.iter().filter(|m| m.mem_type == cat).collect();
+            if !cat_items.is_empty() {
+                md.push_str(&format!("## {cat}\n\n"));
+                for item in cat_items {
+                    let proj = item
+                        .project
+                        .as_deref()
+                        .map(|p| format!(" (project: `{p}`)"))
+                        .unwrap_or_default();
+                    md.push_str(&format!(
+                        "- [id:{}] **(imp {})** {}{}\n",
+                        item.id, item.importance, item.text, proj
+                    ));
+                }
+                md.push('\n');
+            }
+        }
+        Ok((
+            [
+                (header::CONTENT_TYPE, "text/markdown; charset=utf-8"),
+                (
+                    header::CONTENT_DISPOSITION,
+                    "attachment; filename=\"memories.md\"",
+                ),
+            ],
+            md,
+        )
+            .into_response())
+    } else {
+        let json_str = serde_json::to_string_pretty(&memories)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        Ok((
+            [
+                (header::CONTENT_TYPE, "application/json; charset=utf-8"),
+                (
+                    header::CONTENT_DISPOSITION,
+                    "attachment; filename=\"memories.json\"",
+                ),
+            ],
+            json_str,
+        )
+            .into_response())
+    }
 }
 
 /// Copy worker events onto the bus.
@@ -345,10 +611,12 @@ mod live {
         let bus = Arc::new(Bus::default());
         let token = new_token();
         let (listener, addr) = bind(0).await.unwrap();
+        let store = Arc::new(oblivion_store::Store::in_memory().unwrap());
         let state = WebState {
             token: token.clone().into(),
             controls: controls.clone(),
             bus: bus.clone(),
+            store,
         };
         tokio::spawn(pump(events, bus));
         tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
@@ -535,5 +803,121 @@ mod live {
         );
         assert!(!controls.busy());
         assert!(!dir.path().join("x.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn memory_api_endpoints_crud_and_export() {
+        let (url, _seen) = fake_server(vec![(200, sse(&[]))]).await;
+        let dir = tempfile::tempdir().unwrap();
+        let (_w, controls, _events) = worker(&url, dir.path());
+
+        let store = Arc::new(oblivion_store::Store::in_memory().unwrap());
+        let token = new_token();
+        let (listener, addr) = bind(0).await.unwrap();
+        let bus = Arc::new(Bus::default());
+        let state = WebState {
+            token: token.clone().into(),
+            controls,
+            bus,
+            store: store.clone(),
+        };
+        tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+        let base = format!("http://{addr}");
+        let client = reqwest::Client::new();
+
+        // 1. Unauthorized request fails
+        let unauth = client
+            .get(format!("{base}/api/memory"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unauth.status(), StatusCode::UNAUTHORIZED);
+
+        // 2. Create memory
+        let create_res = client
+            .post(format!("{base}/api/memory"))
+            .header("x-oblivion-token", &token)
+            .json(&serde_json::json!({
+                "type": "user_pref",
+                "text": "User prefers dark mode",
+                "importance": 5
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(create_res.status(), StatusCode::CREATED);
+        let created: oblivion_store::Memory = create_res.json().await.unwrap();
+        assert_eq!(created.mem_type, "user_pref");
+        assert_eq!(created.text, "User prefers dark mode");
+        assert_eq!(created.importance, 5);
+
+        // 3. List memories
+        let list_res = client
+            .get(format!("{base}/api/memory"))
+            .header("x-oblivion-token", &token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(list_res.status(), StatusCode::OK);
+        let list: Vec<oblivion_store::Memory> = list_res.json().await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, created.id);
+
+        // 4. Update memory
+        let update_res = client
+            .put(format!("{base}/api/memory/{}", created.id))
+            .header("x-oblivion-token", &token)
+            .json(&serde_json::json!({
+                "text": "User prefers high contrast dark mode",
+                "importance": 4
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(update_res.status(), StatusCode::OK);
+        let updated: oblivion_store::Memory = update_res.json().await.unwrap();
+        assert_eq!(updated.text, "User prefers high contrast dark mode");
+        assert_eq!(updated.importance, 4);
+
+        // 5. Search memories
+        let search_res = client
+            .get(format!("{base}/api/memory?q=contrast"))
+            .header("x-oblivion-token", &token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(search_res.status(), StatusCode::OK);
+        let search_list: Vec<oblivion_store::Memory> = search_res.json().await.unwrap();
+        assert_eq!(search_list.len(), 1);
+
+        // 6. Export memories (Markdown & JSON)
+        let md_res = client
+            .get(format!("{base}/api/memory/export?format=markdown"))
+            .header("x-oblivion-token", &token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(md_res.status(), StatusCode::OK);
+        let md_text = md_res.text().await.unwrap();
+        assert!(md_text.contains("User prefers high contrast dark mode"));
+
+        // 7. Forget topic
+        let forget_res = client
+            .post(format!("{base}/api/memory/forget"))
+            .header("x-oblivion-token", &token)
+            .json(&serde_json::json!({"query": "contrast"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(forget_res.status(), StatusCode::OK);
+
+        // 8. Delete memory (should be 404 since forget deleted it)
+        let del_res = client
+            .delete(format!("{base}/api/memory/{}", created.id))
+            .header("x-oblivion-token", &token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(del_res.status(), StatusCode::NOT_FOUND);
     }
 }
