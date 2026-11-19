@@ -60,7 +60,7 @@ Current milestone: **Month 2 — memory and an honest desktop** · Branch: `road
 
 ## Month 3 — local models and one-file install → v1.0
 - [x] Hardware detection (RAM, GPU, VRAM) and model-size recommendation — 2026-11-19, 4e656e0, cargo test: 140 passed; clippy: 0 warnings; pytest: 67 passed; node check: clean; native Win32 RAM/disk + CIM GPU/VRAM detection & size recommendations verified
-- [x] Model manager window: list, download with progress, delete, speed test (Ollama API) — 2026-11-19, [commit_placeholder], cargo test: 148 passed; clippy: 0 warnings; pytest: 71 passed; node check: clean; Ollama API client (list, pull progress stream, delete, speed test), REST/SSE endpoints & desktop Model Manager UI verified
+- [x] Model manager window: list, download with progress, delete, speed test (Ollama API) — 2026-11-19, 3c668e2, cargo test: 148 passed; clippy: 0 warnings; pytest: 71 passed; node check: clean; Ollama API client (list, pull progress stream, delete, speed test), REST/SSE endpoints & desktop Model Manager UI verified
 - [ ] Request classes (private, simple, hard, vision, long context) and visible routing rules; "Offline" switch
 - [ ] Small-model mode: shorter prompt, fewer tools, stricter output checks (B13); eval pass rate per model recorded
 - [ ] Serve the desktop from Oblivion (axum): move templates/static into the binary; Flask optional
