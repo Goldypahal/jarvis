@@ -41,6 +41,7 @@ pub const HELP: &str = "\
 /workspace <p> change working directory for this session
 /new [path]    start a fresh session with optional folder
 /agents-md     show or update AGENTS.md project instructions
+/hardware      show system specs (RAM, GPU, VRAM) and model recommendation
 /skills        list skills; run one with /<skill-name> [request]
 /mcp           list MCP servers and their tools
 /exit          quit";
@@ -275,6 +276,28 @@ pub async fn handle_command(
                     root.display()
                 )
             }
+        }
+        "hardware" | "specs" => {
+            let hw = oblivion_core::detect_hardware();
+            let rec = oblivion_core::recommend_model(&hw);
+            let vram_str = match (hw.vram_gb, hw.is_integrated_gpu) {
+                (Some(v), true) => format!(" ({v:.1} GB, shared/integrated)"),
+                (Some(v), false) => format!(" ({v:.1} GB dedicated VRAM)"),
+                (None, _) => String::new(),
+            };
+            format!(
+                "Hardware Specs:\n  • RAM:  {:.1} GB total ({:.1} GB available)\n  • GPU:  {}{vram_str}\n  • Disk: {:.1} GB free\n\nLocal Model Recommendation:\n  • Recommended size:  {}\n  • Suggested models:  {}\n  • Quantization:      {} (~{:.1} GB needed)\n  • Fits in VRAM:      {}\n  • Trade-off:         {}",
+                hw.total_ram_gb,
+                hw.available_ram_gb,
+                hw.gpu_name,
+                hw.free_disk_gb,
+                rec.recommended_size,
+                rec.recommended_models.join(", "),
+                rec.recommended_quantization,
+                rec.estimated_ram_required_gb,
+                if rec.fits_in_vram { "Yes (fully offloaded to GPU)" } else { "No (runs in system RAM)" },
+                rec.tradeoff_explanation
+            )
         }
         other => format!("Unknown command /{other}. Try /help or /skills."),
     };

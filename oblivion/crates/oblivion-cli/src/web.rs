@@ -143,6 +143,7 @@ pub fn router(state: WebState) -> Router {
         .route("/approve", post(approve))
         .route("/cancel", post(cancel))
         .route("/api/system/dashboard", get(get_dashboard))
+        .route("/api/system/hardware", get(get_hardware))
         .route(
             "/api/system/agents-md",
             get(get_agents_md).post(apply_agents_md),
@@ -698,6 +699,10 @@ pub struct DashboardEngine {
     pub status: String,
     pub model: String,
     pub workspace: String,
+    #[serde(default)]
+    pub hardware: Option<oblivion_core::HardwareInfo>,
+    #[serde(default)]
+    pub recommendation: Option<oblivion_core::ModelRecommendation>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -769,11 +774,15 @@ async fn get_dashboard(
         "ready".to_string()
     };
 
+    let hw = oblivion_core::detect_hardware();
+    let rec = oblivion_core::recommend_model(&hw);
     let engine = DashboardEngine {
         version: env!("CARGO_PKG_VERSION").to_string(),
         status,
         model: model_label,
         workspace: workspace_path.clone(),
+        hardware: Some(hw),
+        recommendation: Some(rec),
     };
 
     let recent_files = scan_recent_files(std::path::Path::new(&workspace_path), 20);
@@ -786,6 +795,28 @@ async fn get_dashboard(
         memories_by_type,
         sessions_count,
         engine,
+    }))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HardwareResponse {
+    pub hardware: oblivion_core::HardwareInfo,
+    pub recommendation: oblivion_core::ModelRecommendation,
+}
+
+async fn get_hardware(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<HardwareResponse>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let hardware = oblivion_core::detect_hardware();
+    let recommendation = oblivion_core::recommend_model(&hardware);
+    Ok(Json(HardwareResponse {
+        hardware,
+        recommendation,
     }))
 }
 
@@ -1742,5 +1773,53 @@ mod live {
             .unwrap();
         let resp2: AgentsMdResponse = res2.json().await.unwrap();
         assert_eq!(resp2.proposed_additions.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn web_hardware_endpoint_returns_specs_and_recommendation() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(oblivion_store::Store::open(&dir.path().join("test.db")).unwrap());
+        let (url, _seen) = crate::testkit::fake_server(vec![]).await;
+        let (_worker, controls, _events) = crate::testkit::worker(&url, dir.path());
+
+        let bus = Arc::new(Bus::default());
+        let token = "test-token-hw";
+        let state = WebState {
+            token: token.into(),
+            controls,
+            bus: bus.clone(),
+            store: store.clone(),
+        };
+
+        let (listener, addr) = bind(0).await.unwrap();
+        let base = format!("http://{addr}");
+        tokio::spawn(async move {
+            axum::serve(listener, router(state)).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+
+        // 1. Unauthorized
+        let unauth = client
+            .get(format!("{base}/api/system/hardware"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unauth.status(), StatusCode::UNAUTHORIZED);
+
+        // 2. Authorized
+        let res = client
+            .get(format!("{base}/api/system/hardware"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let data: HardwareResponse = res.json().await.unwrap();
+        assert!(data.hardware.total_ram_gb > 0.0);
+        assert!(!data.hardware.gpu_name.is_empty());
+        assert!(!data.recommendation.recommended_size.is_empty());
+        assert!(!data.recommendation.recommended_models.is_empty());
+        assert!(!data.recommendation.tradeoff_explanation.is_empty());
     }
 }

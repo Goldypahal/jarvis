@@ -640,6 +640,16 @@ def register(app, bridge=None, allowed_port=None, token=None):
         code, text, ct = b.request("POST", "/api/system/agents-md/apply", body=body)
         return Response(text, status=code, mimetype=ct)
 
+    @app.route("/api/oblivion/system/hardware", methods=["GET"])
+    @app.route("/api/system/hardware", methods=["GET"])
+    def oblivion_hardware():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        code, text, ct = b.request("GET", "/api/system/hardware")
+        return Response(text, status=code, mimetype=ct)
+
     return bridge
 
 

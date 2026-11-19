@@ -59,7 +59,7 @@ Current milestone: **Month 2 — memory and an honest desktop** · Branch: `road
 - [x] 5 memory evals; milestone check — 2026-11-19, 343f4b9, cargo test: 135 passed; clippy: 0 warnings; pytest: 65 passed; node check: clean; 35 evals verified; milestone check complete
 
 ## Month 3 — local models and one-file install → v1.0
-- [ ] Hardware detection (RAM, GPU, VRAM) and model-size recommendation
+- [x] Hardware detection (RAM, GPU, VRAM) and model-size recommendation — 2026-11-19, [commit_placeholder], cargo test: 140 passed; clippy: 0 warnings; pytest: 67 passed; node check: clean; native Win32 RAM/disk + CIM GPU/VRAM detection & size recommendations verified
 - [ ] Model manager window: list, download with progress, delete, speed test (Ollama API)
 - [ ] Request classes (private, simple, hard, vision, long context) and visible routing rules; "Offline" switch
 - [ ] Small-model mode: shorter prompt, fewer tools, stricter output checks (B13); eval pass rate per model recorded

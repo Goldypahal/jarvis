@@ -492,4 +492,31 @@ function renderDashboardData(data) {
     }
     if (modelBadge) modelBadge.textContent = eng.model || 'groq:llama-3.3-70b';
     if (wsPath && eng.workspace) wsPath.textContent = eng.workspace;
+
+    // Hardware & Recommendation specs
+    const ramText = document.getElementById('engine-ram-text');
+    const gpuText = document.getElementById('engine-gpu-text');
+    const recText = document.getElementById('engine-rec-text');
+    const recSpec = document.getElementById('engine-rec-spec');
+
+    if (eng.hardware) {
+        if (ramText) {
+            ramText.textContent = `${eng.hardware.total_ram_gb} GB RAM (${eng.hardware.available_ram_gb} GB free)`;
+        }
+        if (gpuText) {
+            const vramStr = eng.hardware.vram_gb ? ` (${eng.hardware.vram_gb} GB)` : '';
+            gpuText.textContent = `${eng.hardware.gpu_name}${vramStr}`;
+        }
+    }
+    if (eng.recommendation) {
+        if (recText) {
+            const firstModel = eng.recommendation.recommended_models && eng.recommendation.recommended_models[0]
+                ? ` (${eng.recommendation.recommended_models[0]})`
+                : '';
+            recText.textContent = `Recommended: ${eng.recommendation.recommended_size}${firstModel}`;
+        }
+        if (recSpec && eng.recommendation.tradeoff_explanation) {
+            recSpec.title = eng.recommendation.tradeoff_explanation;
+        }
+    }
 }

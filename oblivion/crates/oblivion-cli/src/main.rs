@@ -80,6 +80,10 @@ struct Cli {
     #[arg(long, value_name = "PROVIDER")]
     delete_key: Option<String>,
 
+    /// Detect system hardware (RAM, GPU, VRAM) and print model recommendation, then exit.
+    #[arg(long, short = 'H')]
+    hardware: bool,
+
     /// Show today's requests and tokens per model, then exit.
     #[arg(long)]
     usage: bool,
@@ -321,6 +325,50 @@ fn enable_ansi_colors() {
 #[cfg(not(windows))]
 fn enable_ansi_colors() {}
 
+fn print_hardware() {
+    let hw = oblivion_core::detect_hardware();
+    let rec = oblivion_core::recommend_model(&hw);
+
+    println!("{BOLD}Hardware Specs{RESET}");
+    println!(
+        "  • RAM:  {:.1} GB total ({:.1} GB available)",
+        hw.total_ram_gb, hw.available_ram_gb
+    );
+    let vram_str = match (hw.vram_gb, hw.is_integrated_gpu) {
+        (Some(v), true) => format!(" ({v:.1} GB, shared/integrated)"),
+        (Some(v), false) => format!(" ({v:.1} GB dedicated VRAM)"),
+        (None, _) => String::new(),
+    };
+    println!("  • GPU:  {}{vram_str}", hw.gpu_name);
+    println!("  • Disk: {:.1} GB free", hw.free_disk_gb);
+
+    println!("\n{BOLD}Local Model Recommendation{RESET}");
+    println!(
+        "  • Recommended size:  {GREEN}{BOLD}{}{RESET}",
+        rec.recommended_size
+    );
+    println!(
+        "  • Suggested models:  {}",
+        rec.recommended_models.join(", ")
+    );
+    println!(
+        "  • Quantization:      {} (~{:.1} GB needed)",
+        rec.recommended_quantization, rec.estimated_ram_required_gb
+    );
+    println!(
+        "  • Fits in VRAM:      {}",
+        if rec.fits_in_vram {
+            "Yes (fully offloaded to GPU)"
+        } else {
+            "No (CPU/shared memory execution)"
+        }
+    );
+    println!(
+        "  • Trade-off:         {DIM}{}{RESET}",
+        rec.tradeoff_explanation
+    );
+}
+
 async fn run() -> Result<()> {
     enable_ansi_colors();
     let cli = Cli::parse();
@@ -338,6 +386,10 @@ async fn run() -> Result<()> {
 
     if cli.init {
         return init_config(&config_path);
+    }
+    if cli.hardware {
+        print_hardware();
+        return Ok(());
     }
     if let Some(p) = &cli.set_key {
         return keys::set(p);

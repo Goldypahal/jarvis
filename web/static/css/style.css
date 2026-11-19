@@ -714,6 +714,39 @@ a, button, .desktop-icon-item, .dock-app-btn, .theme-circle {
     white-space: nowrap;
 }
 
+.engine-hardware-row {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    padding: 6px 8px;
+    margin: 6px 0;
+    font-size: 0.65rem;
+    font-family: "JetBrains Mono", monospace;
+}
+
+.hw-spec-item, .hw-recommendation-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.hw-recommendation-item {
+    color: #60a5fa;
+    font-weight: 500;
+}
+
+.hw-icon {
+    font-size: 0.7rem;
+    flex-shrink: 0;
+}
+
 .engine-capabilities-list {
     display: flex;
     flex-direction: column;
