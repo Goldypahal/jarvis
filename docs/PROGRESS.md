@@ -63,7 +63,7 @@ Current milestone: **Month 2 — memory and an honest desktop** · Branch: `road
 - [x] Model manager window: list, download with progress, delete, speed test (Ollama API) — 2026-11-19, 3c668e2, cargo test: 148 passed; clippy: 0 warnings; pytest: 71 passed; node check: clean; Ollama API client (list, pull progress stream, delete, speed test), REST/SSE endpoints & desktop Model Manager UI verified
 - [x] Request classes (private, simple, hard, vision, long context) and visible routing rules; "Offline" switch — 2026-11-19, dc808df, cargo test: 154 passed; clippy: 0 warnings; pytest: 74 passed; node check: clean; request classification, router locality filtering, offline mode toggle in CLI/REST/UI, bidirectional sync & browser subagent UI test verified
 - [x] Small-model mode: shorter prompt, fewer tools, stricter output checks (B13); eval pass rate per model recorded — 2026-11-19, e1dac8e, cargo test: 168 passed; pytest: 74 passed; clippy: 0 warnings; small model detection, concise prompt (~200 tokens), core tool filtering, robust markdown/JSON repair, and eval pass rates tracking matrix
-- [ ] Serve the desktop from Oblivion (axum): move templates/static into the binary; Flask optional
+- [x] Serve the desktop from Oblivion (axum): move templates/static into the binary; Flask optional — 2026-11-19, 99dd026, cargo test: 170 passed; clippy: 0 warnings; pytest: 74 passed; node check: clean; rust-embed bundling of templates & static assets, /classic route, status/chat API parity, browser subagent live desktop UI verified across light/dark themes
 - [ ] Installer (MSI or Tauri tray app), first-run wizard, auto-start option. Code signing: BLOCKED (needs user) for a certificate
 - [ ] Measure cold start, idle RAM, eval pass rate per model; table in README
 - [ ] Milestone check (offline edit + memory answer + document summary; idle RAM < 100 MB) → tag `v1.0`
@@ -194,20 +194,21 @@ Current milestone: **Month 2 — memory and an honest desktop** · Branch: `road
 ## Notes for next session
 <!-- Surprises about the code, environment quirks, things the next session must know. -->
 - Month 3 is in progress on branch `roadmap/m3`.
-- Items 1-4 of Month 3 complete:
+- Items 1-5 of Month 3 complete:
   - Hardware detection & recommendations (4e656e0).
   - Local Model Manager with streaming pull, deletion & speed test benchmarks (3c668e2).
   - Request classes (private, simple, hard, vision, long context), visible routing rules & Offline mode switch (dc808df).
   - Small-model mode: shorter prompt (~200 tokens), core tool filtering, robust markdown/JSON argument repair, and eval pass rates tracking matrix (e1dac8e).
+  - Serve the desktop from Oblivion (axum): rust-embed bundling templates & static assets, /classic route, API aliases, browser subagent live desktop UI verified across light/dark themes.
 - Exact next item to work on:
-  "Serve the desktop from Oblivion (axum): move templates/static into the binary; Flask optional"
+  "Installer (MSI or Tauri tray app), first-run wizard, auto-start option. Code signing: BLOCKED (needs user) for a certificate"
 - Quality gates status:
-  - `cargo test --workspace`: 168 passed, 0 failed
+  - `cargo test --workspace`: 170 passed, 0 failed
   - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings
   - `cargo fmt --all`: clean
   - `python -m pytest -q tests`: 74 passed, 0 failed
   - `node --check`: clean on all static JS files
-  - UI visual verification: verified with browser subagent across light & dark themes; bidirectional offline sync working.
+  - UI visual verification: verified with browser subagent across light & dark themes; desktop and embedded static assets fully rendered on axum server with screenshot evidence.
 - Windows + PowerShell: no bash heredocs; quote paths with spaces.
 - Smart App Control has blocked Rust build scripts before; if a build fails with an
   "Application Control policy" error, mark the item BLOCKED (needs user) instead of retrying.
