@@ -947,6 +947,7 @@ async fn run_web(
         controls: controls.clone(),
         bus: bus.clone(),
         store,
+        ollama: None,
     };
     tokio::spawn(web::pump(events, bus));
     tokio::spawn(async move {

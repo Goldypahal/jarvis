@@ -111,9 +111,18 @@ pub struct WebState {
     pub controls: Controls,
     pub bus: Arc<Bus>,
     pub store: Arc<oblivion_store::Store>,
+    pub ollama: Option<Arc<oblivion_core::OllamaClient>>,
 }
 
 impl WebState {
+    pub fn ollama_client(&self) -> oblivion_core::OllamaClient {
+        if let Some(c) = &self.ollama {
+            (**c).clone()
+        } else {
+            oblivion_core::OllamaClient::new("http://localhost:11434")
+        }
+    }
+
     fn authorized(&self, headers: &HeaderMap, query: &HashMap<String, String>) -> bool {
         let given = headers
             .get("x-oblivion-token")
@@ -149,6 +158,10 @@ pub fn router(state: WebState) -> Router {
             get(get_agents_md).post(apply_agents_md),
         )
         .route("/api/system/agents-md/apply", post(apply_agents_md))
+        .route("/api/models", get(get_models))
+        .route("/api/models/pull", post(pull_model))
+        .route("/api/models/delete", post(delete_model_handler))
+        .route("/api/models/speed-test", post(speed_test_handler))
         .route(
             "/api/memory",
             get(list_or_search_memories).post(create_memory),
@@ -821,6 +834,170 @@ async fn get_hardware(
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelsResponse {
+    pub status: oblivion_core::OllamaStatus,
+    pub models: Vec<oblivion_core::OllamaModel>,
+    pub recommendation: oblivion_core::ModelRecommendation,
+}
+
+#[derive(Deserialize)]
+struct PullModelRequest {
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct DeleteModelRequest {
+    name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeleteModelResponse {
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct SpeedTestRequest {
+    model: String,
+    #[serde(default)]
+    prompt: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpeedTestResponse {
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<oblivion_core::OllamaSpeedTestResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+async fn get_models(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<ModelsResponse>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let client = st.ollama_client();
+    let status = client.check_status().await;
+    let models = if status.running {
+        client.list_models().await.unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let hardware = oblivion_core::detect_hardware();
+    let recommendation = oblivion_core::recommend_model(&hardware);
+
+    Ok(Json(ModelsResponse {
+        status,
+        models,
+        recommendation,
+    }))
+}
+
+async fn pull_model(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Json(body): Json<PullModelRequest>,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let model_name = body.name.trim();
+    if model_name.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let client = st.ollama_client();
+    let stream_res = client.pull_model_stream(model_name).await;
+    let event_stream: std::pin::Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>> =
+        match stream_res {
+            Ok(s) => Box::pin(s.map(|item| {
+                let json_str = match item {
+                    Ok(progress) => serde_json::to_string(&progress).unwrap_or_default(),
+                    Err(e) => serde_json::json!({
+                        "status": "error",
+                        "error": e.to_string()
+                    })
+                    .to_string(),
+                };
+                Ok(Event::default().data(json_str))
+            })),
+            Err(e) => {
+                let err_ev = serde_json::json!({
+                    "status": "error",
+                    "error": e.to_string()
+                });
+                Box::pin(stream::once(async move {
+                    Ok(Event::default().data(err_ev.to_string()))
+                }))
+            }
+        };
+
+    Ok(Sse::new(event_stream).keep_alive(KeepAlive::default()))
+}
+
+async fn delete_model_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Json(body): Json<DeleteModelRequest>,
+) -> Result<Json<DeleteModelResponse>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let model_name = body.name.trim();
+    if model_name.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let client = st.ollama_client();
+    match client.delete_model(model_name).await {
+        Ok(()) => Ok(Json(DeleteModelResponse {
+            status: "ok".into(),
+            message: None,
+        })),
+        Err(e) => Ok(Json(DeleteModelResponse {
+            status: "error".into(),
+            message: Some(e.to_string()),
+        })),
+    }
+}
+
+async fn speed_test_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Json(body): Json<SpeedTestRequest>,
+) -> Result<Json<SpeedTestResponse>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let model_name = body.model.trim();
+    if model_name.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let client = st.ollama_client();
+    match client.speed_test(model_name, body.prompt.as_deref()).await {
+        Ok(res) => Ok(Json(SpeedTestResponse {
+            status: "ok".into(),
+            result: Some(res),
+            error: None,
+        })),
+        Err(e) => Ok(Json(SpeedTestResponse {
+            status: "error".into(),
+            result: None,
+            error: Some(e.to_string()),
+        })),
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentsMdResponse {
     pub file: String,
     pub exists: bool,
@@ -1165,6 +1342,7 @@ mod live {
             controls: controls.clone(),
             bus: bus.clone(),
             store,
+            ollama: None,
         };
         tokio::spawn(pump(events, bus));
         tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
@@ -1368,6 +1546,7 @@ mod live {
             controls,
             bus,
             store: store.clone(),
+            ollama: None,
         };
         tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
         let base = format!("http://{addr}");
@@ -1484,6 +1663,7 @@ mod live {
             controls,
             bus,
             store: store.clone(),
+            ollama: None,
         };
 
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
@@ -1628,6 +1808,7 @@ mod live {
             controls,
             bus,
             store: store.clone(),
+            ollama: None,
         };
 
         let app = router(state);
@@ -1692,6 +1873,7 @@ mod live {
             controls,
             bus: bus.clone(),
             store: store.clone(),
+            ollama: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -1789,6 +1971,7 @@ mod live {
             controls,
             bus: bus.clone(),
             store: store.clone(),
+            ollama: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -1821,5 +2004,165 @@ mod live {
         assert!(!data.recommendation.recommended_size.is_empty());
         assert!(!data.recommendation.recommended_models.is_empty());
         assert!(!data.recommendation.tradeoff_explanation.is_empty());
+    }
+
+    #[tokio::test]
+    async fn web_models_endpoints_work() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        // 1. Mock Ollama HTTP server
+        let ollama_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let ollama_addr = ollama_listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            loop {
+                let (mut sock, _) = match ollama_listener.accept().await {
+                    Ok(c) => c,
+                    Err(_) => break,
+                };
+                tokio::spawn(async move {
+                    let mut buf = Vec::new();
+                    let mut tmp = [0u8; 4096];
+                    loop {
+                        let n = sock.read(&mut tmp).await.unwrap_or(0);
+                        if n == 0 {
+                            break;
+                        }
+                        buf.extend_from_slice(&tmp[..n]);
+                        if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                    let req = String::from_utf8_lossy(&buf);
+                    let (status, ctype, body) = if req.contains("GET /api/version") {
+                        (
+                            200,
+                            "application/json",
+                            r#"{"version":"0.5.4"}"#.to_string(),
+                        )
+                    } else if req.contains("GET /api/tags") {
+                        (200, "application/json", r#"{"models":[{"name":"qwen2.5-coder:7b","size":4683074360,"digest":"abc","details":{"parameter_size":"7.6B","quantization_level":"Q4_K_M"}}]}"#.to_string())
+                    } else if req.contains("POST /api/pull") {
+                        (
+                            200,
+                            "application/x-ndjson",
+                            "{\"status\":\"pulling manifest\"}\n{\"status\":\"success\"}\n"
+                                .to_string(),
+                        )
+                    } else if req.contains("DELETE /api/delete") {
+                        (
+                            200,
+                            "application/json",
+                            r#"{"status":"success"}"#.to_string(),
+                        )
+                    } else if req.contains("POST /api/generate") {
+                        (200, "application/json", r#"{"model":"qwen2.5-coder:7b","response":"gravity","eval_count":10,"eval_duration":500000000,"prompt_eval_count":5,"prompt_eval_duration":100000000,"load_duration":200000000,"total_duration":800000000}"#.to_string())
+                    } else {
+                        (404, "text/plain", "Not Found".to_string())
+                    };
+
+                    let resp = format!(
+                        "HTTP/1.1 {status} OK\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = sock.write_all(resp.as_bytes()).await;
+                });
+            }
+        });
+
+        let ollama_client = Arc::new(oblivion_core::OllamaClient::new(&format!(
+            "http://{ollama_addr}"
+        )));
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(oblivion_store::Store::open(&dir.path().join("test.db")).unwrap());
+        let (url, _seen) = crate::testkit::fake_server(vec![]).await;
+        let (_worker, controls, _events) = crate::testkit::worker(&url, dir.path());
+
+        let bus = Arc::new(Bus::default());
+        let token = "test-token-models";
+        let state = WebState {
+            token: token.into(),
+            controls,
+            bus: bus.clone(),
+            store: store.clone(),
+            ollama: Some(ollama_client),
+        };
+
+        let (listener, addr) = bind(0).await.unwrap();
+        let base = format!("http://{addr}");
+        tokio::spawn(async move {
+            axum::serve(listener, router(state)).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+
+        // 1. GET /api/models unauth
+        let unauth = client
+            .get(format!("{base}/api/models"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unauth.status(), StatusCode::UNAUTHORIZED);
+
+        // 2. GET /api/models auth
+        let res = client
+            .get(format!("{base}/api/models"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let data: ModelsResponse = res.json().await.unwrap();
+        assert!(data.status.running);
+        assert_eq!(data.status.version.as_deref(), Some("0.5.4"));
+        assert_eq!(data.models.len(), 1);
+        assert_eq!(data.models[0].name, "qwen2.5-coder:7b");
+        assert_eq!(data.models[0].size_formatted, "4.36 GB");
+        assert!(!data.recommendation.recommended_size.is_empty());
+
+        // 3. POST /api/models/pull auth
+        let pull_res = client
+            .post(format!("{base}/api/models/pull"))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({ "name": "qwen2.5-coder:7b" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(pull_res.status(), StatusCode::OK);
+        let pull_text = pull_res.text().await.unwrap();
+        assert!(pull_text.contains("pulling manifest"));
+        assert!(pull_text.contains("success"));
+
+        // 4. POST /api/models/delete auth
+        let del_res = client
+            .post(format!("{base}/api/models/delete"))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({ "name": "qwen2.5-coder:7b" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(del_res.status(), StatusCode::OK);
+        let del_data: DeleteModelResponse = del_res.json().await.unwrap();
+        assert_eq!(del_data.status, "ok");
+
+        // 5. POST /api/models/speed-test auth
+        let speed_res = client
+            .post(format!("{base}/api/models/speed-test"))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({ "model": "qwen2.5-coder:7b" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(speed_res.status(), StatusCode::OK);
+        let speed_data: SpeedTestResponse = speed_res.json().await.unwrap();
+        assert_eq!(speed_data.status, "ok");
+        let result = speed_data.result.unwrap();
+        assert_eq!(result.model, "qwen2.5-coder:7b");
+        assert_eq!(result.eval_count, 10);
+        assert!((result.tokens_per_second - 20.0).abs() < 0.1);
+        assert_eq!(result.sample_text, "gravity");
     }
 }

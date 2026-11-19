@@ -789,3 +789,426 @@ body[data-theme="black"] .session-card.active-session {
     border-color: #0a84ff;
     background: rgba(10, 132, 255, 0.12);
 }
+
+/* ==========================================================================
+   Model Manager Window (#modelsModal)
+   ========================================================================== */
+.models-window-frame {
+    width: 90vw;
+    max-width: 1040px;
+    height: 84vh;
+    max-height: 860px;
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid rgba(0, 0, 0, 0.15);
+    border-radius: 14px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.models-header-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.models-window-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 18px 22px;
+    gap: 16px;
+    overflow-y: auto;
+}
+
+/* Offline Alert Banner */
+.models-offline-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: rgba(255, 149, 0, 0.12);
+    border: 1px solid rgba(255, 149, 0, 0.35);
+    border-radius: 10px;
+    color: #b35900;
+}
+.models-offline-banner .banner-icon { font-size: 20px; }
+.models-offline-banner .banner-text { flex: 1; font-size: 13px; line-height: 1.4; }
+.models-offline-banner code { font-family: "JetBrains Mono", monospace; background: rgba(0, 0, 0, 0.06); padding: 1px 4px; border-radius: 4px; }
+
+/* Recommendation Box */
+.models-rec-box {
+    background: rgba(0, 122, 255, 0.05);
+    border: 1px solid rgba(0, 122, 255, 0.2);
+    border-radius: 12px;
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.models-rec-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.models-rec-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #007aff;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.models-rec-size-badge {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    font-weight: 700;
+    color: #34c759;
+    background: rgba(52, 199, 89, 0.12);
+    padding: 2px 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(52, 199, 89, 0.25);
+}
+.models-rec-specs {
+    font-size: 13px;
+    font-weight: 500;
+}
+.models-rec-tradeoff {
+    font-size: 12px;
+    color: rgba(0, 0, 0, 0.65);
+    line-height: 1.4;
+}
+.models-rec-quick-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+    flex-wrap: wrap;
+}
+.quick-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(0, 0, 0, 0.5);
+    text-transform: uppercase;
+}
+.quick-chips {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.quick-chip {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    background: rgba(0, 122, 255, 0.1);
+    color: #007aff;
+    border: 1px solid rgba(0, 122, 255, 0.3);
+    padding: 3px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+.quick-chip:hover {
+    background: #007aff;
+    color: #ffffff;
+    border-color: #007aff;
+}
+
+/* Toolbar & Pull Input */
+.models-toolbar {
+    display: flex;
+    gap: 10px;
+}
+.model-pull-form-group {
+    display: flex;
+    gap: 8px;
+    flex: 1;
+}
+.model-pull-form-group input {
+    flex: 1;
+    padding: 8px 12px;
+    font-size: 13px;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+    border-radius: 8px;
+    outline: none;
+    font-family: inherit;
+    background: rgba(0, 0, 0, 0.02);
+}
+.model-pull-form-group input:focus {
+    border-color: #007aff;
+    background: #ffffff;
+}
+
+/* Pull Progress Container */
+.model-pull-progress-container {
+    background: rgba(0, 0, 0, 0.03);
+    border: 1px solid rgba(0, 122, 255, 0.25);
+    border-radius: 10px;
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.progress-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+}
+.progress-pct-badge {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    font-weight: 700;
+    color: #007aff;
+}
+.progress-bar-track {
+    height: 7px;
+    background: rgba(0, 0, 0, 0.08);
+    border-radius: 4px;
+    overflow: hidden;
+}
+.progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #007aff, #34c759);
+    transition: width 0.2s ease;
+}
+.progress-status-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: rgba(0, 0, 0, 0.6);
+    font-family: "JetBrains Mono", monospace;
+}
+
+/* Speed Test Card */
+.model-speed-test-card {
+    background: rgba(52, 199, 89, 0.06);
+    border: 1px solid rgba(52, 199, 89, 0.3);
+    border-radius: 12px;
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.speed-test-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.speed-test-header h4 {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: #28a745;
+}
+.speed-test-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+}
+.speed-stat-box {
+    background: rgba(255, 255, 255, 0.6);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 8px;
+    padding: 10px;
+    text-align: center;
+}
+.speed-stat-val {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 16px;
+    font-weight: 700;
+    color: #1a1a1a;
+}
+.speed-stat-lbl {
+    font-size: 10px;
+    color: rgba(0, 0, 0, 0.5);
+    margin-top: 2px;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+.speed-test-sample {
+    font-size: 12px;
+    line-height: 1.4;
+    background: rgba(0, 0, 0, 0.03);
+    padding: 10px 12px;
+    border-radius: 6px;
+}
+.sample-label {
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: rgba(0, 0, 0, 0.65);
+}
+.sample-text {
+    font-style: italic;
+    color: rgba(0, 0, 0, 0.85);
+}
+
+/* Models Cards List */
+.models-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+    padding-bottom: 8px;
+}
+.models-section-header h4 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 700;
+}
+.models-cards-container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.model-card {
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 10px;
+    padding: 12px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    transition: all 0.15s ease;
+}
+.model-card:hover {
+    border-color: rgba(0, 122, 255, 0.4);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+.model-info-col {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.model-name-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.model-name {
+    font-size: 14px;
+    font-weight: 600;
+    font-family: "JetBrains Mono", monospace;
+}
+.model-tag {
+    font-size: 10px;
+    font-family: "JetBrains Mono", monospace;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.06);
+    color: rgba(0, 0, 0, 0.7);
+}
+.model-meta-row {
+    display: flex;
+    gap: 12px;
+    font-size: 11px;
+    color: rgba(0, 0, 0, 0.5);
+    font-family: "JetBrains Mono", monospace;
+}
+.model-actions-col {
+    display: flex;
+    gap: 6px;
+}
+
+/* Dark Theme Adjustments */
+body[data-theme="black"] .models-window-frame {
+    background: rgba(22, 22, 24, 0.95);
+    border-color: rgba(255, 255, 255, 0.15);
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.7);
+}
+body[data-theme="black"] .models-offline-banner {
+    background: rgba(255, 149, 0, 0.1);
+    border-color: rgba(255, 149, 0, 0.3);
+    color: #ff9f0a;
+}
+body[data-theme="black"] .models-offline-banner code {
+    background: rgba(255, 255, 255, 0.1);
+}
+body[data-theme="black"] .models-rec-box {
+    background: rgba(10, 132, 255, 0.08);
+    border-color: rgba(10, 132, 255, 0.25);
+}
+body[data-theme="black"] .models-rec-title {
+    color: #0a84ff;
+}
+body[data-theme="black"] .models-rec-tradeoff {
+    color: rgba(255, 255, 255, 0.65);
+}
+body[data-theme="black"] .quick-label {
+    color: rgba(255, 255, 255, 0.45);
+}
+body[data-theme="black"] .quick-chip {
+    background: rgba(10, 132, 255, 0.12);
+    color: #0a84ff;
+    border-color: rgba(10, 132, 255, 0.3);
+}
+body[data-theme="black"] .model-pull-form-group input {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+}
+body[data-theme="black"] .model-pull-form-group input:focus {
+    border-color: #0a84ff;
+    background: rgba(255, 255, 255, 0.1);
+}
+body[data-theme="black"] .model-pull-progress-container {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(10, 132, 255, 0.3);
+}
+body[data-theme="black"] .progress-bar-track {
+    background: rgba(255, 255, 255, 0.1);
+}
+body[data-theme="black"] .progress-status-row {
+    color: rgba(255, 255, 255, 0.6);
+}
+body[data-theme="black"] .model-speed-test-card {
+    background: rgba(48, 209, 88, 0.08);
+    border-color: rgba(48, 209, 88, 0.3);
+}
+body[data-theme="black"] .speed-stat-box {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.08);
+}
+body[data-theme="black"] .speed-stat-val {
+    color: #ffffff;
+}
+body[data-theme="black"] .speed-stat-lbl {
+    color: rgba(255, 255, 255, 0.5);
+}
+body[data-theme="black"] .speed-test-sample {
+    background: rgba(255, 255, 255, 0.04);
+}
+body[data-theme="black"] .sample-label {
+    color: rgba(255, 255, 255, 0.6);
+}
+body[data-theme="black"] .sample-text {
+    color: rgba(255, 255, 255, 0.85);
+}
+body[data-theme="black"] .models-section-header {
+    border-color: rgba(255, 255, 255, 0.1);
+}
+body[data-theme="black"] .model-card {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.08);
+}
+body[data-theme="black"] .model-card:hover {
+    border-color: rgba(10, 132, 255, 0.4);
+    background: rgba(255, 255, 255, 0.06);
+}
+body[data-theme="black"] .model-tag {
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.7);
+}
+body[data-theme="black"] .model-meta-row {
+    color: rgba(255, 255, 255, 0.5);
+}
+

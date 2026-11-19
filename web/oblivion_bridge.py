@@ -33,7 +33,15 @@ START_TIMEOUT = 60  # seconds; the first start can be slow while Windows scans t
 
 def default_binary():
     name = "oblivion.exe" if os.name == "nt" else "oblivion"
-    return os.path.join(JARVIS_ROOT, "oblivion", "target", "release", name)
+    rel = os.path.join(JARVIS_ROOT, "oblivion", "target", "release", name)
+    deb = os.path.join(JARVIS_ROOT, "oblivion", "target", "debug", name)
+    if os.path.isfile(deb) and os.path.isfile(rel):
+        if os.path.getmtime(deb) > os.path.getmtime(rel):
+            return deb
+        return rel
+    if os.path.isfile(deb):
+        return deb
+    return rel
 
 
 class OblivionBridge:
@@ -136,7 +144,9 @@ class OblivionBridge:
     def request(self, method, path, body=None, params=None):
         """Forward an HTTP request to Oblivion. Returns (status_code, text, content_type)."""
         if not self.running():
-            return 503, "Oblivion is not running", "text/plain"
+            self.start()
+            if not self.running():
+                return 503, "Oblivion is not running", "text/plain"
         import urllib.parse
 
         url_path = path
@@ -648,6 +658,67 @@ def register(app, bridge=None, allowed_port=None, token=None):
             return sec
         b = get_bridge()
         code, text, ct = b.request("GET", "/api/system/hardware")
+        return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/models", methods=["GET"])
+    @app.route("/api/models", methods=["GET"])
+    def oblivion_models():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        code, text, ct = b.request("GET", "/api/models")
+        return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/models/pull", methods=["POST"])
+    @app.route("/api/models/pull", methods=["POST"])
+    def oblivion_models_pull():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        body = request.get_json(silent=True) or {}
+        req_body = json.dumps(body).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        if b.token:
+            headers["x-oblivion-token"] = b.token
+
+        def stream():
+            try:
+                conn = http.client.HTTPConnection("127.0.0.1", b.port, timeout=3600)
+                conn.request("POST", "/api/models/pull", body=req_body, headers=headers)
+                resp = conn.getresponse()
+                while True:
+                    chunk = resp.read(1024)
+                    if not chunk:
+                        break
+                    yield chunk
+                conn.close()
+            except Exception as e:
+                yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n".encode("utf-8")
+
+        return Response(stream(), mimetype="text/event-stream")
+
+    @app.route("/api/oblivion/models/delete", methods=["POST"])
+    @app.route("/api/models/delete", methods=["POST"])
+    def oblivion_models_delete():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        body = request.get_json(silent=True)
+        code, text, ct = b.request("POST", "/api/models/delete", body=body)
+        return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/models/speed-test", methods=["POST"])
+    @app.route("/api/models/speed-test", methods=["POST"])
+    def oblivion_models_speed_test():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        body = request.get_json(silent=True)
+        code, text, ct = b.request("POST", "/api/models/speed-test", body=body)
         return Response(text, status=code, mimetype=ct)
 
     return bridge

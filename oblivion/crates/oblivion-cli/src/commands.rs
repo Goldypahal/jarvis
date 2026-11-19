@@ -42,6 +42,7 @@ pub const HELP: &str = "\
 /new [path]    start a fresh session with optional folder
 /agents-md     show or update AGENTS.md project instructions
 /hardware      show system specs (RAM, GPU, VRAM) and model recommendation
+/ollama        manage local models (list, pull <name>, delete <name>, test <name>)
 /skills        list skills; run one with /<skill-name> [request]
 /mcp           list MCP servers and their tools
 /exit          quit";
@@ -298,6 +299,118 @@ pub async fn handle_command(
                 if rec.fits_in_vram { "Yes (fully offloaded to GPU)" } else { "No (runs in system RAM)" },
                 rec.tradeoff_explanation
             )
+        }
+        "ollama" | "local-models" => {
+            let client = oblivion_core::OllamaClient::new("http://localhost:11434");
+            let status = client.check_status().await;
+            if !status.running {
+                let err = status.error.unwrap_or_else(|| "cannot connect".into());
+                format!(
+                    "Ollama is not running at {} ({err}).\nInstall or start Ollama (`ollama serve`) to run local models.",
+                    client.endpoint()
+                )
+            } else {
+                let parts: Vec<&str> = arg.split_whitespace().collect();
+                match parts.first().copied().unwrap_or("") {
+                    "" | "list" => match client.list_models().await {
+                        Ok(models) if models.is_empty() => {
+                            "Ollama is running, but no local models are installed yet. Try `/ollama pull <name>` (e.g. `/ollama pull qwen2.5-coder:7b`).".to_string()
+                        }
+                        Ok(models) => {
+                            let mut lines = vec![format!(
+                                "Local models in Ollama (version {}):",
+                                status.version.unwrap_or_else(|| "unknown".into())
+                            )];
+                            for m in models {
+                                let param = m
+                                    .details
+                                    .as_ref()
+                                    .and_then(|d| d.parameter_size.clone())
+                                    .unwrap_or_else(|| "?".into());
+                                let quant = m
+                                    .details
+                                    .as_ref()
+                                    .and_then(|d| d.quantization_level.clone())
+                                    .unwrap_or_default();
+                                lines.push(format!(
+                                    "  • {:<24} {:>8}  {:<6} {:<8}",
+                                    m.name, m.size_formatted, param, quant
+                                ));
+                            }
+                            lines.join("\n")
+                        }
+                        Err(e) => format!("Failed to list Ollama models: {e}"),
+                    },
+                    "pull" => {
+                        let name = parts.get(1).copied().unwrap_or("");
+                        if name.is_empty() {
+                            "Usage: /ollama pull <model-name> (e.g. /ollama pull qwen2.5-coder:7b)"
+                                .to_string()
+                        } else {
+                            match client.pull_model_stream(name).await {
+                                Ok(mut stream) => {
+                                    use futures_util::StreamExt;
+                                    let mut last_status = String::new();
+                                    while let Some(item) = stream.next().await {
+                                        match item {
+                                            Ok(p) => {
+                                                if let Some(pct) = p.percent {
+                                                    last_status = format!("{}: {:.1}%", p.status, pct);
+                                                } else {
+                                                    last_status = p.status;
+                                                }
+                                            }
+                                            Err(e) => {
+                                                return Ok(Command::Done(format!("Pull failed: {e}")));
+                                            }
+                                        }
+                                    }
+                                    format!("Successfully pulled {name}. Status: {last_status}")
+                                }
+                                Err(e) => format!("Failed to start pull for {name}: {e}"),
+                            }
+                        }
+                    }
+                    "delete" | "rm" => {
+                        let name = parts.get(1).copied().unwrap_or("");
+                        if name.is_empty() {
+                            "Usage: /ollama delete <model-name>".to_string()
+                        } else {
+                            match client.delete_model(name).await {
+                                Ok(()) => format!("Deleted model {name} from Ollama."),
+                                Err(e) => format!("Failed to delete {name}: {e}"),
+                            }
+                        }
+                    }
+                    "test" | "benchmark" => {
+                        let name = parts.get(1).copied().unwrap_or("");
+                        if name.is_empty() {
+                            "Usage: /ollama test <model-name>".to_string()
+                        } else {
+                            match client.speed_test(name, None).await {
+                                Ok(res) => {
+                                    format!(
+                                        "Speed test for {name}:\n  • Generation speed:    {:.1} tokens/sec ({} tokens in {:.0}ms)\n  • Prompt evaluation:   {:.1} tokens/sec ({} tokens in {:.0}ms)\n  • Model load duration: {:.0}ms\n  • Total roundtrip:     {:.0}ms\n  • Output sample:       {}",
+                                        res.tokens_per_second,
+                                        res.eval_count,
+                                        res.eval_duration_ms,
+                                        res.prompt_eval_tokens_per_second,
+                                        res.prompt_eval_count,
+                                        res.prompt_eval_duration_ms,
+                                        res.load_duration_ms,
+                                        res.total_duration_ms,
+                                        res.sample_text
+                                    )
+                                }
+                                Err(e) => format!("Failed to run speed test on {name}: {e}"),
+                            }
+                        }
+                    }
+                    other => format!(
+                        "Unknown /ollama subcommand '{other}'. Try /ollama list, /ollama pull <name>, /ollama delete <name>, /ollama test <name>"
+                    ),
+                }
+            }
         }
         other => format!("Unknown command /{other}. Try /help or /skills."),
     };

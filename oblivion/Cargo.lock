@@ -2084,6 +2084,7 @@ dependencies = [
  "futures-util",
  "oblivion-providers",
  "oblivion-tools",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tempfile",

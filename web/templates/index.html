@@ -254,6 +254,7 @@
                     <div class="hw-spec-item" id="engine-gpu-spec"><span class="hw-icon">🎮</span> <span id="engine-gpu-text">-- GPU</span></div>
                     <div class="hw-recommendation-item" id="engine-rec-spec"><span class="hw-icon">⚡</span> <span id="engine-rec-text">Recommended: --</span></div>
                 </div>
+                <button class="widget-action-btn" id="open-models-widget-btn" style="margin-top: 6px;">Manage Local Models (Ctrl+L) →</button>
                 <div class="engine-capabilities-list">
                     <div class="cap-item"><span>Sandboxed Tools</span> <span class="cap-badge active">active</span></div>
                     <div class="cap-item"><span>Long-Term Memory</span> <span class="cap-badge active">active</span></div>
@@ -288,6 +289,9 @@
                     </button>
                     <button class="dock-app-btn" id="open-sessions-dock-btn" title="Sessions Manager (Ctrl+S)" data-action="sessions">
                         <div class="app-icon session-dock-icon">🗂️</div>
+                    </button>
+                    <button class="dock-app-btn" id="open-models-dock-btn" title="Model Manager (Ollama) (Ctrl+L)" data-action="models">
+                        <div class="app-icon model-dock-icon">🤖</div>
                     </button>
                     
                     <!-- Chat Icon (Oblivion Assistant) -->
@@ -585,6 +589,126 @@
     </div>
 
     <!-- ==========================================================================
+         5e. Local Model Manager Window Modal (#modelsModal) (Ollama API)
+         ========================================================================== -->
+    <div id="modelsModal" class="split-modal-overlay">
+        <div class="split-window-frame models-window-frame">
+            <!-- Header Bar -->
+            <div class="split-frame-header">
+                <div class="traffic-lights">
+                    <button class="tl tl-close" id="close-models-modal-btn" title="Close"></button>
+                    <button class="tl tl-min" title="Minimize"></button>
+                    <button class="tl tl-max" title="Maximize"></button>
+                </div>
+                <div class="split-frame-title">🤖 LOCAL MODEL MANAGER (OLLAMA)</div>
+                <div class="models-header-actions">
+                    <span id="models-status-badge" class="split-frame-badge">checking status...</span>
+                    <span id="models-count-badge" class="split-frame-badge">0 models</span>
+                </div>
+            </div>
+
+            <!-- Model Manager Window Body -->
+            <div class="models-window-body">
+                <!-- Offline / Not Running Alert (hidden when online) -->
+                <div id="models-offline-banner" class="models-offline-banner" style="display: none;">
+                    <div class="banner-icon">⚠️</div>
+                    <div class="banner-text">
+                        <strong>Ollama daemon is not detected</strong> at <code id="models-endpoint-lbl">http://localhost:11434</code>.
+                        <span>Start Ollama (<code>ollama serve</code>) or install it from <a href="https://ollama.com" target="_blank" rel="noopener">ollama.com</a> to download and run local models completely offline.</span>
+                    </div>
+                    <button id="models-retry-btn" class="mem-btn-sm">Retry Connection</button>
+                </div>
+
+                <!-- Hardware Recommendation & Quick Download Bar -->
+                <div class="models-rec-box" id="models-rec-box">
+                    <div class="models-rec-header">
+                        <div class="models-rec-title">
+                            <span class="rec-icon">⚡</span>
+                            <span>HARDWARE OPTIMIZATION &amp; RECOMMENDATION</span>
+                        </div>
+                        <span class="models-rec-size-badge" id="models-rec-size-badge">--</span>
+                    </div>
+                    <div class="models-rec-specs" id="models-rec-specs-text">
+                        Detecting hardware specs...
+                    </div>
+                    <div class="models-rec-tradeoff" id="models-rec-tradeoff-text"></div>
+                    <div class="models-rec-quick-actions">
+                        <span class="quick-label">Quick Download:</span>
+                        <div class="quick-chips" id="models-quick-chips">
+                            <!-- Populated with quick-pick chips based on recommendation -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Download / Pull Toolbar -->
+                <div class="models-toolbar">
+                    <div class="model-pull-form-group">
+                        <input type="text" id="model-pull-input" placeholder="Enter model name (e.g. qwen2.5-coder:7b, llama3.2:3b, deepseek-r1:7b)..." autocomplete="off">
+                        <button id="model-pull-btn" class="mem-btn mem-btn-primary">Download Model</button>
+                    </div>
+                </div>
+
+                <!-- Live Download Progress Card -->
+                <div id="model-pull-progress-container" class="model-pull-progress-container" style="display: none;">
+                    <div class="progress-header">
+                        <div class="progress-title-row">
+                            <span class="progress-spinner">⏳</span>
+                            <span id="model-pull-model-name" class="progress-model-name">Pulling model...</span>
+                        </div>
+                        <span id="model-pull-pct-text" class="progress-pct-badge">0%</span>
+                    </div>
+                    <div class="progress-bar-track">
+                        <div id="model-pull-progress-fill" class="progress-bar-fill" style="width: 0%;"></div>
+                    </div>
+                    <div class="progress-status-row">
+                        <span id="model-pull-status-text" class="progress-status-text">Connecting to Ollama library...</span>
+                        <span id="model-pull-bytes-text" class="progress-bytes-text"></span>
+                    </div>
+                </div>
+
+                <!-- Speed Test / Benchmark Result Card (shown after running a test) -->
+                <div id="model-speed-test-card" class="model-speed-test-card" style="display: none;">
+                    <div class="speed-test-header">
+                        <h4>⚡ SPEED TEST BENCHMARK</h4>
+                        <button id="close-speed-test-card-btn" class="editor-close-btn" type="button">✕</button>
+                    </div>
+                    <div class="speed-test-grid">
+                        <div class="speed-stat-box">
+                            <div class="speed-stat-val" id="st-tok-per-sec">-- tok/s</div>
+                            <div class="speed-stat-lbl">Generation Speed</div>
+                        </div>
+                        <div class="speed-stat-box">
+                            <div class="speed-stat-val" id="st-prompt-tok-per-sec">-- tok/s</div>
+                            <div class="speed-stat-lbl">Prompt Eval Speed</div>
+                        </div>
+                        <div class="speed-stat-box">
+                            <div class="speed-stat-val" id="st-load-time">-- ms</div>
+                            <div class="speed-stat-lbl">Model Load Time</div>
+                        </div>
+                        <div class="speed-stat-box">
+                            <div class="speed-stat-val" id="st-total-time">-- ms</div>
+                            <div class="speed-stat-lbl">Total Roundtrip</div>
+                        </div>
+                    </div>
+                    <div class="speed-test-sample">
+                        <div class="sample-label">Sample Output from <span id="st-model-name">model</span>:</div>
+                        <div class="sample-text" id="st-sample-text"></div>
+                    </div>
+                </div>
+
+                <!-- Installed Models Header & Cards Container -->
+                <div class="models-section-header">
+                    <h4>Installed Local Models</h4>
+                    <button id="models-refresh-btn" class="mem-btn-sm" title="Refresh local models">🔄 Refresh</button>
+                </div>
+                <div class="models-cards-container" id="models-cards-container">
+                    <!-- Populated dynamically by models.js -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================================================
          6. Oblivion panel (slides in from the right; see static/js/oblivion.js)
          ========================================================================== -->
     <aside id="ob-panel" class="ob-panel" aria-label="Oblivion assistant" aria-hidden="true">
@@ -629,5 +753,6 @@
     <script src="/static/js/memory.js"></script>
     <script src="/static/js/sessions.js"></script>
     <script src="/static/js/files.js"></script>
+    <script src="/static/js/models.js"></script>
 </body>
 </html>

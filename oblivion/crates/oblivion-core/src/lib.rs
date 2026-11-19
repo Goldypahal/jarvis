@@ -6,6 +6,7 @@ pub mod compact;
 pub mod config;
 pub mod extract;
 pub mod hardware;
+pub mod ollama;
 pub mod prompt;
 pub mod rules;
 pub mod session;
@@ -19,6 +20,10 @@ pub use extract::{
     RecallFuture,
 };
 pub use hardware::{detect_hardware, recommend_model, HardwareInfo, ModelRecommendation};
+pub use ollama::{
+    format_bytes, OllamaClient, OllamaModel, OllamaModelDetails, OllamaPullProgress,
+    OllamaSpeedTestResult, OllamaStatus,
+};
 pub use rules::Rules;
 pub use session::{JsonDir, Session, SessionInfo, SessionStore};
 pub use subagent::SubagentFactory;
