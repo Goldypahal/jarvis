@@ -26,6 +26,11 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use crate::app::{Controls, UiEvent};
 
 const PAGE: &str = include_str!("../web/index.html");
+const DESKTOP_PAGE: &str = include_str!("../../../../web/templates/index.html");
+
+#[derive(rust_embed::RustEmbed)]
+#[folder = "../../../web/static/"]
+pub struct StaticAssets;
 /// Events kept for pages that connect later (streamed text is merged first).
 const HISTORY_LIMIT: usize = 4_000;
 
@@ -127,11 +132,126 @@ impl WebState {
     fn authorized(&self, headers: &HeaderMap, query: &HashMap<String, String>) -> bool {
         let given = headers
             .get("x-oblivion-token")
+            .or_else(|| headers.get("x-jarvis-token"))
             .and_then(|v| v.to_str().ok())
             .or(query.get("t").map(String::as_str))
             .unwrap_or("");
         constant_time_eq(given.as_bytes(), self.token.as_bytes())
     }
+}
+
+fn content_type(path: &str) -> &'static str {
+    if path.ends_with(".css") {
+        "text/css; charset=utf-8"
+    } else if path.ends_with(".js") {
+        "application/javascript; charset=utf-8"
+    } else if path.ends_with(".ttf") {
+        "font/ttf"
+    } else if path.ends_with(".woff2") {
+        "font/woff2"
+    } else if path.ends_with(".woff") {
+        "font/woff"
+    } else if path.ends_with(".html") {
+        "text/html; charset=utf-8"
+    } else if path.ends_with(".json") {
+        "application/json"
+    } else if path.ends_with(".png") {
+        "image/png"
+    } else if path.ends_with(".svg") {
+        "image/svg+xml"
+    } else {
+        "application/octet-stream"
+    }
+}
+
+async fn static_file(Path(path): Path<String>) -> Response {
+    let clean = path.replace('\\', "/");
+    let clean = clean.trim_start_matches('/');
+    match StaticAssets::get(clean) {
+        Some(content) => {
+            let mime = content_type(clean);
+            (
+                [
+                    (header::CONTENT_TYPE, mime),
+                    (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+                ],
+                content.data,
+            )
+                .into_response()
+        }
+        None => (StatusCode::NOT_FOUND, "Static file not found").into_response(),
+    }
+}
+
+#[derive(Serialize)]
+struct StatusResponse {
+    running: bool,
+    port: u16,
+    error: Option<String>,
+}
+
+async fn get_status(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    if !st.authorized(&headers, &q) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        )
+            .into_response();
+    }
+    (
+        StatusCode::OK,
+        Json(StatusResponse {
+            running: true,
+            port: 7878,
+            error: None,
+        }),
+    )
+        .into_response()
+}
+
+#[derive(Deserialize)]
+struct ChatBody {
+    #[serde(default)]
+    message: String,
+    #[serde(default)]
+    text: String,
+}
+
+async fn chat_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Json(body): Json<ChatBody>,
+) -> impl IntoResponse {
+    if !st.authorized(&headers, &q) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        )
+            .into_response();
+    }
+    let msg = if !body.message.is_empty() {
+        body.message
+    } else {
+        body.text
+    };
+    if msg.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "empty message"})),
+        )
+            .into_response();
+    }
+    st.controls.send(msg);
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({"response": "Message sent to agent"})),
+    )
+        .into_response()
 }
 
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
@@ -147,56 +267,129 @@ pub fn new_token() -> String {
 
 pub fn router(state: WebState) -> Router {
     Router::new()
+        // Page and static assets
         .route("/", get(page))
+        .route("/classic", get(classic_page))
+        .route("/static/{*path}", get(static_file))
+        // Live stream and controls
         .route("/events", get(events))
+        .route("/api/oblivion/events", get(events))
         .route("/send", post(send))
+        .route("/api/oblivion/send", post(send))
+        .route("/api/oblivion/input", post(send))
         .route("/approve", post(approve))
+        .route("/api/oblivion/approve", post(approve))
         .route("/cancel", post(cancel))
+        .route("/api/oblivion/cancel", post(cancel))
+        .route("/api/oblivion/start", post(get_status).get(get_status))
+        .route("/api/oblivion/status", get(get_status))
+        .route("/api/chat", post(chat_handler))
+        // System & dashboard
         .route("/api/system/dashboard", get(get_dashboard))
+        .route("/api/oblivion/dashboard", get(get_dashboard))
         .route("/api/system/hardware", get(get_hardware))
+        .route("/api/oblivion/system/hardware", get(get_hardware))
         .route(
             "/api/system/agents-md",
             get(get_agents_md).post(apply_agents_md),
         )
+        .route(
+            "/api/oblivion/system/agents-md",
+            get(get_agents_md).post(apply_agents_md),
+        )
         .route("/api/system/agents-md/apply", post(apply_agents_md))
+        .route(
+            "/api/oblivion/system/agents-md/apply",
+            post(apply_agents_md),
+        )
+        // Models & routing
         .route("/api/models", get(get_models))
+        .route("/api/oblivion/models", get(get_models))
         .route("/api/models/pull", post(pull_model))
+        .route("/api/oblivion/models/pull", post(pull_model))
         .route("/api/models/delete", post(delete_model_handler))
+        .route("/api/oblivion/models/delete", post(delete_model_handler))
         .route("/api/models/speed-test", post(speed_test_handler))
+        .route("/api/oblivion/models/speed-test", post(speed_test_handler))
         .route("/api/routing", get(get_routing).post(update_routing))
+        .route(
+            "/api/oblivion/routing",
+            get(get_routing).post(update_routing),
+        )
+        // Memory
         .route(
             "/api/memory",
             get(list_or_search_memories).post(create_memory),
         )
+        .route(
+            "/api/oblivion/memory",
+            get(list_or_search_memories).post(create_memory),
+        )
         .route("/api/memory/{id}", put(update_memory).delete(delete_memory))
+        .route(
+            "/api/oblivion/memory/{id}",
+            put(update_memory).delete(delete_memory),
+        )
         .route("/api/memory/forget", post(forget_memories_topic))
+        .route("/api/oblivion/memory/forget", post(forget_memories_topic))
         .route("/api/memory/export", get(export_memories))
+        .route("/api/oblivion/memory/export", get(export_memories))
+        // Sessions
         .route(
             "/api/sessions",
+            get(list_or_search_sessions).post(create_or_switch_session),
+        )
+        .route(
+            "/api/oblivion/sessions",
             get(list_or_search_sessions).post(create_or_switch_session),
         )
         .route(
             "/api/sessions/{id}",
             get(get_session).delete(delete_session),
         )
+        .route(
+            "/api/oblivion/sessions/{id}",
+            get(get_session).delete(delete_session),
+        )
         .route("/api/sessions/{id}/rename", post(rename_session))
+        .route("/api/oblivion/sessions/{id}/rename", post(rename_session))
         .route("/api/sessions/{id}/resume", post(resume_session))
+        .route("/api/oblivion/sessions/{id}/resume", post(resume_session))
         .route(
             "/api/sessions/{id}/workspace",
+            post(update_session_workspace),
+        )
+        .route(
+            "/api/oblivion/sessions/{id}/workspace",
             post(update_session_workspace),
         )
         .with_state(state)
 }
 
-async fn page() -> Response {
+async fn page(State(st): State<WebState>) -> Response {
+    let html = DESKTOP_PAGE.replace("{{ jarvis_token }}", &st.token);
     (
         [
             (header::CONTENT_TYPE, "text/html; charset=utf-8"),
             (header::CACHE_CONTROL, "no-store"),
-            // The page only talks to this server; no outside scripts, frames or images.
             (
                 header::CONTENT_SECURITY_POLICY,
-                "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'",
+                "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https:; connect-src 'self' https:; frame-ancestors 'none'",
+            ),
+        ],
+        Html(html),
+    )
+        .into_response()
+}
+
+async fn classic_page() -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-store"),
+            (
+                header::CONTENT_SECURITY_POLICY,
+                "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'",
             ),
         ],
         Html(PAGE),
@@ -1456,7 +1649,11 @@ mod live {
             .to_str()
             .unwrap()
             .contains("default-src 'self'"));
-        assert!(page
+        let page_text = page.text().await.unwrap();
+        assert!(page_text.contains("<title>Jarvis - Executive Desktop</title>"));
+
+        let classic_page = http.get(format!("{base}/classic")).send().await.unwrap();
+        assert!(classic_page
             .text()
             .await
             .unwrap()
@@ -2380,5 +2577,123 @@ mod live {
         assert_eq!(post_res2.status(), StatusCode::OK);
         let updated2: RoutingResponse = post_res2.json().await.unwrap();
         assert!(!updated2.offline);
+    }
+
+    #[tokio::test]
+    async fn web_serves_desktop_and_embedded_static_assets() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(oblivion_store::Store::open(&dir.path().join("test.db")).unwrap());
+        let (url, _seen) = crate::testkit::fake_server(vec![]).await;
+        let (_worker, controls, _events) = crate::testkit::worker(&url, dir.path());
+
+        let bus = Arc::new(Bus::default());
+        let token = "test-token-embedded-desktop";
+        let state = WebState {
+            token: token.into(),
+            controls,
+            bus: bus.clone(),
+            store: store.clone(),
+            ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
+        };
+
+        let (listener, addr) = bind(0).await.unwrap();
+        let base = format!("http://{addr}");
+        tokio::spawn(async move {
+            axum::serve(listener, router(state)).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+
+        // 1. Root desktop page GET /
+        let res = client.get(format!("{base}/")).send().await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(
+            res.headers().get("content-type").unwrap(),
+            "text/html; charset=utf-8"
+        );
+        let html = res.text().await.unwrap();
+        assert!(html.contains("<title>Jarvis - Executive Desktop</title>"));
+        // Check jarvis token replacement
+        assert!(html.contains(token));
+        assert!(!html.contains("{{ jarvis_token }}"));
+
+        // 2. Classic Oblivion page GET /classic
+        let res_classic = client.get(format!("{base}/classic")).send().await.unwrap();
+        assert_eq!(res_classic.status(), StatusCode::OK);
+        let classic_html = res_classic.text().await.unwrap();
+        assert!(classic_html.contains("<title>Oblivion</title>"));
+
+        // 3. Embedded static assets: CSS
+        let res_css = client
+            .get(format!("{base}/static/css/style.css"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res_css.status(), StatusCode::OK);
+        assert_eq!(
+            res_css.headers().get("content-type").unwrap(),
+            "text/css; charset=utf-8"
+        );
+        let css = res_css.text().await.unwrap();
+        assert!(css.contains("--bg-desktop"));
+
+        // 4. Embedded static assets: JS
+        let res_js = client
+            .get(format!("{base}/static/js/app.js"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res_js.status(), StatusCode::OK);
+        assert_eq!(
+            res_js.headers().get("content-type").unwrap(),
+            "application/javascript; charset=utf-8"
+        );
+        let js = res_js.text().await.unwrap();
+        assert!(js.contains("document.addEventListener"));
+
+        // 5. Embedded fonts
+        let res_font = client
+            .get(format!("{base}/static/fonts/JetBrainsMono-400-normal.ttf"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res_font.status(), StatusCode::OK);
+        assert_eq!(res_font.headers().get("content-type").unwrap(), "font/ttf");
+        let bytes = res_font.bytes().await.unwrap();
+        assert!(!bytes.is_empty());
+
+        // 6. Nonexistent static asset -> 404
+        let res_404 = client
+            .get(format!("{base}/static/nonexistent-file.xyz"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res_404.status(), StatusCode::NOT_FOUND);
+
+        // 7. Desktop status endpoint with x-jarvis-token
+        let status_res = client
+            .get(format!("{base}/api/oblivion/status"))
+            .header("x-jarvis-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(status_res.status(), StatusCode::OK);
+        let status_json: serde_json::Value = status_res.json().await.unwrap();
+        assert_eq!(status_json["running"], true);
+
+        // 8. Desktop chat endpoint with x-jarvis-token
+        let chat_res = client
+            .post(format!("{base}/api/chat"))
+            .header("x-jarvis-token", token)
+            .json(&serde_json::json!({ "message": "hello from desktop test" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(chat_res.status(), StatusCode::OK);
+        let chat_json: serde_json::Value = chat_res.json().await.unwrap();
+        assert_eq!(chat_json["response"], "Message sent to agent");
     }
 }

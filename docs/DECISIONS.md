@@ -13,3 +13,4 @@ reopen an entry without a new reason.
   is configured; the "Offline" switch forces local models only.
 - **2026-11-17 · Autopilot.** The coding agent works through `PROGRESS.md` without asking,
   within the limits in `.agents/rules/autopilot.md`. Merges to `main` only at milestones.
+- **2026-11-19 · Desktop template and static assets embedded directly in Axum binary with rust-embed.** Eliminates runtime Python or Flask requirement for the executive desktop interface. Zero external file dependencies for web serving; secret token injected into embedded HTML at runtime; classic chat remains accessible via `/classic`. Reverse: remove `rust-embed` and revert `page` handler in `crates/oblivion-cli/src/web.rs`.
