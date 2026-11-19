@@ -45,6 +45,7 @@ pub const HELP: &str = "\
 /ollama        manage local models (list, pull <name>, delete <name>, test <name>)
 /offline [on|off] toggle or show offline mode (forces local models only)
 /routing       show request classification rules and target priorities
+/small-model [on|off] toggle or show small-model mode (short prompt, core tools, strict repair)
 /skills        list skills; run one with /<skill-name> [request]
 /mcp           list MCP servers and their tools
 /exit          quit";
@@ -453,6 +454,33 @@ pub async fn handle_command(
                 rules.simple.join(", ")
             )
         }
+        "small-model" | "small" => match arg {
+            "on" | "true" | "enable" | "1" => {
+                agent.small_model = true;
+                "Small-model mode enabled (compact system prompt, core tools only, robust argument repair).".to_string()
+            }
+            "off" | "false" | "disable" | "0" => {
+                agent.small_model = false;
+                "Small-model mode disabled (full prompt and all tools active).".to_string()
+            }
+            "" => {
+                let status = if agent.is_small_model_active() {
+                    if agent.small_model {
+                        "ENABLED (manually turned on)"
+                    } else {
+                        "ENABLED (automatically detected based on model name)"
+                    }
+                } else {
+                    "DISABLED"
+                };
+                format!(
+                    "Small-model mode is currently {status}.\nUse `/small-model on` or `/small-model off` to change."
+                )
+            }
+            other => {
+                format!("Unknown argument '{other}'. Use `/small-model on` or `/small-model off`.")
+            }
+        },
         other => format!("Unknown command /{other}. Try /help or /skills."),
     };
     Ok(Command::Done(text))

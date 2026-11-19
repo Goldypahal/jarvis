@@ -70,7 +70,7 @@ def init_eval_db(db_path: pathlib.Path, seed_file: pathlib.Path | None = None):
     con.close()
 
 
-def run_task(task: pathlib.Path, binary: str, model: str | None, timeout: int, logs: pathlib.Path) -> dict:
+def run_task(task: pathlib.Path, binary: str, model: str | None, timeout: int, logs: pathlib.Path, small_model: bool = False) -> dict:
     work = pathlib.Path(tempfile.mkdtemp(prefix=f"obl-eval-{task.name}-"))
     shutil.copytree(task / "workspace", work, dirs_exist_ok=True)
     prompt = (task / "prompt.txt").read_text(encoding="utf-8").strip()
@@ -82,6 +82,8 @@ def run_task(task: pathlib.Path, binary: str, model: str | None, timeout: int, l
     cmd = [binary, "-C", str(work)] + flags
     if model:
         cmd += ["--model", model]
+    if small_model:
+        cmd.append("--small-model")
     cmd.append(prompt)
 
     env = dict(os.environ)
@@ -139,6 +141,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--oblivion", default=str(HERE.parent / "target" / "release" / EXE))
     ap.add_argument("--model", help="only use models whose label contains this text")
+    ap.add_argument("--small-model", action="store_true", help="enable small-model mode (short prompt, core tools, strict repair)")
     ap.add_argument("--only", nargs="*", default=[], help="task id prefixes to run")
     ap.add_argument("--timeout", type=int, default=300, help="seconds per task")
     a = ap.parse_args()
@@ -159,7 +162,7 @@ def main() -> int:
     try:
         for t in tasks:
             print(f"  {t.name:22} ", end="", flush=True)
-            r = run_task(t, a.oblivion, a.model, a.timeout, out_dir)
+            r = run_task(t, a.oblivion, a.model, a.timeout, out_dir, small_model=a.small_model)
             results.append(r)
             status = "PASS" if r["passed"] else ("TIMEOUT" if r["timed_out"] else "FAIL")
             print(f"{status:8} {r['seconds']:>6}s  {r['summary']}")
@@ -168,11 +171,54 @@ def main() -> int:
             server.shutdown()
 
     passed = sum(r["passed"] for r in results)
-    print(f"\n{passed}/{len(results)} passed  ·  logs: {out_dir}")
-    (out_dir / "results.json").write_text(
-        json.dumps({"when": stamp, "model": a.model, "passed": passed, "total": len(results), "tasks": results}, indent=2),
-        encoding="utf-8",
-    )
+    total = len(results)
+    rate = (passed / total * 100.0) if total > 0 else 0.0
+    print(f"\n{passed}/{total} passed ({rate:.1f}%)  ·  logs: {out_dir}")
+
+    # Record individual run results
+    run_record = {
+        "when": stamp,
+        "model": a.model or "default",
+        "small_model_mode": a.small_model,
+        "passed": passed,
+        "total": total,
+        "pass_rate_pct": round(rate, 1),
+        "tasks": results,
+    }
+    (out_dir / "results.json").write_text(json.dumps(run_record, indent=2), encoding="utf-8")
+
+    # Update cumulative pass rates matrix
+    pass_rates_file = HERE / "results" / "pass_rates.json"
+    matrix = {}
+    if pass_rates_file.is_file():
+        try:
+            matrix = json.loads(pass_rates_file.read_text(encoding="utf-8"))
+        except Exception:
+            matrix = {}
+
+    model_key = a.model or "default"
+    if a.small_model:
+        model_key += " [small-model]"
+
+    model_entry = matrix.get(model_key, {"history": []})
+    model_entry["latest_pass_rate"] = round(rate, 1)
+    model_entry["passed"] = passed
+    model_entry["total"] = total
+    model_entry["small_model_mode"] = a.small_model
+    model_entry["last_run"] = dt.datetime.now().isoformat()
+    model_entry["history"].append({
+        "timestamp": stamp,
+        "passed": passed,
+        "total": total,
+        "pass_rate": round(rate, 1),
+    })
+    # Keep latest 20 runs in history
+    model_entry["history"] = model_entry["history"][-20:]
+    matrix[model_key] = model_entry
+
+    pass_rates_file.write_text(json.dumps(matrix, indent=2), encoding="utf-8")
+    print(f"Updated model pass rate matrix in {pass_rates_file}")
+
     return 0 if passed == len(results) else 1
 
 

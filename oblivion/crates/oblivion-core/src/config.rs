@@ -28,6 +28,7 @@ max_steps = 50          # tool-call rounds per request before stopping
 approval = "ask"        # ask | auto-edit | yolo
 context_tokens = 24000  # shrink the conversation when it grows past about this size
 max_web_calls = 15      # web searches + fetches per request (sub-agents get 8 each)
+small_model = false     # small-model mode: shorter prompt, fewer tools, strict repair
 # shell = "powershell"  # powershell | cmd | bash | sh (default: powershell on Windows, bash elsewhere)
 
 # Long-term memory across sessions.
@@ -182,6 +183,8 @@ pub struct AgentSettings {
     pub context_tokens: usize,
     #[serde(default = "default_max_web_calls")]
     pub max_web_calls: usize,
+    #[serde(default)]
+    pub small_model: bool,
 }
 
 impl Default for AgentSettings {
@@ -192,6 +195,7 @@ impl Default for AgentSettings {
             shell: None,
             context_tokens: default_context_tokens(),
             max_web_calls: default_max_web_calls(),
+            small_model: false,
         }
     }
 }

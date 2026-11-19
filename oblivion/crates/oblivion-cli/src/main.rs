@@ -125,6 +125,10 @@ struct Cli {
     #[arg(long)]
     tui: bool,
 
+    /// Small-model mode (shorter prompt, core tools only, strict output repair).
+    #[arg(long)]
+    small_model: bool,
+
     /// Print a run's trace log (JSON lines) by run id, then exit. Use "list" to show traces.
     #[arg(long, value_name = "ID")]
     trace: Option<String>,
@@ -706,6 +710,9 @@ async fn run() -> Result<()> {
     agent.summary_prefer = cfg.routing.summary.clone();
     agent.offline = cfg.routing.offline || cli.offline;
     agent.routing_rules = cfg.routing.rules.clone();
+    agent.small_model = cfg.agent.small_model || cli.small_model;
+    agent.active_model = cli.model.clone();
+    agent.small_system_prompt = Some(prompt::build_small(&root, shell, &today));
     agent.memory_auto_extract = cfg.memory.enabled && cfg.memory.auto_extract;
     agent.memory_extract_tokens = cfg.memory.max_tokens;
     agent.set_subagents(oblivion_core::SubagentFactory {
