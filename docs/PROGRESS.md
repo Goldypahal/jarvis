@@ -62,7 +62,7 @@ Current milestone: **Month 2 — memory and an honest desktop** · Branch: `road
 - [x] Hardware detection (RAM, GPU, VRAM) and model-size recommendation — 2026-11-19, 4e656e0, cargo test: 140 passed; clippy: 0 warnings; pytest: 67 passed; node check: clean; native Win32 RAM/disk + CIM GPU/VRAM detection & size recommendations verified
 - [x] Model manager window: list, download with progress, delete, speed test (Ollama API) — 2026-11-19, 3c668e2, cargo test: 148 passed; clippy: 0 warnings; pytest: 71 passed; node check: clean; Ollama API client (list, pull progress stream, delete, speed test), REST/SSE endpoints & desktop Model Manager UI verified
 - [x] Request classes (private, simple, hard, vision, long context) and visible routing rules; "Offline" switch — 2026-11-19, dc808df, cargo test: 154 passed; clippy: 0 warnings; pytest: 74 passed; node check: clean; request classification, router locality filtering, offline mode toggle in CLI/REST/UI, bidirectional sync & browser subagent UI test verified
-- [ ] Small-model mode: shorter prompt, fewer tools, stricter output checks (B13); eval pass rate per model recorded
+- [x] Small-model mode: shorter prompt, fewer tools, stricter output checks (B13); eval pass rate per model recorded — 2026-11-19, e1dac8e, cargo test: 168 passed; pytest: 74 passed; clippy: 0 warnings; small model detection, concise prompt (~200 tokens), core tool filtering, robust markdown/JSON repair, and eval pass rates tracking matrix
 - [ ] Serve the desktop from Oblivion (axum): move templates/static into the binary; Flask optional
 - [ ] Installer (MSI or Tauri tray app), first-run wizard, auto-start option. Code signing: BLOCKED (needs user) for a certificate
 - [ ] Measure cold start, idle RAM, eval pass rate per model; table in README
@@ -194,14 +194,15 @@ Current milestone: **Month 2 — memory and an honest desktop** · Branch: `road
 ## Notes for next session
 <!-- Surprises about the code, environment quirks, things the next session must know. -->
 - Month 3 is in progress on branch `roadmap/m3`.
-- Items 1-3 of Month 3 complete:
+- Items 1-4 of Month 3 complete:
   - Hardware detection & recommendations (4e656e0).
   - Local Model Manager with streaming pull, deletion & speed test benchmarks (3c668e2).
   - Request classes (private, simple, hard, vision, long context), visible routing rules & Offline mode switch (dc808df).
+  - Small-model mode: shorter prompt (~200 tokens), core tool filtering, robust markdown/JSON argument repair, and eval pass rates tracking matrix (e1dac8e).
 - Exact next item to work on:
-  "Small-model mode: shorter prompt, fewer tools, stricter output checks (B13); eval pass rate per model recorded"
+  "Serve the desktop from Oblivion (axum): move templates/static into the binary; Flask optional"
 - Quality gates status:
-  - `cargo test --workspace`: 154 passed, 0 failed
+  - `cargo test --workspace`: 168 passed, 0 failed
   - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings
   - `cargo fmt --all`: clean
   - `python -m pytest -q tests`: 74 passed, 0 failed
