@@ -64,6 +64,11 @@
                 <span class="social-icon">𝕏</span>
             </div>
             <span class="menu-sep hide-mobile">|</span>
+            <button class="menu-offline-toggle" id="menubar-offline-toggle" title="Offline Mode: force local models only (Ollama)">
+                <span class="offline-icon" id="menubar-offline-icon">🌐</span>
+                <span class="offline-label" id="menubar-offline-label">Cloud + Local</span>
+            </button>
+            <span class="menu-sep hide-mobile">|</span>
             <button class="menu-oblivion" id="ob-menubar" title="Oblivion assistant (Ctrl+J)"><span class="dot" id="ob-menubar-dot"></span>Oblivion</button>
             <span class="menu-sep hide-mobile">|</span>
             <span class="menu-date" id="menu-date">--</span>
@@ -609,100 +614,146 @@
 
             <!-- Model Manager Window Body -->
             <div class="models-window-body">
-                <!-- Offline / Not Running Alert (hidden when online) -->
-                <div id="models-offline-banner" class="models-offline-banner" style="display: none;">
-                    <div class="banner-icon">⚠️</div>
-                    <div class="banner-text">
-                        <strong>Ollama daemon is not detected</strong> at <code id="models-endpoint-lbl">http://localhost:11434</code>.
-                        <span>Start Ollama (<code>ollama serve</code>) or install it from <a href="https://ollama.com" target="_blank" rel="noopener">ollama.com</a> to download and run local models completely offline.</span>
-                    </div>
-                    <button id="models-retry-btn" class="mem-btn-sm">Retry Connection</button>
+                <!-- Navigation Tabs: Local Models vs Routing & Privacy -->
+                <div class="models-nav-tabs">
+                    <button class="models-tab-btn active" id="tab-btn-models" data-tab="models">🤖 Local Models (Ollama)</button>
+                    <button class="models-tab-btn" id="tab-btn-routing" data-tab="routing">🛡️ Routing &amp; Privacy Rules</button>
                 </div>
 
-                <!-- Hardware Recommendation & Quick Download Bar -->
-                <div class="models-rec-box" id="models-rec-box">
-                    <div class="models-rec-header">
-                        <div class="models-rec-title">
-                            <span class="rec-icon">⚡</span>
-                            <span>HARDWARE OPTIMIZATION &amp; RECOMMENDATION</span>
+                <!-- Tab 1: Local Models -->
+                <div class="models-tab-content active" id="tab-content-models">
+                    <!-- Offline / Not Running Alert (hidden when online) -->
+                    <div id="models-offline-banner" class="models-offline-banner" style="display: none;">
+                        <div class="banner-icon">⚠️</div>
+                        <div class="banner-text">
+                            <strong>Ollama daemon is not detected</strong> at <code id="models-endpoint-lbl">http://localhost:11434</code>.
+                            <span>Start Ollama (<code>ollama serve</code>) or install it from <a href="https://ollama.com" target="_blank" rel="noopener">ollama.com</a> to download and run local models completely offline.</span>
                         </div>
-                        <span class="models-rec-size-badge" id="models-rec-size-badge">--</span>
+                        <button id="models-retry-btn" class="mem-btn-sm">Retry Connection</button>
                     </div>
-                    <div class="models-rec-specs" id="models-rec-specs-text">
-                        Detecting hardware specs...
-                    </div>
-                    <div class="models-rec-tradeoff" id="models-rec-tradeoff-text"></div>
-                    <div class="models-rec-quick-actions">
-                        <span class="quick-label">Quick Download:</span>
-                        <div class="quick-chips" id="models-quick-chips">
-                            <!-- Populated with quick-pick chips based on recommendation -->
+
+                    <!-- Hardware Recommendation & Quick Download Bar -->
+                    <div class="models-rec-box" id="models-rec-box">
+                        <div class="models-rec-header">
+                            <div class="models-rec-title">
+                                <span class="rec-icon">⚡</span>
+                                <span>HARDWARE OPTIMIZATION &amp; RECOMMENDATION</span>
+                            </div>
+                            <span class="models-rec-size-badge" id="models-rec-size-badge">--</span>
                         </div>
+                        <div class="models-rec-specs" id="models-rec-specs-text">
+                            Detecting hardware specs...
+                        </div>
+                        <div class="models-rec-tradeoff" id="models-rec-tradeoff-text"></div>
+                        <div class="models-rec-quick-actions">
+                            <span class="quick-label">Quick Download:</span>
+                            <div class="quick-chips" id="models-quick-chips">
+                                <!-- Populated with quick-pick chips based on recommendation -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Download / Pull Toolbar -->
+                    <div class="models-toolbar">
+                        <div class="model-pull-form-group">
+                            <input type="text" id="model-pull-input" placeholder="Enter model name (e.g. qwen2.5-coder:7b, llama3.2:3b, deepseek-r1:7b)..." autocomplete="off">
+                            <button id="model-pull-btn" class="mem-btn mem-btn-primary">Download Model</button>
+                        </div>
+                    </div>
+
+                    <!-- Live Download Progress Card -->
+                    <div id="model-pull-progress-container" class="model-pull-progress-container" style="display: none;">
+                        <div class="progress-header">
+                            <div class="progress-title-row">
+                                <span class="progress-spinner">⏳</span>
+                                <span id="model-pull-model-name" class="progress-model-name">Pulling model...</span>
+                            </div>
+                            <span id="model-pull-pct-text" class="progress-pct-badge">0%</span>
+                        </div>
+                        <div class="progress-bar-track">
+                            <div id="model-pull-progress-fill" class="progress-bar-fill" style="width: 0%;"></div>
+                        </div>
+                        <div class="progress-status-row">
+                            <span id="model-pull-status-text" class="progress-status-text">Connecting to Ollama library...</span>
+                            <span id="model-pull-bytes-text" class="progress-bytes-text"></span>
+                        </div>
+                    </div>
+
+                    <!-- Speed Test / Benchmark Result Card (shown after running a test) -->
+                    <div id="model-speed-test-card" class="model-speed-test-card" style="display: none;">
+                        <div class="speed-test-header">
+                            <h4>⚡ SPEED TEST BENCHMARK</h4>
+                            <button id="close-speed-test-card-btn" class="editor-close-btn" type="button">✕</button>
+                        </div>
+                        <div class="speed-test-grid">
+                            <div class="speed-stat-box">
+                                <div class="speed-stat-val" id="st-tok-per-sec">-- tok/s</div>
+                                <div class="speed-stat-lbl">Generation Speed</div>
+                            </div>
+                            <div class="speed-stat-box">
+                                <div class="speed-stat-val" id="st-prompt-tok-per-sec">-- tok/s</div>
+                                <div class="speed-stat-lbl">Prompt Eval Speed</div>
+                            </div>
+                            <div class="speed-stat-box">
+                                <div class="speed-stat-val" id="st-load-time">-- ms</div>
+                                <div class="speed-stat-lbl">Model Load Time</div>
+                            </div>
+                            <div class="speed-stat-box">
+                                <div class="speed-stat-val" id="st-total-time">-- ms</div>
+                                <div class="speed-stat-lbl">Total Roundtrip</div>
+                            </div>
+                        </div>
+                        <div class="speed-test-sample">
+                            <div class="sample-label">Sample Output from <span id="st-model-name">model</span>:</div>
+                            <div class="sample-text" id="st-sample-text"></div>
+                        </div>
+                    </div>
+
+                    <!-- Installed Models Header & Cards Container -->
+                    <div class="models-section-header">
+                        <h4>Installed Local Models</h4>
+                        <button id="models-refresh-btn" class="mem-btn-sm" title="Refresh local models">🔄 Refresh</button>
+                    </div>
+                    <div class="models-cards-container" id="models-cards-container">
+                        <!-- Populated dynamically by models.js -->
                     </div>
                 </div>
 
-                <!-- Download / Pull Toolbar -->
-                <div class="models-toolbar">
-                    <div class="model-pull-form-group">
-                        <input type="text" id="model-pull-input" placeholder="Enter model name (e.g. qwen2.5-coder:7b, llama3.2:3b, deepseek-r1:7b)..." autocomplete="off">
-                        <button id="model-pull-btn" class="mem-btn mem-btn-primary">Download Model</button>
+                <!-- Tab 2: Routing & Privacy Rules -->
+                <div class="models-tab-content" id="tab-content-routing" style="display: none;">
+                    <!-- Offline Mode Switch Box -->
+                    <div class="routing-offline-card">
+                        <div class="routing-offline-info">
+                            <div class="routing-offline-title-row">
+                                <span class="routing-shield-icon" id="routing-shield-icon">🌐</span>
+                                <div>
+                                    <h4 class="routing-card-title">Offline Mode (Strict Local Inference)</h4>
+                                    <p class="routing-card-desc">When enabled, Oblivion completely disables all external cloud AI providers and network model calls. All agent completions, tool prompts, and summaries execute strictly on your local Ollama instance.</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="routing-offline-control">
+                            <label class="switch-toggle" title="Toggle Offline Mode">
+                                <input type="checkbox" id="modal-offline-toggle">
+                                <span class="switch-slider"></span>
+                            </label>
+                            <span class="routing-offline-status-badge" id="modal-offline-status-badge">ONLINE</span>
+                        </div>
                     </div>
-                </div>
 
-                <!-- Live Download Progress Card -->
-                <div id="model-pull-progress-container" class="model-pull-progress-container" style="display: none;">
-                    <div class="progress-header">
-                        <div class="progress-title-row">
-                            <span class="progress-spinner">⏳</span>
-                            <span id="model-pull-model-name" class="progress-model-name">Pulling model...</span>
+                    <!-- Request Classes & Routing Rules Section -->
+                    <div class="routing-rules-section">
+                        <div class="routing-section-header">
+                            <div>
+                                <h4>Request Classification &amp; Priority Rules</h4>
+                                <span class="routing-section-subtitle">Automatic classification routes prompts to best-fit models according to complexity and privacy</span>
+                            </div>
+                            <button id="routing-refresh-btn" class="mem-btn-sm" title="Refresh routing rules">🔄 Refresh</button>
                         </div>
-                        <span id="model-pull-pct-text" class="progress-pct-badge">0%</span>
-                    </div>
-                    <div class="progress-bar-track">
-                        <div id="model-pull-progress-fill" class="progress-bar-fill" style="width: 0%;"></div>
-                    </div>
-                    <div class="progress-status-row">
-                        <span id="model-pull-status-text" class="progress-status-text">Connecting to Ollama library...</span>
-                        <span id="model-pull-bytes-text" class="progress-bytes-text"></span>
-                    </div>
-                </div>
-
-                <!-- Speed Test / Benchmark Result Card (shown after running a test) -->
-                <div id="model-speed-test-card" class="model-speed-test-card" style="display: none;">
-                    <div class="speed-test-header">
-                        <h4>⚡ SPEED TEST BENCHMARK</h4>
-                        <button id="close-speed-test-card-btn" class="editor-close-btn" type="button">✕</button>
-                    </div>
-                    <div class="speed-test-grid">
-                        <div class="speed-stat-box">
-                            <div class="speed-stat-val" id="st-tok-per-sec">-- tok/s</div>
-                            <div class="speed-stat-lbl">Generation Speed</div>
-                        </div>
-                        <div class="speed-stat-box">
-                            <div class="speed-stat-val" id="st-prompt-tok-per-sec">-- tok/s</div>
-                            <div class="speed-stat-lbl">Prompt Eval Speed</div>
-                        </div>
-                        <div class="speed-stat-box">
-                            <div class="speed-stat-val" id="st-load-time">-- ms</div>
-                            <div class="speed-stat-lbl">Model Load Time</div>
-                        </div>
-                        <div class="speed-stat-box">
-                            <div class="speed-stat-val" id="st-total-time">-- ms</div>
-                            <div class="speed-stat-lbl">Total Roundtrip</div>
+                        <div class="routing-classes-container" id="routing-classes-container">
+                            <!-- Populated dynamically by models.js -->
                         </div>
                     </div>
-                    <div class="speed-test-sample">
-                        <div class="sample-label">Sample Output from <span id="st-model-name">model</span>:</div>
-                        <div class="sample-text" id="st-sample-text"></div>
-                    </div>
-                </div>
-
-                <!-- Installed Models Header & Cards Container -->
-                <div class="models-section-header">
-                    <h4>Installed Local Models</h4>
-                    <button id="models-refresh-btn" class="mem-btn-sm" title="Refresh local models">🔄 Refresh</button>
-                </div>
-                <div class="models-cards-container" id="models-cards-container">
-                    <!-- Populated dynamically by models.js -->
                 </div>
             </div>
         </div>

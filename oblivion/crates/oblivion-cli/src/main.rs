@@ -84,6 +84,10 @@ struct Cli {
     #[arg(long, short = 'H')]
     hardware: bool,
 
+    /// Force offline mode: send zero data to cloud models, use only local models (Ollama).
+    #[arg(long)]
+    offline: bool,
+
     /// Show today's requests and tokens per model, then exit.
     #[arg(long)]
     usage: bool,
@@ -700,6 +704,8 @@ async fn run() -> Result<()> {
     agent.context_tokens = cfg.agent.context_tokens;
     agent.max_web_calls = cfg.agent.max_web_calls;
     agent.summary_prefer = cfg.routing.summary.clone();
+    agent.offline = cfg.routing.offline || cli.offline;
+    agent.routing_rules = cfg.routing.rules.clone();
     agent.memory_auto_extract = cfg.memory.enabled && cfg.memory.auto_extract;
     agent.memory_extract_tokens = cfg.memory.max_tokens;
     agent.set_subagents(oblivion_core::SubagentFactory {
@@ -748,15 +754,12 @@ async fn run() -> Result<()> {
             controls.send(cli.prompt.join(" "));
         }
         let result = if cli.web {
-            run_web(
-                worker,
-                controls,
-                store.clone(),
-                ev_rx,
-                cli.port,
-                !cli.no_open,
-            )
-            .await
+            let opts = WebOptions {
+                port: cli.port,
+                open: !cli.no_open,
+                offline: cli.offline,
+            };
+            run_web(worker, controls, store.clone(), ev_rx, opts, &cfg).await
         } else {
             tui::run(worker, controls, ev_rx).await
         };
@@ -927,27 +930,43 @@ async fn extract_and_persist_memories(agent: &Agent, store: &Arc<oblivion_store:
     }
 }
 
+struct WebOptions {
+    port: u16,
+    open: bool,
+    offline: bool,
+}
+
 /// `oblivion --web`: serve the page, then run the agent until Ctrl+C or /exit.
 async fn run_web(
     worker: app::Worker,
     controls: app::Controls,
     store: Arc<oblivion_store::Store>,
     events: tokio::sync::mpsc::UnboundedReceiver<app::UiEvent>,
-    port: u16,
-    open: bool,
+    opts: WebOptions,
+    cfg: &Config,
 ) -> Result<()> {
     let bus = Arc::new(web::Bus::default());
     let token = web::new_token();
-    let (listener, addr) = web::bind(port)
+    let (listener, addr) = web::bind(opts.port)
         .await
         .context("could not open a local port for the web page")?;
     let url = format!("http://{addr}/#t={token}");
+    let ollama = cfg
+        .providers
+        .iter()
+        .find(|p| p.name == "ollama")
+        .map(|p| Arc::new(oblivion_core::ollama::OllamaClient::new(&p.base_url)));
+    let mut routing_cfg = cfg.routing.clone();
+    if opts.offline {
+        routing_cfg.offline = true;
+    }
     let state = web::WebState {
         token: token.into(),
         controls: controls.clone(),
         bus: bus.clone(),
         store,
-        ollama: None,
+        ollama,
+        routing: Arc::new(std::sync::RwLock::new(routing_cfg)),
     };
     tokio::spawn(web::pump(events, bus));
     tokio::spawn(async move {
@@ -956,7 +975,7 @@ async fn run_web(
     println!("{BOLD}Oblivion web{RESET} is running. Open this link (it contains your access key):");
     println!("  {CYAN}{url}{RESET}");
     println!("{DIM}Press Ctrl+C here to stop.{RESET}");
-    if open {
+    if opts.open {
         web::open_browser(&url);
     }
     // Ctrl+C: stop a running request first; a second press (or an idle one) quits.

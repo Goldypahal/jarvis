@@ -43,6 +43,8 @@ pub const HELP: &str = "\
 /agents-md     show or update AGENTS.md project instructions
 /hardware      show system specs (RAM, GPU, VRAM) and model recommendation
 /ollama        manage local models (list, pull <name>, delete <name>, test <name>)
+/offline [on|off] toggle or show offline mode (forces local models only)
+/routing       show request classification rules and target priorities
 /skills        list skills; run one with /<skill-name> [request]
 /mcp           list MCP servers and their tools
 /exit          quit";
@@ -411,6 +413,45 @@ pub async fn handle_command(
                     ),
                 }
             }
+        }
+        "offline" => match arg {
+            "on" | "true" | "enable" | "1" => {
+                agent.offline = true;
+                "Offline mode enabled. Only local models (Ollama/localhost) will be used."
+                    .to_string()
+            }
+            "off" | "false" | "disable" | "0" => {
+                agent.offline = false;
+                "Offline mode disabled. Configured cloud and local models will be used.".to_string()
+            }
+            "" => {
+                format!(
+                    "Offline mode is currently {}.\nUse `/offline on` or `/offline off` to change.",
+                    if agent.offline {
+                        "ENABLED (local only)"
+                    } else {
+                        "DISABLED (cloud + local)"
+                    }
+                )
+            }
+            other => format!("Unknown argument '{other}'. Use `/offline on` or `/offline off`."),
+        },
+        "routing" => {
+            let rules = &agent.routing_rules;
+            let status = if agent.offline {
+                "ENABLED (Forces all requests to local models only)"
+            } else {
+                "DISABLED (Cloud and local models based on request class)"
+            };
+            format!(
+                "Routing & Privacy Rules:\n  • Offline Mode: {}\n\nRequest Classes & Target Priorities:\n  • Private (sensitive/credentials):  {}\n  • Vision (image inputs):           {}\n  • Long Context (>16k tokens):       {}\n  • Hard Reasoning (math, debug):    {}\n  • Simple (greetings, syntax):       {}",
+                status,
+                rules.private.join(", "),
+                rules.vision.join(", "),
+                rules.long_context.join(", "),
+                rules.hard.join(", "),
+                rules.simple.join(", ")
+            )
         }
         other => format!("Unknown command /{other}. Try /help or /skills."),
     };

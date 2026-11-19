@@ -8,6 +8,7 @@ pub mod extract;
 pub mod hardware;
 pub mod ollama;
 pub mod prompt;
+pub mod routing;
 pub mod rules;
 pub mod session;
 pub mod subagent;
@@ -24,6 +25,7 @@ pub use ollama::{
     format_bytes, OllamaClient, OllamaModel, OllamaModelDetails, OllamaPullProgress,
     OllamaSpeedTestResult, OllamaStatus,
 };
+pub use routing::{classify_request, RequestClass, RoutingRules};
 pub use rules::Rules;
 pub use session::{JsonDir, Session, SessionInfo, SessionStore};
 pub use subagent::SubagentFactory;

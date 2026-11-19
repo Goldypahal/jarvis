@@ -114,10 +114,19 @@ models = ["mistral-small-latest"]
 
 # Which models do which jobs. Each value is a filter on "provider/model"; matching
 # models are tried first, the rest stay as fallbacks. Use "ollama" to keep cheap work local.
+# offline: when true, only local models (Ollama) are used; no data is sent to cloud.
 [routing]
+offline = false
 summary = ""            # shrinking long conversations, e.g. "ollama"
 subagent = ""           # sub-agents started by the `task` tool, e.g. "groq/openai/gpt-oss-20b"
 subagent_max_steps = 25
+
+[routing.rules]
+private = ["ollama/*", "local/*"]
+simple = ["ollama/*", "groq/llama-3.1-8b-instant", "openrouter/*"]
+hard = ["groq/llama-3.3-70b-versatile", "openrouter/*", "ollama/*"]
+vision = ["openrouter/*", "ollama/llava*", "ollama/*"]
+long_context = ["openrouter/*", "groq/*", "ollama/*"]
 
 # Skills: folders with SKILL.md from ~/.oblivion/skills, ~/.agents/skills, ~/.claude/skills,
 # ~/.codex/skills and the project's .agents/skills (Claude and Codex skills work as-is).
@@ -215,6 +224,10 @@ pub struct RoutingSettings {
     pub subagent: String,
     #[serde(default = "default_subagent_steps")]
     pub subagent_max_steps: usize,
+    #[serde(default)]
+    pub offline: bool,
+    #[serde(default)]
+    pub rules: crate::routing::RoutingRules,
 }
 
 impl Default for RoutingSettings {
@@ -223,6 +236,8 @@ impl Default for RoutingSettings {
             summary: String::new(),
             subagent: String::new(),
             subagent_max_steps: default_subagent_steps(),
+            offline: false,
+            rules: crate::routing::RoutingRules::default(),
         }
     }
 }

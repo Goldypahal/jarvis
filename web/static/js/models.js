@@ -42,6 +42,29 @@
 
     let isPulling = false;
 
+    // Routing & Privacy elements
+    let tabBtnModels = null;
+    let tabBtnRouting = null;
+    let tabContentModels = null;
+    let tabContentRouting = null;
+
+    let menubarOfflineToggle = null;
+    let menubarOfflineIcon = null;
+    let menubarOfflineLabel = null;
+
+    let modalOfflineToggle = null;
+    let modalOfflineStatusBadge = null;
+    let routingOfflineCard = null;
+    let routingShieldIcon = null;
+    let routingClassesContainer = null;
+    let routingRefreshBtn = null;
+
+    let routingState = {
+        offline: false,
+        rules: {},
+        classes: [],
+    };
+
     function getToken() {
         return (
             window.JARVIS_TOKEN ||
@@ -81,6 +104,157 @@
     function closeModels() {
         if (!modal) return;
         modal.classList.remove("active");
+    }
+
+    function switchTab(tab) {
+        if (!tabBtnModels || !tabBtnRouting || !tabContentModels || !tabContentRouting) return;
+        if (tab === "routing") {
+            tabBtnModels.classList.remove("active");
+            tabBtnRouting.classList.add("active");
+            tabContentModels.style.display = "none";
+            tabContentModels.classList.remove("active");
+            tabContentRouting.style.display = "block";
+            tabContentRouting.classList.add("active");
+            fetchRouting();
+        } else {
+            tabBtnRouting.classList.remove("active");
+            tabBtnModels.classList.add("active");
+            tabContentRouting.style.display = "none";
+            tabContentRouting.classList.remove("active");
+            tabContentModels.style.display = "block";
+            tabContentModels.classList.add("active");
+            fetchModels();
+        }
+    }
+
+    function updateOfflineUI(isOffline) {
+        routingState.offline = isOffline;
+
+        // Menubar button
+        if (menubarOfflineToggle) {
+            if (isOffline) {
+                menubarOfflineToggle.classList.add("active");
+                if (menubarOfflineIcon) menubarOfflineIcon.textContent = "🛡️";
+                if (menubarOfflineLabel) menubarOfflineLabel.textContent = "OFFLINE (Local Only)";
+            } else {
+                menubarOfflineToggle.classList.remove("active");
+                if (menubarOfflineIcon) menubarOfflineIcon.textContent = "🌐";
+                if (menubarOfflineLabel) menubarOfflineLabel.textContent = "Cloud + Local";
+            }
+        }
+
+        // Modal switch
+        if (modalOfflineToggle) {
+            modalOfflineToggle.checked = isOffline;
+        }
+        if (routingOfflineCard) {
+            if (isOffline) {
+                routingOfflineCard.classList.add("offline-active");
+            } else {
+                routingOfflineCard.classList.remove("offline-active");
+            }
+        }
+        if (routingShieldIcon) {
+            routingShieldIcon.textContent = isOffline ? "🛡️" : "🌐";
+        }
+        if (modalOfflineStatusBadge) {
+            modalOfflineStatusBadge.textContent = isOffline ? "OFFLINE ONLY" : "ONLINE";
+        }
+    }
+
+    async function fetchRouting() {
+        try {
+            const res = await fetch("/api/routing", {
+                headers: authHeaders(),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            routingState.offline = !!data.offline;
+            routingState.rules = data.rules || {};
+            routingState.classes = data.classes || [];
+
+            updateOfflineUI(routingState.offline);
+            renderRoutingClasses(routingState.classes);
+        } catch (err) {
+            console.error("Failed to fetch routing rules:", err);
+        }
+    }
+
+    async function toggleOffline(forcedValue) {
+        const nextOffline = typeof forcedValue === "boolean" ? forcedValue : !routingState.offline;
+        updateOfflineUI(nextOffline);
+
+        try {
+            const res = await fetch("/api/routing", {
+                method: "POST",
+                headers: authHeaders(),
+                body: JSON.stringify({ offline: nextOffline }),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            updateOfflineUI(!!data.offline);
+            if (data.classes) {
+                routingState.classes = data.classes;
+                renderRoutingClasses(data.classes);
+            }
+        } catch (err) {
+            console.error("Failed to update offline status:", err);
+            // Revert UI to previous state on error
+            updateOfflineUI(routingState.offline);
+        }
+    }
+
+    function renderRoutingClasses(classes) {
+        if (!routingClassesContainer) return;
+        routingClassesContainer.innerHTML = "";
+
+        if (!classes || classes.length === 0) {
+            routingClassesContainer.innerHTML = '<div class="model-empty">No routing rules configured.</div>';
+            return;
+        }
+
+        const icons = {
+            private: "🔒",
+            simple: "⚡",
+            hard: "🧠",
+            vision: "👁️",
+            long_context: "📚",
+        };
+
+        classes.forEach(function (cls) {
+            const card = document.createElement("div");
+            card.className = "routing-class-card" + (cls.local_only ? " private-class" : "");
+
+            const icon = icons[cls.id] || "📌";
+            const badgeClass = cls.local_only ? "routing-class-badge local-only" : "routing-class-badge";
+            const badgeText = cls.local_only ? "🛡️ Local Only (Forced)" : "Cloud + Local";
+
+            const patterns = Array.isArray(cls.patterns) ? cls.patterns : [];
+            const patternTags = patterns
+                .map(function (pat) {
+                    const isLocal = pat.includes("ollama") || pat.includes("local");
+                    const tagCls = isLocal ? "routing-target-tag local-target" : "routing-target-tag";
+                    return `<span class="${tagCls}">${escapeHtml(pat)}</span>`;
+                })
+                .join("");
+
+            card.innerHTML = `
+                <div class="routing-class-header">
+                    <div class="routing-class-title-row">
+                        <span class="routing-class-icon">${icon}</span>
+                        <span class="routing-class-label">${escapeHtml(cls.label)}</span>
+                    </div>
+                    <span class="${badgeClass}">${badgeText}</span>
+                </div>
+                <p class="routing-class-desc">${escapeHtml(cls.description)}</p>
+                <div class="routing-targets-row">
+                    <span class="routing-targets-label">Target Priority:</span>
+                    ${patternTags || '<span style="color: rgba(0,0,0,0.4);">None configured</span>'}
+                </div>
+            `;
+
+            routingClassesContainer.appendChild(card);
+        });
     }
 
     async function fetchModels() {
@@ -466,6 +640,50 @@
         stTotalTime = document.getElementById("st-total-time");
         stSampleText = document.getElementById("st-sample-text");
 
+        // Routing & Tab navigation elements
+        tabBtnModels = document.getElementById("tab-btn-models");
+        tabBtnRouting = document.getElementById("tab-btn-routing");
+        tabContentModels = document.getElementById("tab-content-models");
+        tabContentRouting = document.getElementById("tab-content-routing");
+
+        menubarOfflineToggle = document.getElementById("menubar-offline-toggle");
+        menubarOfflineIcon = document.getElementById("menubar-offline-icon");
+        menubarOfflineLabel = document.getElementById("menubar-offline-label");
+
+        modalOfflineToggle = document.getElementById("modal-offline-toggle");
+        modalOfflineStatusBadge = document.getElementById("modal-offline-status-badge");
+        routingOfflineCard = document.querySelector(".routing-offline-card");
+        routingShieldIcon = document.getElementById("routing-shield-icon");
+        routingClassesContainer = document.getElementById("routing-classes-container");
+        routingRefreshBtn = document.getElementById("routing-refresh-btn");
+
+        if (tabBtnModels) {
+            tabBtnModels.addEventListener("click", function () {
+                switchTab("models");
+            });
+        }
+        if (tabBtnRouting) {
+            tabBtnRouting.addEventListener("click", function () {
+                switchTab("routing");
+            });
+        }
+
+        if (menubarOfflineToggle) {
+            menubarOfflineToggle.addEventListener("click", function () {
+                toggleOffline();
+            });
+        }
+
+        if (modalOfflineToggle) {
+            modalOfflineToggle.addEventListener("change", function (e) {
+                toggleOffline(e.target.checked);
+            });
+        }
+
+        if (routingRefreshBtn) {
+            routingRefreshBtn.addEventListener("click", fetchRouting);
+        }
+
         // Close triggers
         const closeBtn = document.getElementById("close-models-modal-btn");
         if (closeBtn) closeBtn.addEventListener("click", closeModels);
@@ -527,6 +745,10 @@
 
         window.openModelsModal = openModels;
         window.closeModelsModal = closeModels;
+        window.toggleOfflineMode = toggleOffline;
+
+        // Load initial routing & offline status so menubar indicator is live
+        fetchRouting();
     }
 
     if (document.readyState === "loading") {

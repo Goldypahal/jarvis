@@ -38,6 +38,17 @@ impl Target {
     pub fn label(&self) -> String {
         format!("{}/{}", self.provider.name, self.model)
     }
+
+    /// True if this target runs on a local model daemon (Ollama / localhost / 127.0.0.1).
+    pub fn is_local(&self) -> bool {
+        let name = self.provider.name.to_ascii_lowercase();
+        let url = self.provider.base_url.to_ascii_lowercase();
+        name == "ollama"
+            || name == "local"
+            || url.contains("localhost")
+            || url.contains("127.0.0.1")
+            || url.contains("[::1]")
+    }
 }
 
 /// Persistent record of how many requests each target made today.
@@ -126,6 +137,37 @@ impl Router {
             first.extend(rest);
             self.targets = first;
         }
+        self
+    }
+
+    /// Filter and re-order targets based on routing patterns and offline/private status.
+    pub fn for_patterns(mut self, patterns: &[String], offline_or_private: bool) -> Self {
+        if offline_or_private {
+            self.targets.retain(|t| t.is_local());
+            return self;
+        }
+
+        if patterns.is_empty() {
+            return self;
+        }
+
+        self.targets.sort_by_key(|t| {
+            let label = t.label().to_ascii_lowercase();
+            patterns
+                .iter()
+                .position(|pat| {
+                    let p = pat.trim().to_ascii_lowercase();
+                    if p == "*" {
+                        true
+                    } else if let Some(prefix) = p.strip_suffix('*') {
+                        label.starts_with(prefix)
+                    } else {
+                        label == p
+                    }
+                })
+                .unwrap_or(usize::MAX)
+        });
+
         self
     }
 

@@ -112,6 +112,7 @@ pub struct WebState {
     pub bus: Arc<Bus>,
     pub store: Arc<oblivion_store::Store>,
     pub ollama: Option<Arc<oblivion_core::OllamaClient>>,
+    pub routing: Arc<std::sync::RwLock<oblivion_core::config::RoutingSettings>>,
 }
 
 impl WebState {
@@ -162,6 +163,7 @@ pub fn router(state: WebState) -> Router {
         .route("/api/models/pull", post(pull_model))
         .route("/api/models/delete", post(delete_model_handler))
         .route("/api/models/speed-test", post(speed_test_handler))
+        .route("/api/routing", get(get_routing).post(update_routing))
         .route(
             "/api/memory",
             get(list_or_search_memories).post(create_memory),
@@ -998,6 +1000,101 @@ async fn speed_test_handler(
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoutingResponse {
+    pub offline: bool,
+    pub rules: oblivion_core::routing::RoutingRules,
+    pub classes: Vec<RequestClassInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RequestClassInfo {
+    pub id: String,
+    pub label: String,
+    pub description: String,
+    pub priority: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct UpdateRoutingRequest {
+    #[serde(default)]
+    pub offline: Option<bool>,
+    #[serde(default)]
+    pub rules: Option<oblivion_core::routing::RoutingRules>,
+}
+
+async fn get_routing(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<RoutingResponse>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let r = st.routing.read().unwrap();
+    let rules = r.rules.clone();
+    let offline = r.offline;
+    let classes = vec![
+        RequestClassInfo {
+            id: "private".into(),
+            label: "Private / Sensitive".into(),
+            description: "Passwords, tokens, credentials, and offline mode. Cloud models are forbidden; routes strictly to local models.".into(),
+            priority: rules.private.clone(),
+        },
+        RequestClassInfo {
+            id: "simple".into(),
+            label: "Simple".into(),
+            description: "Quick questions, fast edits, basic explanations.".into(),
+            priority: rules.simple.clone(),
+        },
+        RequestClassInfo {
+            id: "hard".into(),
+            label: "Hard / Complex".into(),
+            description: "Complex refactoring, architectural redesign, debugging, security audits.".into(),
+            priority: rules.hard.clone(),
+        },
+        RequestClassInfo {
+            id: "vision".into(),
+            label: "Vision".into(),
+            description: "Requests inspecting screenshots, images, or pictures.".into(),
+            priority: rules.vision.clone(),
+        },
+        RequestClassInfo {
+            id: "long_context".into(),
+            label: "Long Context".into(),
+            description: "Conversation history + workspace context exceeds standard limits (> 16K tokens).".into(),
+            priority: rules.long_context.clone(),
+        },
+    ];
+
+    Ok(Json(RoutingResponse {
+        offline,
+        rules,
+        classes,
+    }))
+}
+
+async fn update_routing(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Json(body): Json<UpdateRoutingRequest>,
+) -> Result<Json<RoutingResponse>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    {
+        let mut r = st.routing.write().unwrap();
+        if let Some(off) = body.offline {
+            r.offline = off;
+        }
+        if let Some(rules) = body.rules {
+            r.rules = rules;
+        }
+    }
+    get_routing(State(st), headers, Query(q)).await
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentsMdResponse {
     pub file: String,
     pub exists: bool,
@@ -1343,6 +1440,9 @@ mod live {
             bus: bus.clone(),
             store,
             ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
         };
         tokio::spawn(pump(events, bus));
         tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
@@ -1547,6 +1647,9 @@ mod live {
             bus,
             store: store.clone(),
             ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
         };
         tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
         let base = format!("http://{addr}");
@@ -1664,6 +1767,9 @@ mod live {
             bus,
             store: store.clone(),
             ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
         };
 
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
@@ -1809,6 +1915,9 @@ mod live {
             bus,
             store: store.clone(),
             ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
         };
 
         let app = router(state);
@@ -1874,6 +1983,9 @@ mod live {
             bus: bus.clone(),
             store: store.clone(),
             ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -1972,6 +2084,9 @@ mod live {
             bus: bus.clone(),
             store: store.clone(),
             ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -2089,6 +2204,9 @@ mod live {
             bus: bus.clone(),
             store: store.clone(),
             ollama: Some(ollama_client),
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -2164,5 +2282,103 @@ mod live {
         assert_eq!(result.eval_count, 10);
         assert!((result.tokens_per_second - 20.0).abs() < 0.1);
         assert_eq!(result.sample_text, "gravity");
+    }
+
+    #[tokio::test]
+    async fn web_routing_endpoints_work() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(oblivion_store::Store::open(&dir.path().join("test.db")).unwrap());
+        let (url, _seen) = crate::testkit::fake_server(vec![]).await;
+        let (_worker, controls, _events) = crate::testkit::worker(&url, dir.path());
+
+        let bus = Arc::new(Bus::default());
+        let token = "test-token-routing";
+        let state = WebState {
+            token: token.into(),
+            controls,
+            bus: bus.clone(),
+            store: store.clone(),
+            ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
+        };
+
+        let (listener, addr) = bind(0).await.unwrap();
+        let base = format!("http://{addr}");
+        tokio::spawn(async move {
+            axum::serve(listener, router(state)).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+
+        // 1. GET /api/routing without auth -> 401
+        let unauth = client
+            .get(format!("{base}/api/routing"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unauth.status(), StatusCode::UNAUTHORIZED);
+
+        // 2. GET /api/routing with auth -> 200 OK
+        let res = client
+            .get(format!("{base}/api/routing"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let data: RoutingResponse = res.json().await.unwrap();
+        assert!(!data.offline);
+        assert!(!data.rules.private.is_empty());
+        assert!(!data.rules.simple.is_empty());
+        assert!(!data.rules.hard.is_empty());
+        assert!(!data.rules.vision.is_empty());
+        assert!(!data.rules.long_context.is_empty());
+        assert_eq!(data.classes.len(), 5);
+
+        // 3. POST /api/routing without auth -> 401
+        let unauth_post = client
+            .post(format!("{base}/api/routing"))
+            .json(&serde_json::json!({ "offline": true }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unauth_post.status(), StatusCode::UNAUTHORIZED);
+
+        // 4. POST /api/routing toggle offline -> true
+        let post_res = client
+            .post(format!("{base}/api/routing"))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({ "offline": true }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(post_res.status(), StatusCode::OK);
+        let updated: RoutingResponse = post_res.json().await.unwrap();
+        assert!(updated.offline);
+
+        // 5. GET confirms offline is true
+        let res2 = client
+            .get(format!("{base}/api/routing"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res2.status(), StatusCode::OK);
+        let data2: RoutingResponse = res2.json().await.unwrap();
+        assert!(data2.offline);
+
+        // 6. POST /api/routing toggle offline -> false
+        let post_res2 = client
+            .post(format!("{base}/api/routing"))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({ "offline": false }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(post_res2.status(), StatusCode::OK);
+        let updated2: RoutingResponse = post_res2.json().await.unwrap();
+        assert!(!updated2.offline);
     }
 }

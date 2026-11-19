@@ -721,6 +721,20 @@ def register(app, bridge=None, allowed_port=None, token=None):
         code, text, ct = b.request("POST", "/api/models/speed-test", body=body)
         return Response(text, status=code, mimetype=ct)
 
+    @app.route("/api/oblivion/routing", methods=["GET", "POST"])
+    @app.route("/api/routing", methods=["GET", "POST"])
+    def oblivion_routing():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        if request.method == "POST":
+            body = request.get_json(silent=True) or {}
+            code, text, ct = b.request("POST", "/api/routing", body=body)
+        else:
+            code, text, ct = b.request("GET", "/api/routing")
+        return Response(text, status=code, mimetype=ct)
+
     return bridge
 
 

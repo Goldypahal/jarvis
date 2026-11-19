@@ -101,6 +101,10 @@ pub struct Agent {
     /// Maximum tokens budgeted for the memory extraction pass.
     pub memory_extract_tokens: usize,
     pub memory_recall: Option<Arc<dyn crate::extract::MemoryRecall>>,
+    /// When true, only local models are used and cloud providers are purged.
+    pub offline: bool,
+    /// Model priority patterns for each request class.
+    pub routing_rules: crate::routing::RoutingRules,
     base_system_prompt: String,
     rules: Rules,
     store: Option<Arc<dyn SessionStore>>,
@@ -136,6 +140,8 @@ impl Agent {
             memory_auto_extract: true,
             memory_extract_tokens: 2000,
             memory_recall: None,
+            offline: false,
+            routing_rules: crate::routing::RoutingRules::default(),
             base_system_prompt: system_prompt,
             rules: Rules::default(),
             store: None,
@@ -501,6 +507,16 @@ impl Agent {
         self.session.messages.push(Message::user(user_text));
         self.save();
 
+        let history_tokens = self.budget();
+        let class =
+            crate::routing::classify_request(user_text, history_tokens, false, self.offline);
+        let patterns = self.routing_rules.patterns_for(class);
+        let offline_or_private = self.offline || class == crate::routing::RequestClass::Private;
+        let mut turn_router = self
+            .router
+            .share()
+            .for_patterns(patterns, offline_or_private);
+
         let specs = self.all_specs();
         let mut summary = TurnSummary::default();
         // Loop guard: free models sometimes forget a result and repeat the exact
@@ -554,8 +570,7 @@ impl Agent {
                     StreamEvent::Waiting { seconds } => on_event(AgentEvent::Waiting(seconds)),
                 };
                 let tools: &[ToolSpec] = if last_step { &[] } else { &specs };
-                match self
-                    .router
+                match turn_router
                     .complete(&self.session.messages, tools, &mut forward)
                     .await
                 {
