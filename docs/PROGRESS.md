@@ -61,7 +61,7 @@ Current milestone: **Month 2 — memory and an honest desktop** · Branch: `road
 ## Month 3 — local models and one-file install → v1.0
 - [x] Hardware detection (RAM, GPU, VRAM) and model-size recommendation — 2026-11-19, 4e656e0, cargo test: 140 passed; clippy: 0 warnings; pytest: 67 passed; node check: clean; native Win32 RAM/disk + CIM GPU/VRAM detection & size recommendations verified
 - [x] Model manager window: list, download with progress, delete, speed test (Ollama API) — 2026-11-19, 3c668e2, cargo test: 148 passed; clippy: 0 warnings; pytest: 71 passed; node check: clean; Ollama API client (list, pull progress stream, delete, speed test), REST/SSE endpoints & desktop Model Manager UI verified
-- [ ] Request classes (private, simple, hard, vision, long context) and visible routing rules; "Offline" switch
+- [x] Request classes (private, simple, hard, vision, long context) and visible routing rules; "Offline" switch — 2026-11-19, dc808df, cargo test: 154 passed; clippy: 0 warnings; pytest: 74 passed; node check: clean; request classification, router locality filtering, offline mode toggle in CLI/REST/UI, bidirectional sync & browser subagent UI test verified
 - [ ] Small-model mode: shorter prompt, fewer tools, stricter output checks (B13); eval pass rate per model recorded
 - [ ] Serve the desktop from Oblivion (axum): move templates/static into the binary; Flask optional
 - [ ] Installer (MSI or Tauri tray app), first-run wizard, auto-start option. Code signing: BLOCKED (needs user) for a certificate
@@ -193,11 +193,21 @@ Current milestone: **Month 2 — memory and an honest desktop** · Branch: `road
 
 ## Notes for next session
 <!-- Surprises about the code, environment quirks, things the next session must know. -->
-- Month 2 ("memory and an honest desktop") is 100% complete and verified.
-- Active working branch for Month 3 is `roadmap/m3` (to be branched from merged `roadmap/m2` / `main`).
-- Exact next item to start: "Hardware detection (RAM, GPU, VRAM) and model-size recommendation".
+- Month 3 is in progress on branch `roadmap/m3`.
+- Items 1-3 of Month 3 complete:
+  - Hardware detection & recommendations (4e656e0).
+  - Local Model Manager with streaming pull, deletion & speed test benchmarks (3c668e2).
+  - Request classes (private, simple, hard, vision, long context), visible routing rules & Offline mode switch (dc808df).
+- Exact next item to work on:
+  "Small-model mode: shorter prompt, fewer tools, stricter output checks (B13); eval pass rate per model recorded"
+- Quality gates status:
+  - `cargo test --workspace`: 154 passed, 0 failed
+  - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings
+  - `cargo fmt --all`: clean
+  - `python -m pytest -q tests`: 74 passed, 0 failed
+  - `node --check`: clean on all static JS files
+  - UI visual verification: verified with browser subagent across light & dark themes; bidirectional offline sync working.
 - Windows + PowerShell: no bash heredocs; quote paths with spaces.
 - Smart App Control has blocked Rust build scripts before; if a build fails with an
   "Application Control policy" error, mark the item BLOCKED (needs user) instead of retrying.
 - Groq free tier: about 8K tokens/minute and ~7K tokens per request; keep prompts small.
-- Detected PC specs (pending user verification): RAM: 16 GB, GPU: Intel Iris Xe Graphics (~1 GB VRAM / shared), Free disk D: ~673.5 GB.
