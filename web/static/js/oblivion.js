@@ -18,6 +18,8 @@
 
     const $ = (id) => document.getElementById(id);
     let panel, log, input, sendBtn;
+    let imageTray, imageFileInput, attachBtn;
+    let stagedImages = [];
     let splitModal, splitChat, splitInput, splitForm, splitApprovals, splitTools, splitTaskName, splitTasksBar, splitTasksList, splitModelPill, splitStatusPill;
     let splitBot = null, splitBotText = "";
     let es = null, phase = "idle";              // idle | starting | connected | failed
@@ -176,10 +178,69 @@
             return r.ok;
         } catch { return false; }
     }
+    function clearStagedImages() {
+        stagedImages = [];
+        renderStagedImages();
+    }
+
+    function renderStagedImages() {
+        if (!imageTray) return;
+        imageTray.innerHTML = "";
+        if (!stagedImages.length) {
+            imageTray.hidden = true;
+            autosize();
+            return;
+        }
+        imageTray.hidden = false;
+        stagedImages.forEach((img, idx) => {
+            const chip = el("div", "ob-image-chip");
+            const src = img.data_base64.startsWith("data:") ? img.data_base64 : `data:${img.mime_type};base64,${img.data_base64}`;
+            chip.innerHTML = `<img src="${src}" alt="${esc(img.name || 'image')}" /><button type="button" class="ob-chip-remove" title="Remove image">✕</button>`;
+            chip.querySelector(".ob-chip-remove").onclick = (ev) => {
+                ev.stopPropagation();
+                stagedImages.splice(idx, 1);
+                renderStagedImages();
+            };
+            imageTray.appendChild(chip);
+        });
+        autosize();
+    }
+
+    function stageImageFile(file) {
+        if (!file || !file.type.startsWith("image/")) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+            const res = reader.result;
+            if (typeof res === "string") {
+                const comma = res.indexOf(",");
+                const b64 = comma !== -1 ? res.slice(comma + 1) : res;
+                stagedImages.push({
+                    mime_type: file.type || "image/png",
+                    data_base64: b64,
+                    name: file.name || "pasted_image.png"
+                });
+                renderStagedImages();
+            }
+        };
+        reader.readAsDataURL(file);
+    }
+
     function send(text, isVoice = false) {
-        text = (text ?? input.value).trim(); if (!text) return;
+        text = (text ?? input.value).trim();
+        if (!text && stagedImages.length === 0) return;
+        if (!text && stagedImages.length > 0) {
+            text = "Describe this image.";
+        }
         if (phase !== "connected") { ensureStarted(); return; }
-        post("send", { text, voice: Boolean(isVoice) }); input.value = ""; autosize(); hideSuggest();
+        const payload = { text, voice: Boolean(isVoice) };
+        if (stagedImages.length > 0) {
+            payload.images = stagedImages.slice();
+            clearStagedImages();
+        }
+        post("send", payload);
+        input.value = "";
+        autosize();
+        hideSuggest();
     }
 
     // ---------- transcript ----------
@@ -336,10 +397,27 @@
                 if (window.JarvisVoice && typeof window.JarvisVoice.bargeIn === 'function') {
                     window.JarvisVoice.bargeIn();
                 }
-                endBot(); helpers = null; add(el("div", "ob-user", esc(e.text)));
+                endBot(); helpers = null;
+                let userHtml = "";
+                if (e.images && e.images.length) {
+                    userHtml += `<div class="ob-user-images">` + e.images.map(img => {
+                        const src = img.data_base64.startsWith("data:") ? img.data_base64 : `data:${img.mime_type};base64,${img.data_base64}`;
+                        return `<img src="${src}" class="ob-msg-thumb" alt="${esc(img.name || 'image')}" />`;
+                    }).join("") + `</div>`;
+                }
+                userHtml += `<div>${esc(e.text)}</div>`;
+                add(el("div", "ob-user", userHtml));
                 endSplitBot();
                 if (splitChat) {
-                    const u = el("div", "msg-bubble user-msg", `<div class="msg-author">User</div><div class="msg-text">${esc(e.text)}</div>`);
+                    let splitHtml = `<div class="msg-author">User</div>`;
+                    if (e.images && e.images.length) {
+                        splitHtml += `<div class="ob-user-images">` + e.images.map(img => {
+                            const src = img.data_base64.startsWith("data:") ? img.data_base64 : `data:${img.mime_type};base64,${img.data_base64}`;
+                            return `<img src="${src}" class="ob-msg-thumb" alt="${esc(img.name || 'image')}" />`;
+                        }).join("") + `</div>`;
+                    }
+                    splitHtml += `<div class="msg-text">${esc(e.text)}</div>`;
+                    const u = el("div", "msg-bubble user-msg", splitHtml);
                     splitChat.appendChild(u);
                     splitChat.scrollTop = splitChat.scrollHeight;
                 }
@@ -536,7 +614,7 @@
     }
 
     // ---------- composer ----------
-    function autosize() { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 160) + "px"; sendBtn.disabled = !input.value.trim(); }
+    function autosize() { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 160) + "px"; sendBtn.disabled = !input.value.trim() && stagedImages.length === 0; }
     let sugg = [], suggOn = 0;
     function showSuggest() {
         const v = input.value;
@@ -554,6 +632,9 @@
 
     function init() {
         panel = $("ob-panel"); log = $("ob-log"); input = $("ob-input"); sendBtn = $("ob-send");
+        imageTray = $("ob-image-preview-tray");
+        imageFileInput = $("ob-image-file-input");
+        attachBtn = $("ob-attach-btn");
         splitModal = $("splitModal");
         splitChat = $("split-chat-messages");
         splitInput = $("split-user-input");
@@ -565,6 +646,57 @@
         splitTasksList = $("split-tasks-list");
         splitModelPill = $("split-model-pill");
         splitStatusPill = $("split-status-pill");
+
+        if (attachBtn && imageFileInput) {
+            attachBtn.onclick = () => imageFileInput.click();
+            imageFileInput.onchange = () => {
+                if (imageFileInput.files) {
+                    for (const f of imageFileInput.files) stageImageFile(f);
+                }
+                imageFileInput.value = "";
+            };
+        }
+
+        if (panel) {
+            // Clipboard paste (Ctrl+V) for images
+            panel.addEventListener("paste", (ev) => {
+                if (!ev.clipboardData || !ev.clipboardData.items) return;
+                for (const item of ev.clipboardData.items) {
+                    if (item.type.startsWith("image/")) {
+                        const file = item.getAsFile();
+                        if (file) {
+                            stageImageFile(file);
+                            ev.preventDefault();
+                        }
+                    }
+                }
+            });
+
+            // Drag and drop images into panel
+            panel.addEventListener("dragover", (ev) => {
+                if (ev.dataTransfer && ev.dataTransfer.types && Array.from(ev.dataTransfer.types).includes("Files")) {
+                    ev.preventDefault();
+                    panel.classList.add("drag-over");
+                }
+            });
+            panel.addEventListener("dragleave", (ev) => {
+                if (!panel.contains(ev.relatedTarget)) {
+                    panel.classList.remove("drag-over");
+                }
+            });
+            panel.addEventListener("drop", (ev) => {
+                panel.classList.remove("drag-over");
+                if (!ev.dataTransfer || !ev.dataTransfer.files) return;
+                let handled = false;
+                for (const file of ev.dataTransfer.files) {
+                    if (file.type.startsWith("image/")) {
+                        stageImageFile(file);
+                        handled = true;
+                    }
+                }
+                if (handled) ev.preventDefault();
+            });
+        }
 
         if (splitForm && splitInput) {
             splitForm.addEventListener("submit", (ev) => {

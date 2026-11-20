@@ -2,7 +2,7 @@
 //! They return plain text instead of printing, so the terminal, the full-screen
 //! UI and the web UI can each show it their own way.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use oblivion_core::{Agent, AgentEvent, ApprovalMode};
 use oblivion_mcp::McpHub;
 use oblivion_skills::SkillSet;
@@ -14,6 +14,46 @@ pub enum Command {
     Done(String),
     /// Run this as a request to the agent.
     Run(String),
+    /// Run this request with image attachments.
+    RunWithImages(String, Vec<oblivion_core::ImageAttachment>),
+}
+
+/// Load an image from disk and wrap it in an [`ImageAttachment`].
+pub fn load_image_attachment(
+    path_str: &str,
+    root: &std::path::Path,
+) -> Result<oblivion_core::ImageAttachment> {
+    use base64::Engine;
+    let path = std::path::Path::new(path_str);
+    let full_path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    };
+    if !full_path.exists() {
+        anyhow::bail!("image file does not exist: {}", full_path.display());
+    }
+    let bytes = std::fs::read(&full_path)
+        .with_context(|| format!("failed to read image file '{}'", full_path.display()))?;
+    let ext = full_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let mime = match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "bmp" => "image/bmp",
+        _ => "image/png",
+    };
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    let name = full_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("image");
+    Ok(oblivion_core::ImageAttachment::new(mime, b64).with_name(name))
 }
 
 /// The user message for `/skill-name args`: the skill's instructions are
@@ -48,6 +88,7 @@ pub const HELP: &str = "\
 /small-model [on|off] toggle or show small-model mode (short prompt, core tools, strict repair)
 /spoken [on|off] toggle or show spoken reply style (short answers, code omitted from speech)
 /wake-word [on|off] toggle or show wake word detection (hands-free 'Hey Jarvis' keyword spotting)
+/image <path> [prompt] attach an image to your request
 /skills        list skills; run one with /<skill-name> [request]
 /mcp           list MCP servers and their tools
 /exit          quit";
@@ -530,6 +571,29 @@ pub async fn handle_command(
                 format!("Unknown argument '{other}'. Use `/wake-word on` or `/wake-word off`.")
             }
         },
+        "image" => {
+            if arg.is_empty() {
+                return Ok(Command::Done("Usage: /image <path> [prompt]".to_string()));
+            }
+            let (path_str, prompt_text) = if let Some(rest) = arg.strip_prefix('"') {
+                if let Some(end) = rest.find('"') {
+                    let p = &rest[..end];
+                    let rem = rest[end + 1..].trim();
+                    (p, rem)
+                } else {
+                    (arg, "")
+                }
+            } else {
+                arg.split_once(' ').unwrap_or((arg, ""))
+            };
+            let attachment = load_image_attachment(path_str, agent.tools.root())?;
+            let prompt = if prompt_text.is_empty() {
+                "Describe this image in detail.".to_string()
+            } else {
+                prompt_text.to_string()
+            };
+            return Ok(Command::RunWithImages(prompt, vec![attachment]));
+        }
         other => format!("Unknown command /{other}. Try /help or /skills."),
     };
     Ok(Command::Done(text))
@@ -540,5 +604,40 @@ pub fn approval_name(m: ApprovalMode) -> &'static str {
         ApprovalMode::Ask => "ask",
         ApprovalMode::AutoEdit => "auto-edit",
         ApprovalMode::Yolo => "yolo",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_load_image_attachment_png() {
+        let tmp = tempfile::tempdir().unwrap();
+        let img_path = tmp.path().join("test_shot.png");
+        std::fs::write(&img_path, b"\x89PNG\r\n\x1a\nfakeimagebytes").unwrap();
+
+        let att = load_image_attachment("test_shot.png", tmp.path()).unwrap();
+        assert_eq!(att.mime_type, "image/png");
+        assert_eq!(att.name.as_deref(), Some("test_shot.png"));
+        assert!(!att.data_base64.is_empty());
+    }
+
+    #[test]
+    fn test_load_image_attachment_jpg() {
+        let tmp = tempfile::tempdir().unwrap();
+        let img_path = tmp.path().join("photo.jpeg");
+        std::fs::write(&img_path, b"fakejpeg").unwrap();
+
+        let att = load_image_attachment(img_path.to_str().unwrap(), tmp.path()).unwrap();
+        assert_eq!(att.mime_type, "image/jpeg");
+        assert_eq!(att.name.as_deref(), Some("photo.jpeg"));
+    }
+
+    #[test]
+    fn test_load_image_attachment_missing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let res = load_image_attachment("nonexistent.png", tmp.path());
+        assert!(res.is_err());
     }
 }

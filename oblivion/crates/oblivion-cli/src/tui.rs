@@ -118,9 +118,19 @@ impl Model {
 
     pub fn apply(&mut self, e: UiEvent) {
         match e {
-            UiEvent::User { text } => {
+            UiEvent::User { text, images } => {
                 self.close_bot();
-                self.items.push(Item::User(text));
+                let display = if !images.is_empty() {
+                    let names = images
+                        .iter()
+                        .map(|img| img.name.as_deref().unwrap_or("image"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("{text} [images: {names}]")
+                } else {
+                    text
+                };
+                self.items.push(Item::User(display));
                 self.scroll = 0;
             }
             UiEvent::Text { text } => {
@@ -1091,6 +1101,7 @@ mod tests {
         }));
         m.apply(UiEvent::User {
             text: "add a version flag".into(),
+            images: vec![],
         });
         m.apply(UiEvent::Busy { busy: true });
         m.apply(UiEvent::Model {

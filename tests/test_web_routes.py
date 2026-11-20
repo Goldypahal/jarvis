@@ -91,6 +91,28 @@ def test_chat_route_bridge_success(client, monkeypatch):
     assert data["outcome"] == "done"
 
 
+def test_chat_route_bridge_with_images(client, monkeypatch):
+    """POST /api/chat forwards images to bridge.send_and_wait."""
+    class MockBridgeWithImages:
+        def __init__(self):
+            self.last_images = None
+        def send_and_wait(self, msg, timeout=60, images=None):
+            self.last_images = images
+            return {"response": f"Saw {len(images or [])} image(s)", "outcome": "done", "error": None}
+
+    bridge = MockBridgeWithImages()
+    monkeypatch.setitem(app.config, "OBLIVION_BRIDGE", bridge)
+
+    r = client.post("/api/chat", json={
+        "message": "Analyze screen",
+        "images": [{"mime_type": "image/png", "data_base64": "abc", "name": "screen.png"}]
+    })
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["response"] == "Saw 1 image(s)"
+    assert bridge.last_images == [{"mime_type": "image/png", "data_base64": "abc", "name": "screen.png"}]
+
+
 def test_chat_route_timeout(client, monkeypatch):
     """POST /api/chat handles TimeoutError from bridge with 504."""
     class TimeoutBridge:

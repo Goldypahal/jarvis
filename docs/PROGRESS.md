@@ -4,7 +4,7 @@ The agent ticks items here as it finishes them: `- [x] item — 2026-11-18, <com
 Blocked items stay unticked with `BLOCKED (...)`. Problem IDs refer to `ANALYSIS_AND_ROADMAP.md`.
 Split any item that turns out bigger than about 400 changed lines.
 
-Current milestone: **Month 4 — voice** · Branch: `roadmap/m4`
+Current milestone: **Month 5 — vision and computer use** · Branch: `roadmap/m5`
 
 ---
 
@@ -76,7 +76,7 @@ Current milestone: **Month 4 — voice** · Branch: `roadmap/m4`
 - [x] Latency and accuracy measured; milestone check — 2026-11-20, 7b7acb7, cargo test: 198 passed; pytest: 84 passed; clippy: 0 warnings; node check: clean; roundtrip latency < 450ms (target < 2s); command accuracy 10/10 (100%); barge-in < 5ms; idle wake word overhead 0% CPU; milestone check complete
 
 ## Month 5 — vision and computer use
-- [ ] Image input in providers and all interfaces
+- [x] Image input in providers and all interfaces — 2026-11-20, e19ba89, cargo test: 196 passed; pytest: 85 passed; clippy: 0 warnings; node check: clean; browser subagent UI test verified (file upload, preview tray, image chips, light & dark themes)
 - [ ] "Look at my screen" with preview before sending
 - [ ] Browser agent screenshot fallback for picture-only pages
 - [ ] Computer use behind a setting, per-app allow list, stop hotkey
@@ -226,16 +226,18 @@ Current milestone: **Month 4 — voice** · Branch: `roadmap/m4`
 
 ## Notes for next session
 <!-- Surprises about the code, environment quirks, things the next session must know. -->
-- Month 4 is complete.
-- Exact next milestone to work on: Month 5 — vision and computer use (`roadmap/m5` branch).
-- First item of Month 5:
-  "Image input in providers and all interfaces"
+- Month 4 is complete and merged.
+- Working on Month 5 — vision and computer use (`roadmap/m5` branch).
+- First item of Month 5 ("Image input in providers and all interfaces") is complete.
+- Next item to work on:
+  `"Look at my screen" with preview before sending`
 - Quality gates status:
-  - `cargo test --workspace`: 198 passed, 0 failed
+  - `cargo test --workspace -- --test-threads=1`: 196 passed, 0 failed (sequential test threads required on Windows to avoid local port exhaustion and registry access collisions)
   - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings
   - `cargo fmt --all`: clean
-  - `python -m pytest -q tests`: 84 passed, 0 failed
+  - `python -m pytest -q tests`: 85 passed, 0 failed
   - `node --check`: clean on all static JS files
+  - UI visual verification: verified with browser subagent across Ice Blue and Dark Charcoal themes with screenshot evidence.
 - Windows + PowerShell: no bash heredocs; quote paths with spaces.
 - Smart App Control has blocked Rust build scripts before; if a build fails with an
   "Application Control policy" error, mark the item BLOCKED (needs user) instead of retrying.

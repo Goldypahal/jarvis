@@ -217,16 +217,17 @@ class OblivionBridge:
         finally:
             conn.close()
 
-    def send_and_wait(self, text, timeout=60):
+    def send_and_wait(self, text, timeout=60, images=None):
         """Send text to Oblivion and wait for the turn to complete.
 
         Reads events from the SSE stream until turn_end (or an instant command info).
         Returns a dict with {'response': str, 'outcome': str, 'error': Optional[str]}.
         """
-        if not text or not str(text).strip():
-            raise ValueError("text must not be empty")
-
-        text = str(text).strip()
+        text = str(text or "").strip()
+        if not text and not images:
+            raise ValueError("text or images must not be empty")
+        if not text and images:
+            text = "Describe this image."
 
         if not self.running():
             st = self.start()
@@ -279,7 +280,10 @@ class OblivionBridge:
                             prior_seq = max(prior_seq, ev["seq"])
 
                 # Send the message
-                code, resp_text = self.post("/send", {"text": text})
+                send_payload = {"text": text}
+                if images:
+                    send_payload["images"] = images
+                code, resp_text = self.post("/send", send_payload)
                 if code not in (200, 204):
                     reader_running[0] = False
                     conn.close()

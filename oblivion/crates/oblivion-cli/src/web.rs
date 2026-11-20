@@ -302,6 +302,8 @@ struct ChatBody {
     message: String,
     #[serde(default)]
     text: String,
+    #[serde(default)]
+    images: Vec<oblivion_core::ImageAttachment>,
 }
 
 async fn chat_handler(
@@ -322,14 +324,23 @@ async fn chat_handler(
     } else {
         body.text
     };
-    if msg.trim().is_empty() {
+    if msg.trim().is_empty() && body.images.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": "empty message"})),
         )
             .into_response();
     }
-    st.controls.send(msg);
+    let msg = if msg.trim().is_empty() && !body.images.is_empty() {
+        "Describe this image.".to_string()
+    } else {
+        msg
+    };
+    if !body.images.is_empty() {
+        st.controls.send_with_images(msg, body.images);
+    } else {
+        st.controls.send(msg);
+    }
     (
         StatusCode::OK,
         Json(serde_json::json!({"response": "Message sent to agent"})),
@@ -671,9 +682,12 @@ async fn events(
 
 #[derive(Deserialize)]
 struct SendBody {
+    #[serde(default)]
     text: String,
     #[serde(default)]
     voice: bool,
+    #[serde(default)]
+    images: Vec<oblivion_core::ImageAttachment>,
 }
 
 async fn send(
@@ -685,13 +699,20 @@ async fn send(
     if !st.authorized(&headers, &q) {
         return StatusCode::UNAUTHORIZED;
     }
-    if body.text.trim().is_empty() {
+    if body.text.trim().is_empty() && body.images.is_empty() {
         return StatusCode::BAD_REQUEST;
     }
-    if body.voice {
-        st.controls.send_voice(body.text);
+    let text = if body.text.trim().is_empty() && !body.images.is_empty() {
+        "Describe this image.".to_string()
     } else {
-        st.controls.send(body.text);
+        body.text
+    };
+    if body.voice {
+        st.controls.send_voice(text);
+    } else if !body.images.is_empty() {
+        st.controls.send_with_images(text, body.images);
+    } else {
+        st.controls.send(text);
     }
     StatusCode::NO_CONTENT
 }
@@ -2062,7 +2083,10 @@ mod tests {
     #[test]
     fn history_merges_text_and_keeps_one_state() {
         let bus = Bus::default();
-        bus.publish(UiEvent::User { text: "hi".into() });
+        bus.publish(UiEvent::User {
+            text: "hi".into(),
+            images: vec![],
+        });
         bus.publish(UiEvent::Text { text: "Hel".into() });
         bus.publish(UiEvent::Text { text: "lo".into() });
         bus.publish(UiEvent::Todos { items: vec![] });
@@ -3634,5 +3658,43 @@ mod live {
         assert_eq!(res.status(), StatusCode::OK);
         let ww_resp2: serde_json::Value = res.json().await.unwrap();
         assert_eq!(ww_resp2["enabled"], true);
+
+        // 11. Send with image attachment
+        let res = client
+            .post(format!("{base}/send"))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({
+                "text": "What is in this image?",
+                "images": [
+                    {
+                        "mime_type": "image/png",
+                        "data_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+                        "name": "red_dot.png"
+                    }
+                ]
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+        // 12. Chat handler with image attachment
+        let res = client
+            .post(format!("{base}/api/chat"))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({
+                "message": "Analyze screen",
+                "images": [
+                    {
+                        "mime_type": "image/jpeg",
+                        "data_base64": "/9j/4AAQSkZJRg==",
+                        "name": "screen.jpg"
+                    }
+                ]
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
     }
 }

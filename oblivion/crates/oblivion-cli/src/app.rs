@@ -32,6 +32,8 @@ pub enum UiEvent {
     /// What the user sent (shown in the transcript).
     User {
         text: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        images: Vec<oblivion_core::ImageAttachment>,
     },
     Text {
         text: String,
@@ -256,11 +258,16 @@ pub fn state_view(agent: &Agent, skills: &SkillSet, browser: bool) -> StateView 
 pub struct UserInput {
     pub text: String,
     pub voice: bool,
+    pub images: Vec<oblivion_core::ImageAttachment>,
 }
 
 impl From<String> for UserInput {
     fn from(text: String) -> Self {
-        Self { text, voice: false }
+        Self {
+            text,
+            voice: false,
+            images: vec![],
+        }
     }
 }
 
@@ -269,6 +276,7 @@ impl From<&str> for UserInput {
         Self {
             text: text.to_string(),
             voice: false,
+            images: vec![],
         }
     }
 }
@@ -426,6 +434,19 @@ impl Controls {
         let _ = self.input.send(UserInput {
             text: text.into(),
             voice: true,
+            images: vec![],
+        });
+    }
+
+    pub fn send_with_images(
+        &self,
+        text: impl Into<String>,
+        images: Vec<oblivion_core::ImageAttachment>,
+    ) {
+        let _ = self.input.send(UserInput {
+            text: text.into(),
+            voice: false,
+            images,
         });
     }
 }
@@ -519,15 +540,23 @@ impl Worker {
         self.send_state();
         while let Some(input) = self.input.recv().await {
             let text = input.text.trim().to_string();
-            if text.is_empty() {
+            if text.is_empty() && input.images.is_empty() {
                 continue;
             }
-            let _ = self.tx.send(UiEvent::User { text: text.clone() });
+            let text = if text.is_empty() && !input.images.is_empty() {
+                "Describe this image.".to_string()
+            } else {
+                text
+            };
+            let _ = self.tx.send(UiEvent::User {
+                text: text.clone(),
+                images: input.images.clone(),
+            });
             let prev_spoken = self.agent.spoken_reply;
             if input.voice {
                 self.agent.spoken_reply = true;
             }
-            let task = match text.strip_prefix('/') {
+            let (task, images) = match text.strip_prefix('/') {
                 Some(cmd) => {
                     let tx = self.tx.clone();
                     let mut sink = move |e: AgentEvent| {
@@ -576,7 +605,12 @@ impl Worker {
                             self.send_state();
                             continue;
                         }
-                        Ok(Command::Run(task)) => task,
+                        Ok(Command::Run(task)) => (task, input.images),
+                        Ok(Command::RunWithImages(task, cmd_images)) => {
+                            let mut all_images = input.images;
+                            all_images.extend(cmd_images);
+                            (task, all_images)
+                        }
                         Err(e) => {
                             let _ = self.tx.send(UiEvent::Info {
                                 text: format!("✗ {e:#}"),
@@ -585,16 +619,16 @@ impl Worker {
                         }
                     }
                 }
-                None => text,
+                None => (text, input.images),
             };
-            self.run_turn(&task).await;
+            self.run_turn(&task, images).await;
             if input.voice {
                 self.agent.spoken_reply = prev_spoken;
             }
         }
     }
 
-    async fn run_turn(&mut self, task: &str) {
+    async fn run_turn(&mut self, task: &str, images: Vec<oblivion_core::ImageAttachment>) {
         self.stop.store(false, Ordering::SeqCst);
         self.busy.store(true, Ordering::SeqCst);
         let _ = self.tx.send(UiEvent::Busy { busy: true });
@@ -654,7 +688,7 @@ impl Worker {
         let result = tokio::select! {
             biased;
             _ = &mut stopped => None,
-            r = self.agent.run_turn(task, &mut on_event) => Some(r),
+            r = self.agent.run_turn_with_images(task, images, &mut on_event) => Some(r),
         };
         // The request can also finish in the same moment Stop is pressed (a declined
         // approval followed by an instant error); Stop still wins.
