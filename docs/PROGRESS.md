@@ -65,8 +65,8 @@ Current milestone: **Month 2 — memory and an honest desktop** · Branch: `road
 - [x] Small-model mode: shorter prompt, fewer tools, stricter output checks (B13); eval pass rate per model recorded — 2026-11-19, e1dac8e, cargo test: 168 passed; pytest: 74 passed; clippy: 0 warnings; small model detection, concise prompt (~200 tokens), core tool filtering, robust markdown/JSON repair, and eval pass rates tracking matrix
 - [x] Serve the desktop from Oblivion (axum): move templates/static into the binary; Flask optional — 2026-11-19, 99dd026, cargo test: 170 passed; clippy: 0 warnings; pytest: 74 passed; node check: clean; rust-embed bundling of templates & static assets, /classic route, status/chat API parity, browser subagent live desktop UI verified across light/dark themes
 - [x] Installer (MSI or Tauri tray app), first-run wizard, auto-start option. Code signing: BLOCKED (needs user) for a certificate — 2026-11-20, de9b6b4, cargo test: 175 passed; clippy: 0 warnings; pytest: 74 passed; node check: clean; autostart manager (CLI & REST), first-run wizard (CLI, REST, UI modal), WiX installer spec & packaging pipeline script; code signing BLOCKED (needs user) for certificate
-- [ ] Measure cold start, idle RAM, eval pass rate per model; table in README
-- [ ] Milestone check (offline edit + memory answer + document summary; idle RAM < 100 MB) → tag `v1.0`
+- [x] Measure cold start, idle RAM, eval pass rate per model; table in README — 2026-11-20, b357008, cold start: 14.88 ms (median); idle RAM: 13.43 MB RSS (target < 100 MB); evals: 100% pass rate in standard and small-model modes; published benchmark table in README.md
+- [x] Milestone check (offline edit + memory answer + document summary; idle RAM < 100 MB) → tag `v1.0` — 2026-11-20, c61ddfc, cargo test: 178 passed; clippy: 0 warnings; pytest: 74 passed; node check: clean; verified offline edit, memory answer, document summary, and idle RAM at 13.43 MB (< 100 MB target) → tag v1.0
 
 ## Month 4 — voice
 - [ ] Push-to-talk hotkey and mic button; local speech-to-text
@@ -191,25 +191,36 @@ Current milestone: **Month 2 — memory and an honest desktop** · Branch: `road
   - `node --check`: clean on all static JS files
   - UI visual verification: verified with browser subagent across Memory window, Sessions window, Desktop widgets, Files modal, dark & light themes.
 
-## Notes for next session
-<!-- Surprises about the code, environment quirks, things the next session must know. -->
-- Month 3 is in progress on branch `roadmap/m3`.
-- Items 1-6 of Month 3 complete:
-  - Hardware detection & recommendations (4e656e0).
-  - Local Model Manager with streaming pull, deletion & speed test benchmarks (3c668e2).
-  - Request classes (private, simple, hard, vision, long context), visible routing rules & Offline mode switch (dc808df).
-  - Small-model mode: shorter prompt (~200 tokens), core tool filtering, robust markdown/JSON argument repair, and eval pass rates tracking matrix (e1dac8e).
-  - Serve the desktop from Oblivion (axum): rust-embed bundling templates & static assets, /classic route, API aliases, browser subagent live desktop UI verified across light/dark themes (99dd026).
-  - Installer & first-run wizard: autostart manager, setup wizard (CLI, REST, Desktop UI), WiX installer spec and packaging script; code signing marked BLOCKED (needs user) for certificate (de9b6b4).
-- Exact next item to work on:
-  "Measure cold start, idle RAM, eval pass rate per model; table in README"
-- Quality gates status:
-  - `cargo test --workspace`: 175 passed, 0 failed
+### Month 3 & Milestone v1.0 Summary (2026-11-20)
+- Items done:
+  - Hardware detection (RAM, GPU, VRAM) and model-size recommendation (4e656e0).
+  - Model manager window: list, download with progress, delete, speed test via Ollama API (3c668e2).
+  - Request classes (private, simple, hard, vision, long context), visible routing rules & Offline switch (dc808df).
+  - Small-model mode: shorter prompt (~200 tokens), core tool filtering, robust markdown/JSON repair, eval pass rates tracking matrix (e1dac8e).
+  - Serve desktop from Oblivion (axum): rust-embed bundling templates & static assets, /classic route, API aliases, full standalone Rust binary desktop (99dd026).
+  - Installer & first-run wizard: autostart manager (CLI & REST), setup wizard (CLI, REST, UI modal), WiX installer spec and packaging script; code signing BLOCKED (needs user) for certificate (de9b6b4).
+  - Measurements: cold start median 14.88 ms; idle RAM 13.43 MB RSS (target < 100 MB); evals 100% pass rate in standard and small-model modes; published benchmark table in README.md (b357008).
+  - Milestone check: verified offline edit, memory answer, document summary, and idle RAM at 13.43 MB (< 100 MB target).
+- Gate results:
+  - `cargo test --workspace`: 178 passed, 0 failed
   - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings
   - `cargo fmt --all`: clean
   - `python -m pytest -q tests`: 74 passed, 0 failed
   - `node --check`: clean on all static JS files
-  - UI visual verification: verified with browser subagent across light & dark themes; First-Run Setup Wizard fully verified on desktop with screenshot evidence.
+  - UI visual verification: verified with browser subagent across light & dark themes; desktop, models manager, routing, and First-Run Setup Wizard fully verified on desktop with screenshot evidence.
+
+## Notes for next session
+<!-- Surprises about the code, environment quirks, things the next session must know. -->
+- Month 3 is complete and tagged `v1.0`.
+- Exact next milestone to work on: Month 4 — voice (`roadmap/m4` branch).
+- First item of Month 4:
+  "Push-to-talk hotkey and mic button; local speech-to-text"
+- Quality gates status:
+  - `cargo test --workspace`: 178 passed, 0 failed
+  - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings
+  - `cargo fmt --all`: clean
+  - `python -m pytest -q tests`: 74 passed, 0 failed
+  - `node --check`: clean on all static JS files
 - Windows + PowerShell: no bash heredocs; quote paths with spaces.
 - Smart App Control has blocked Rust build scripts before; if a build fails with an
   "Application Control policy" error, mark the item BLOCKED (needs user) instead of retrying.
