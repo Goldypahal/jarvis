@@ -8,17 +8,18 @@
 (function () {
     "use strict";
 
-    const COMMANDS = ["help", "undo", "models", "todo", "compact", "model ", "approval ", "clear", "session", "skills", "mcp"];
+    const COMMANDS = ["help", "undo", "models", "todo", "compact", "model ", "approval ", "clear", "session", "skills", "mcp", "screen", "image "];
     const CHIPS = [
         ["Explain this project", "How the code is organised and where to start", "Explain how this project is organised"],
         ["Review my changes", "Bugs and risks in what I have not committed yet", "/code-review the uncommitted changes"],
         ["Research a topic", "A cited report from several sources", "/deep-research "],
         ["Make a slide deck", "A PowerPoint file from a short brief", "/pptx "],
+        ["Look at my screen", "Capture a screenshot and ask about it", "/screen "],
     ];
 
     const $ = (id) => document.getElementById(id);
     let panel, log, input, sendBtn;
-    let imageTray, imageFileInput, attachBtn;
+    let imageTray, imageFileInput, attachBtn, screenBtn;
     let stagedImages = [];
     let splitModal, splitChat, splitInput, splitForm, splitApprovals, splitTools, splitTaskName, splitTasksBar, splitTasksList, splitModelPill, splitStatusPill;
     let splitBot = null, splitBotText = "";
@@ -225,8 +226,83 @@
         reader.readAsDataURL(file);
     }
 
+    function stageImage(mimeType, dataBase64, name) {
+        let b64 = dataBase64 || "";
+        const comma = b64.indexOf(",");
+        if (comma !== -1) b64 = b64.slice(comma + 1);
+        stagedImages.push({
+            mime_type: mimeType || "image/png",
+            data_base64: b64,
+            name: name || "screenshot.png"
+        });
+        renderStagedImages();
+    }
+
+    async function lookAtScreen() {
+        // Try browser getDisplayMedia first
+        try {
+            if (navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === "function") {
+                const stream = await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: "monitor" } });
+                const video = document.createElement("video");
+                video.srcObject = stream;
+                await video.play();
+                const canvas = document.createElement("canvas");
+                canvas.width = video.videoWidth || 1920;
+                canvas.height = video.videoHeight || 1080;
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                stream.getTracks().forEach((t) => t.stop());
+                const dataUrl = canvas.toDataURL("image/png");
+                stageImage("image/png", dataUrl, "screen.png");
+                if (!input.value.trim() || input.value.trim().startsWith("/screen")) {
+                    input.value = "Look at my screen and describe what you see.";
+                }
+                autosize();
+                input.focus();
+                return;
+            }
+        } catch (err) {
+            console.warn("getDisplayMedia not available or cancelled:", err);
+            if (err.name === "NotAllowedError" || err.name === "AbortError") {
+                return;
+            }
+        }
+
+        // Fallback to backend capture endpoint
+        try {
+            const resp = await fetch("/api/oblivion/screen/capture", {
+                method: "POST",
+                headers: { "content-type": "application/json", "x-jarvis-token": getToken() },
+                body: "{}"
+            });
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data.ok && data.image) {
+                    stageImage(data.image.mime_type, data.image.data_base64, data.image.name || "screen.png");
+                    if (!input.value.trim() || input.value.trim().startsWith("/screen")) {
+                        input.value = "Look at my screen and describe what you see.";
+                    }
+                    autosize();
+                    input.focus();
+                    return;
+                }
+            }
+        } catch (err) {
+            console.error("Screen capture failed:", err);
+        }
+        note("Could not capture screen. Use the attach button 📎 or paste an image.", "warn");
+    }
+
     function send(text, isVoice = false) {
         text = (text ?? input.value).trim();
+        if (text === "/screen" || text.startsWith("/screen ")) {
+            const customPrompt = text.slice(7).trim();
+            lookAtScreen().then(() => {
+                if (customPrompt) input.value = customPrompt;
+                autosize();
+            });
+            return;
+        }
         if (!text && stagedImages.length === 0) return;
         if (!text && stagedImages.length > 0) {
             text = "Describe this image.";
@@ -635,6 +711,7 @@
         imageTray = $("ob-image-preview-tray");
         imageFileInput = $("ob-image-file-input");
         attachBtn = $("ob-attach-btn");
+        screenBtn = $("ob-screen-btn");
         splitModal = $("splitModal");
         splitChat = $("split-chat-messages");
         splitInput = $("split-user-input");
@@ -655,6 +732,10 @@
                 }
                 imageFileInput.value = "";
             };
+        }
+
+        if (screenBtn) {
+            screenBtn.onclick = () => lookAtScreen();
         }
 
         if (panel) {

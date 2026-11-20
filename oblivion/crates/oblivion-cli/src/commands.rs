@@ -8,6 +8,7 @@ use oblivion_mcp::McpHub;
 use oblivion_skills::SkillSet;
 use oblivion_tools::TodoList;
 
+#[derive(Debug)]
 pub enum Command {
     Quit,
     /// Finished; show this text.
@@ -89,6 +90,7 @@ pub const HELP: &str = "\
 /spoken [on|off] toggle or show spoken reply style (short answers, code omitted from speech)
 /wake-word [on|off] toggle or show wake word detection (hands-free 'Hey Jarvis' keyword spotting)
 /image <path> [prompt] attach an image to your request
+/screen [prompt] capture your screen with preview and attach it to your request
 /skills        list skills; run one with /<skill-name> [request]
 /mcp           list MCP servers and their tools
 /exit          quit";
@@ -594,6 +596,15 @@ pub async fn handle_command(
             };
             return Ok(Command::RunWithImages(prompt, vec![attachment]));
         }
+        "screen" => {
+            let attachment = crate::screen::capture_screen()?;
+            let prompt = if arg.is_empty() {
+                "Look at my screen and describe what you see.".to_string()
+            } else {
+                arg.to_string()
+            };
+            return Ok(Command::RunWithImages(prompt, vec![attachment]));
+        }
         other => format!("Unknown command /{other}. Try /help or /skills."),
     };
     Ok(Command::Done(text))
@@ -639,5 +650,50 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let res = load_image_attachment("nonexistent.png", tmp.path());
         assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_screen_command_runs_with_images() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (tx, _rx) = crate::app::channels();
+        let approvals = crate::app::Approvals::new(tx);
+        let tools = oblivion_tools::ToolBox::new(
+            tmp.path(),
+            oblivion_tools::Shell::Cmd,
+            tmp.path().join(".snap"),
+        );
+        let mut a = Agent::new(
+            oblivion_providers::Router::new(vec![]),
+            tools,
+            approvals.approver(),
+            ApprovalMode::Ask,
+            10,
+            "system".into(),
+        );
+        let skills = SkillSet::default();
+        let hub = McpHub::new(vec![]);
+        let mut sink = |_e: AgentEvent| {};
+
+        std::env::set_var("OBLIVION_MOCK_SCREEN_CAPTURE", "1");
+        let res = handle_command(
+            &mut a,
+            &skills,
+            &hub,
+            None,
+            "screen what is open",
+            &mut sink,
+        )
+        .await
+        .unwrap();
+        std::env::remove_var("OBLIVION_MOCK_SCREEN_CAPTURE");
+
+        match res {
+            Command::RunWithImages(prompt, images) => {
+                assert_eq!(prompt, "what is open");
+                assert_eq!(images.len(), 1);
+                assert_eq!(images[0].mime_type, "image/png");
+            }
+            other => panic!("expected Command::RunWithImages, got {other:?}"),
+        }
     }
 }

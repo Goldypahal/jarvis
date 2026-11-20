@@ -800,6 +800,17 @@ def register(app, bridge=None, allowed_port=None, token=None):
             code, text, ct = b.request("GET", "/api/voice/wake-word")
         return Response(text, status=code, mimetype=ct)
 
+    @app.route("/api/oblivion/screen/capture", methods=["POST"])
+    @app.route("/api/screen/capture", methods=["POST"])
+    def oblivion_screen_capture():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        code, text = b.post("/api/oblivion/screen/capture", {})
+        mime = "application/json" if text.strip().startswith(("{", "[")) else "text/plain"
+        return Response(text, status=code, mimetype=mime)
+
     return bridge
 
 

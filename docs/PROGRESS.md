@@ -77,7 +77,7 @@ Current milestone: **Month 5 — vision and computer use** · Branch: `roadmap/m
 
 ## Month 5 — vision and computer use
 - [x] Image input in providers and all interfaces — 2026-11-20, e19ba89, cargo test: 196 passed; pytest: 85 passed; clippy: 0 warnings; node check: clean; browser subagent UI test verified (file upload, preview tray, image chips, light & dark themes)
-- [ ] "Look at my screen" with preview before sending
+- [x] "Look at my screen" with preview before sending — 2026-11-20, 2bd0001, cargo test: 199 passed; pytest: 86 passed; clippy: 0 warnings; node check: clean; browser subagent UI test verified (look at screen button, preview tray inspection, cancel/remove chip, light & dark themes)
 - [ ] Browser agent screenshot fallback for picture-only pages
 - [ ] Computer use behind a setting, per-app allow list, stop hotkey
 - [ ] 10 vision evals; milestone check
@@ -228,14 +228,14 @@ Current milestone: **Month 5 — vision and computer use** · Branch: `roadmap/m
 <!-- Surprises about the code, environment quirks, things the next session must know. -->
 - Month 4 is complete and merged.
 - Working on Month 5 — vision and computer use (`roadmap/m5` branch).
-- First item of Month 5 ("Image input in providers and all interfaces") is complete.
+- First two items of Month 5 ("Image input in providers and all interfaces" and "'Look at my screen' with preview before sending") are complete.
 - Next item to work on:
-  `"Look at my screen" with preview before sending`
+  `Browser agent screenshot fallback for picture-only pages`
 - Quality gates status:
-  - `cargo test --workspace -- --test-threads=1`: 196 passed, 0 failed (sequential test threads required on Windows to avoid local port exhaustion and registry access collisions)
+  - `cargo test --workspace -- --test-threads=1`: 199 passed, 0 failed (sequential test threads required on Windows to avoid local port exhaustion and registry access collisions)
   - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings
   - `cargo fmt --all`: clean
-  - `python -m pytest -q tests`: 85 passed, 0 failed
+  - `python -m pytest -q tests`: 86 passed, 0 failed
   - `node --check`: clean on all static JS files
   - UI visual verification: verified with browser subagent across Ice Blue and Dark Charcoal themes with screenshot evidence.
 - Windows + PowerShell: no bash heredocs; quote paths with spaces.

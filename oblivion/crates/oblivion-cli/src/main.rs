@@ -4,6 +4,7 @@ mod app;
 pub mod autostart;
 mod commands;
 mod keys;
+pub mod screen;
 #[cfg(test)]
 mod testkit;
 pub mod trace;
@@ -142,6 +143,10 @@ struct Cli {
     /// Attach an image file to the request.
     #[arg(long, value_name = "IMAGE_PATH")]
     image: Option<PathBuf>,
+
+    /// Capture a screenshot of the primary display and attach it to the request.
+    #[arg(long)]
+    screen: bool,
 
     /// Print a run's trace log (JSON lines) by run id, then exit. Use "list" to show traces.
     #[arg(long, value_name = "ID")]
@@ -804,7 +809,7 @@ async fn run() -> Result<()> {
         let worker = worker
             .with_traces(traces_dir, current_tracer.clone())
             .with_store(store.clone());
-        let initial_images = if let Some(ref img_path) = cli.image {
+        let mut initial_images = if let Some(ref img_path) = cli.image {
             match commands::load_image_attachment(&img_path.to_string_lossy(), &root) {
                 Ok(att) => vec![att],
                 Err(e) => {
@@ -815,10 +820,20 @@ async fn run() -> Result<()> {
         } else {
             vec![]
         };
+        if cli.screen {
+            match screen::capture_screen() {
+                Ok(att) => initial_images.push(att),
+                Err(e) => eprintln!("{RED}✗ Failed to capture --screen: {e:#}{RESET}"),
+            }
+        }
 
         if !cli.prompt.is_empty() || !initial_images.is_empty() {
             let p = if cli.prompt.is_empty() {
-                "Describe this image.".to_string()
+                if cli.screen {
+                    "Look at my screen and describe what you see.".to_string()
+                } else {
+                    "Describe this image.".to_string()
+                }
             } else {
                 cli.prompt.join(" ")
             };
@@ -865,8 +880,8 @@ async fn run() -> Result<()> {
         });
     }
 
-    if !cli.prompt.is_empty() || cli.image.is_some() {
-        let initial_images = if let Some(ref img_path) = cli.image {
+    if !cli.prompt.is_empty() || cli.image.is_some() || cli.screen {
+        let mut initial_images = if let Some(ref img_path) = cli.image {
             match commands::load_image_attachment(&img_path.to_string_lossy(), &root) {
                 Ok(att) => vec![att],
                 Err(e) => {
@@ -877,8 +892,18 @@ async fn run() -> Result<()> {
         } else {
             vec![]
         };
+        if cli.screen {
+            match screen::capture_screen() {
+                Ok(att) => initial_images.push(att),
+                Err(e) => eprintln!("{RED}✗ Failed to capture --screen: {e:#}{RESET}"),
+            }
+        }
         let mut task = if cli.prompt.is_empty() {
-            "Describe this image in detail.".to_string()
+            if cli.screen {
+                "Look at my screen and describe what you see.".to_string()
+            } else {
+                "Describe this image in detail.".to_string()
+            }
         } else {
             cli.prompt.join(" ")
         };

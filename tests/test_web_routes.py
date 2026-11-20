@@ -316,3 +316,29 @@ def test_query_param_auth_alternative(client):
     # Using ?token=
     r = client.get(f"/api/oblivion/status?token={token}", headers={"Host": host})
     assert r.status_code == 200
+
+
+# ==========================================
+# 10. Route: POST /api/oblivion/screen/capture
+# ==========================================
+
+def test_oblivion_screen_capture_route(client, auth_headers, monkeypatch):
+    """POST /api/oblivion/screen/capture forwards to bridge screen capture endpoint."""
+    called = []
+    class FakeScreenBridge:
+        def post(self, path, body):
+            called.append((path, body))
+            return 200, '{"ok": true, "image": {"mime_type": "image/png", "data_base64": "fakeb64", "name": "screen.png"}}'
+
+    monkeypatch.setitem(app.config, "OBLIVION_BRIDGE", FakeScreenBridge())
+
+    # Unauthorized
+    assert client.post("/api/oblivion/screen/capture").status_code == 403
+
+    # Authorized forward
+    r = client.post("/api/oblivion/screen/capture", headers=auth_headers)
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["ok"] is True
+    assert data["image"]["mime_type"] == "image/png"
+    assert called == [("/api/oblivion/screen/capture", {})]

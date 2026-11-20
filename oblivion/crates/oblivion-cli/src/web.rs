@@ -498,6 +498,8 @@ pub fn router(state: WebState) -> Router {
         .route("/api/oblivion/start", post(get_status).get(get_status))
         .route("/api/oblivion/status", get(get_status))
         .route("/api/chat", post(chat_handler))
+        .route("/api/screen/capture", post(screen_capture))
+        .route("/api/oblivion/screen/capture", post(screen_capture))
         // System & dashboard
         .route("/api/system/dashboard", get(get_dashboard))
         .route("/api/oblivion/dashboard", get(get_dashboard))
@@ -715,6 +717,35 @@ async fn send(
         st.controls.send(text);
     }
     StatusCode::NO_CONTENT
+}
+
+async fn screen_capture(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    if !st.authorized(&headers, &q) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    match crate::screen::capture_screen() {
+        Ok(att) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "ok": true,
+                "image": att,
+            })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "ok": false,
+                "error": e.to_string(),
+                "needs_client_capture": true,
+            })),
+        )
+            .into_response(),
+    }
 }
 
 #[derive(Deserialize)]
@@ -3696,5 +3727,21 @@ mod live {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
+
+        // 13. Screen capture endpoint
+        let res = client
+            .post(format!("{base}/api/oblivion/screen/capture"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let screen_json: serde_json::Value = res.json().await.unwrap();
+        assert!(screen_json.get("ok").is_some());
+        if screen_json["ok"] == true {
+            assert!(screen_json.get("image").is_some());
+        } else {
+            assert!(screen_json.get("error").is_some());
+        }
     }
 }

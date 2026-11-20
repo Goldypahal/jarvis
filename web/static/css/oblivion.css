@@ -1817,7 +1817,8 @@ body[data-theme="black"] .routing-target-tag.local-target {
 .ob-image-chip .ob-chip-remove:hover {
     transform: scale(1.15);
 }
-.ob-attach-btn {
+.ob-attach-btn,
+.ob-screen-btn {
     width: 30px;
     height: 30px;
     border-radius: 50%;
@@ -1831,7 +1832,8 @@ body[data-theme="black"] .routing-target-tag.local-target {
     cursor: pointer;
     transition: color 0.15s, background 0.15s, transform 0.15s;
 }
-.ob-attach-btn:hover {
+.ob-attach-btn:hover,
+.ob-screen-btn:hover {
     color: var(--ob-accent);
     background: var(--ob-fill);
     transform: scale(1.08);
