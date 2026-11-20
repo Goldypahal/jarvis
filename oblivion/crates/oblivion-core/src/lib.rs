@@ -36,4 +36,5 @@ pub use voice::{
     is_low_risk_action, AudioBuffer, CloudWhisperTranscriber, LocalPiperSynthesizer,
     LocalWhisperTranscriber, MockSynthesizer, MockTranscriber, SentenceSplitter,
     TranscriptionResult, VoiceService, VoiceStatus, VoiceSynthesizer, VoiceTranscriber,
+    WakeWordConfig, WakeWordDetector,
 };

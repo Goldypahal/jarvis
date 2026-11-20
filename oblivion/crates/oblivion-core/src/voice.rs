@@ -782,6 +782,88 @@ impl VoiceSynthesizer for LocalPiperSynthesizer {
     }
 }
 
+/// Configuration for wake word detection.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WakeWordConfig {
+    pub enabled: bool,
+    pub phrases: Vec<String>,
+    pub energy_threshold: f32,
+}
+
+impl Default for WakeWordConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            phrases: vec!["jarvis".to_string(), "hey jarvis".to_string()],
+            energy_threshold: 0.01,
+        }
+    }
+}
+
+/// Keyword spotter / wake word detector for hands-free invocation.
+///
+/// Designed to be CPU-light and privacy-respecting:
+/// 1. Only active when explicitly enabled by user.
+/// 2. Energy gating drops quiet audio without performing heavy model operations.
+/// 3. Normalizes phrases (case, punctuation) to reliably spot triggers.
+#[derive(Debug, Clone)]
+pub struct WakeWordDetector {
+    pub config: WakeWordConfig,
+}
+
+impl WakeWordDetector {
+    pub fn new(config: WakeWordConfig) -> Self {
+        Self { config }
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.config.enabled
+    }
+
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.config.enabled = enabled;
+    }
+
+    pub fn phrases(&self) -> &[String] {
+        &self.config.phrases
+    }
+
+    /// Check if audio energy is above the threshold required to process for wake word.
+    pub fn has_speech_energy(&self, audio: &AudioBuffer) -> bool {
+        audio.rms_energy() >= self.config.energy_threshold
+    }
+
+    /// Detect if a transcript begins with or contains a configured wake word.
+    /// Returns `Some((detected_phrase, remaining_text))` with the wake word stripped.
+    pub fn detect_in_text(&self, text: &str) -> Option<(String, String)> {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        // Clean leading punctuation
+        let clean =
+            trimmed.trim_start_matches(|c: char| c.is_ascii_punctuation() || c.is_whitespace());
+        let lower = clean.to_lowercase();
+
+        // Sort phrases by length descending to match longer phrases like "hey jarvis" before "jarvis"
+        let mut sorted_phrases = self.config.phrases.clone();
+        sorted_phrases.sort_by_key(|a| std::cmp::Reverse(a.len()));
+
+        for phrase in &sorted_phrases {
+            let p_lower = phrase.to_lowercase();
+            if lower.starts_with(&p_lower) {
+                let remainder = &clean[p_lower.len()..];
+                let remainder_clean = remainder
+                    .trim_start_matches(|c: char| c.is_ascii_punctuation() || c.is_whitespace())
+                    .trim();
+                return Some((phrase.clone(), remainder_clean.to_string()));
+            }
+        }
+        None
+    }
+}
+
 /// Status summary for the voice subsystem.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct VoiceStatus {
@@ -794,6 +876,10 @@ pub struct VoiceStatus {
     pub cloud_whisper_available: bool,
     pub local_piper_available: bool,
     pub web_speech_available: bool,
+    #[serde(default)]
+    pub wake_word_enabled: bool,
+    #[serde(default)]
+    pub wake_words: Vec<String>,
 }
 
 /// High-level voice coordinator service that routes between local and cloud STT.
@@ -805,6 +891,7 @@ pub struct VoiceService {
     hotkey: String,
     language: String,
     offline_only: bool,
+    wake_word: std::sync::RwLock<WakeWordDetector>,
 }
 
 impl VoiceService {
@@ -825,7 +912,20 @@ impl VoiceService {
             hotkey: hotkey.into(),
             language: language.into(),
             offline_only,
+            wake_word: std::sync::RwLock::new(WakeWordDetector::new(WakeWordConfig::default())),
         }
+    }
+
+    pub fn is_wake_word_enabled(&self) -> bool {
+        self.wake_word.read().unwrap().is_enabled()
+    }
+
+    pub fn set_wake_word_enabled(&self, enabled: bool) {
+        self.wake_word.write().unwrap().set_enabled(enabled);
+    }
+
+    pub fn wake_word_detector(&self) -> WakeWordDetector {
+        self.wake_word.read().unwrap().clone()
     }
 
     /// Inspect current status of voice capabilities.
@@ -853,6 +953,8 @@ impl VoiceService {
             cloud_whisper_available: cloud_avail,
             local_piper_available: piper_avail,
             web_speech_available: true, // Supported in modern desktop browsers
+            wake_word_enabled: self.is_wake_word_enabled(),
+            wake_words: self.wake_word.read().unwrap().phrases().to_vec(),
         }
     }
 
@@ -1177,5 +1279,48 @@ mod tests {
             "custom_mcp_exec",
             "run arbitrary action"
         ));
+    }
+
+    #[test]
+    fn test_wake_word_detector() {
+        let mut detector = WakeWordDetector::new(WakeWordConfig::default());
+        assert!(!detector.is_enabled());
+
+        // 1. Detection of 'hey jarvis'
+        let (phrase, cmd) = detector
+            .detect_in_text("Hey Jarvis, what time is it?")
+            .expect("should match hey jarvis");
+        assert_eq!(phrase, "hey jarvis");
+        assert_eq!(cmd, "what time is it?");
+
+        // 2. Detection of 'jarvis' with colon and punctuation
+        let (phrase2, cmd2) = detector
+            .detect_in_text("Jarvis: explain this codebase.")
+            .expect("should match jarvis");
+        assert_eq!(phrase2, "jarvis");
+        assert_eq!(cmd2, "explain this codebase.");
+
+        // 3. Case-insensitivity and whitespace handling
+        let (phrase3, cmd3) = detector
+            .detect_in_text("  HEY JARVIS   run the tests!  ")
+            .expect("should match uppercase");
+        assert_eq!(phrase3, "hey jarvis");
+        assert_eq!(cmd3, "run the tests!");
+
+        // 4. Non-matching queries
+        assert!(detector.detect_in_text("What is the weather?").is_none());
+        assert!(detector.detect_in_text("Alexa play music").is_none());
+        assert!(detector.detect_in_text("").is_none());
+
+        // 5. Energy gating
+        let silent = AudioBuffer::new_pcm16_mono(16000, &[0i16; 800]);
+        assert!(!detector.has_speech_energy(&silent));
+
+        let loud = AudioBuffer::new_pcm16_mono(16000, &[5000i16; 800]);
+        assert!(detector.has_speech_energy(&loud));
+
+        // 6. Enable toggle
+        detector.set_enabled(true);
+        assert!(detector.is_enabled());
     }
 }

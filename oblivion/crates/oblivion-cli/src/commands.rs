@@ -47,6 +47,7 @@ pub const HELP: &str = "\
 /routing       show request classification rules and target priorities
 /small-model [on|off] toggle or show small-model mode (short prompt, core tools, strict repair)
 /spoken [on|off] toggle or show spoken reply style (short answers, code omitted from speech)
+/wake-word [on|off] toggle or show wake word detection (hands-free 'Hey Jarvis' keyword spotting)
 /skills        list skills; run one with /<skill-name> [request]
 /mcp           list MCP servers and their tools
 /exit          quit";
@@ -503,6 +504,30 @@ pub async fn handle_command(
             }
             other => {
                 format!("Unknown argument '{other}'. Use `/spoken on` or `/spoken off`.")
+            }
+        },
+        "wake-word" | "wakeword" => match arg {
+            "on" | "true" | "enable" | "1" => {
+                agent.wake_word_enabled = true;
+                "Wake word detection enabled (hands-free 'Hey Jarvis' keyword spotting)."
+                    .to_string()
+            }
+            "off" | "false" | "disable" | "0" => {
+                agent.wake_word_enabled = false;
+                "Wake word detection disabled (push-to-talk only).".to_string()
+            }
+            "" => {
+                let status = if agent.wake_word_enabled {
+                    "ENABLED"
+                } else {
+                    "DISABLED"
+                };
+                format!(
+                    "Wake word detection is currently {status}.\nUse `/wake-word on` or `/wake-word off` to change."
+                )
+            }
+            other => {
+                format!("Unknown argument '{other}'. Use `/wake-word on` or `/wake-word off`.")
             }
         },
         other => format!("Unknown command /{other}. Try /help or /skills."),

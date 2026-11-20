@@ -123,6 +123,7 @@ pub struct WebState {
     pub config_path: Option<PathBuf>,
     pub voice_transcriber: Option<Arc<dyn oblivion_core::VoiceTranscriber>>,
     pub voice_synthesizer: Option<Arc<dyn oblivion_core::VoiceSynthesizer>>,
+    pub wake_word_enabled: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl WebState {
@@ -141,9 +142,12 @@ impl WebState {
     }
 
     pub fn voice_service(&self) -> oblivion_core::VoiceService {
+        let is_wake_word_on = self
+            .wake_word_enabled
+            .load(std::sync::atomic::Ordering::SeqCst);
         if let Some(t) = &self.voice_transcriber {
             let offline = self.routing.read().unwrap().offline;
-            return oblivion_core::VoiceService::new(
+            let svc = oblivion_core::VoiceService::new(
                 t.clone(),
                 None,
                 self.voice_synthesizer.clone(),
@@ -152,6 +156,8 @@ impl WebState {
                 "en",
                 offline,
             );
+            svc.set_wake_word_enabled(is_wake_word_on);
+            return svc;
         }
 
         let cfg = oblivion_core::Config::load(&self.config_file_path()).unwrap_or_default();
@@ -193,7 +199,7 @@ impl WebState {
             )))
         });
 
-        oblivion_core::VoiceService::new(
+        let svc = oblivion_core::VoiceService::new(
             local,
             cloud,
             synth,
@@ -201,7 +207,9 @@ impl WebState {
             voice_cfg.hotkey,
             voice_cfg.language,
             offline,
-        )
+        );
+        svc.set_wake_word_enabled(is_wake_word_on);
+        svc
     }
 
     fn authorized(&self, headers: &HeaderMap, query: &HashMap<String, String>) -> bool {
@@ -594,6 +602,15 @@ pub fn router(state: WebState) -> Router {
         // Voice TTS
         .route("/api/voice/tts/speak", post(post_voice_tts_speak))
         .route("/api/oblivion/voice/tts/speak", post(post_voice_tts_speak))
+        // Voice Wake Word
+        .route(
+            "/api/voice/wake-word",
+            get(get_wake_word_status).post(post_wake_word_toggle),
+        )
+        .route(
+            "/api/oblivion/voice/wake-word",
+            get(get_wake_word_status).post(post_wake_word_toggle),
+        )
         .with_state(state)
 }
 
@@ -1961,6 +1978,58 @@ async fn post_voice_tts_speak(
     }))
 }
 
+#[derive(Deserialize)]
+struct WakeWordToggleBody {
+    #[serde(default)]
+    enabled: Option<bool>,
+}
+
+async fn get_wake_word_status(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let enabled = st
+        .wake_word_enabled
+        .load(std::sync::atomic::Ordering::SeqCst);
+    Ok(Json(serde_json::json!({
+        "enabled": enabled,
+        "phrases": ["jarvis", "hey jarvis"],
+        "hotkey": "Ctrl+Space"
+    })))
+}
+
+async fn post_wake_word_toggle(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Json(body): Json<WakeWordToggleBody>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let new_state = match body.enabled {
+        Some(val) => val,
+        None => !st
+            .wake_word_enabled
+            .load(std::sync::atomic::Ordering::SeqCst),
+    };
+    st.wake_word_enabled
+        .store(new_state, std::sync::atomic::Ordering::SeqCst);
+    Ok(Json(serde_json::json!({
+        "enabled": new_state,
+        "phrases": ["jarvis", "hey jarvis"],
+        "message": if new_state {
+            "Wake word detection enabled (hands-free 'Hey Jarvis' keyword spotting)."
+        } else {
+            "Wake word detection disabled (push-to-talk only)."
+        }
+    })))
+}
+
 /// Bind 127.0.0.1:port, or any free port if that one is taken.
 pub async fn bind(port: u16) -> std::io::Result<(tokio::net::TcpListener, SocketAddr)> {
     let listener = match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
@@ -2071,6 +2140,7 @@ mod live {
             config_path: None,
             voice_transcriber: None,
             voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
         tokio::spawn(pump(events, bus));
         tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
@@ -2318,6 +2388,7 @@ mod live {
             config_path: None,
             voice_transcriber: None,
             voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
         tokio::spawn(pump(events, bus));
         tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
@@ -2407,6 +2478,7 @@ mod live {
             config_path: None,
             voice_transcriber: None,
             voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
         tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
         let base = format!("http://{addr}");
@@ -2530,6 +2602,7 @@ mod live {
             config_path: None,
             voice_transcriber: None,
             voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
 
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
@@ -2681,6 +2754,7 @@ mod live {
             config_path: None,
             voice_transcriber: None,
             voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
 
         let app = router(state);
@@ -2752,6 +2826,7 @@ mod live {
             config_path: None,
             voice_transcriber: None,
             voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -2780,6 +2855,7 @@ mod live {
             browser: false,
             instructions_file: Some("AGENTS.md".into()),
             spoken_reply: false,
+            wake_word_enabled: false,
         }));
 
         // Add a project fact memory
@@ -2857,6 +2933,7 @@ mod live {
             config_path: None,
             voice_transcriber: None,
             voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -2980,6 +3057,7 @@ mod live {
             config_path: None,
             voice_transcriber: None,
             voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -3078,6 +3156,7 @@ mod live {
             config_path: None,
             voice_transcriber: None,
             voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -3179,6 +3258,7 @@ mod live {
             config_path: None,
             voice_transcriber: None,
             voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -3301,6 +3381,7 @@ mod live {
             config_path: Some(cfg_path.clone()),
             voice_transcriber: None,
             voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -3425,6 +3506,7 @@ mod live {
                 "create a new workspace file",
             ))),
             voice_synthesizer: Some(Arc::new(oblivion_core::MockSynthesizer::new("mock-piper"))),
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -3520,5 +3602,37 @@ mod live {
         assert!(speak_resp.duration_ms >= 100);
         assert_eq!(speak_resp.format, "audio/wav");
         assert!(!speak_resp.audio_base64.is_empty());
+
+        // 8. Wake word status - unauthorized without token
+        let res = client
+            .get(format!("{base}/api/voice/wake-word"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+        // 9. Wake word status - authorized
+        let res = client
+            .get(format!("{base}/api/voice/wake-word"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let ww_resp: serde_json::Value = res.json().await.unwrap();
+        assert_eq!(ww_resp["enabled"], false);
+        assert_eq!(ww_resp["phrases"][0], "jarvis");
+
+        // 10. Wake word toggle - authorized POST
+        let res = client
+            .post(format!("{base}/api/oblivion/voice/wake-word"))
+            .header("x-jarvis-token", token)
+            .json(&serde_json::json!({ "enabled": true }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let ww_resp2: serde_json::Value = res.json().await.unwrap();
+        assert_eq!(ww_resp2["enabled"], true);
     }
 }

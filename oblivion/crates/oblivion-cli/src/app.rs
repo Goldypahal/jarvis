@@ -149,6 +149,8 @@ pub struct StateView {
     pub instructions_file: Option<String>,
     #[serde(default)]
     pub spoken_reply: bool,
+    #[serde(default)]
+    pub wake_word_enabled: bool,
 }
 
 impl From<AgentEvent> for UiEvent {
@@ -246,6 +248,7 @@ pub fn state_view(agent: &Agent, skills: &SkillSet, browser: bool) -> StateView 
         instructions_file: oblivion_core::prompt::project_instructions(agent.tools.root())
             .map(|(name, _)| name),
         spoken_reply: agent.spoken_reply,
+        wake_word_enabled: agent.wake_word_enabled,
     }
 }
 

@@ -38,9 +38,17 @@
     let menubarSpeakerBtn = null;
     let menubarSpeakerIcon = null;
     let menubarSpeakerLabel = null;
+    let menubarWakeWordBtn = null;
+    let menubarWakeWordIcon = null;
+    let menubarWakeWordLabel = null;
     let obMicBtn = null;
     let obInput = null;
     let obSend = null;
+
+    // Wake Word State (hands-free keyword spotting)
+    let wakeWordEnabled = false;
+    let wakeWordRecognition = null;
+    let wakeWordPhrases = ['jarvis', 'hey jarvis'];
 
     function getJarvisToken() {
         return window.__JARVIS_TOKEN__ || (window.oblivion ? window.oblivion.token : '');
@@ -434,6 +442,7 @@
 
         // Barge-in: halt any active text-to-speech output immediately
         bargeIn();
+        stopWakeWordSpotter();
 
         // Ensure Oblivion drawer is visible if on desktop
         if (typeof window.openOblivionPanel === 'function') {
@@ -506,12 +515,18 @@
                 isProcessing = false;
                 updateVisualState(false, false);
                 checkAutoSubmit(submitOnStop);
+                if (wakeWordEnabled) {
+                    startWakeWordSpotter();
+                }
             };
             mediaRecorder.stop();
         } else {
             isProcessing = false;
             updateVisualState(false, false);
             checkAutoSubmit(submitOnStop);
+            if (wakeWordEnabled) {
+                startWakeWordSpotter();
+            }
         }
     }
 
@@ -606,6 +621,188 @@
         updateSpeakerVisualState();
     }
 
+    // ========================================================================
+    // Wake Word Detector: Hands-free keyword spotting ("Hey Jarvis" / "Jarvis")
+    // Disabled by default (0% CPU and zero privacy impact when off).
+    // ========================================================================
+    function detectWakeWord(text) {
+        if (!text) return null;
+        const normalized = text.toLowerCase().trim().replace(/^[^\w]+|[^\w]+$/g, '');
+        // Case-insensitive regex to find "hey jarvis" or "jarvis" prefix
+        const match = normalized.match(/^(?:hey\s+)?jarvis(?:[,\s]+(.*))?$/i);
+        if (match) {
+            const remainder = match[1] ? match[1].trim() : '';
+            return {
+                matched: normalized.startsWith('hey jarvis') ? 'hey jarvis' : 'jarvis',
+                remainder: remainder
+            };
+        }
+        return null;
+    }
+
+    function onWakeWordDetected(remainder) {
+        console.log('[Voice] Wake word detected! Remainder:', remainder);
+        bargeIn();
+
+        // Ensure Oblivion drawer is visible if on desktop
+        if (typeof window.openOblivionPanel === 'function') {
+            window.openOblivionPanel();
+        } else {
+            const panel = document.getElementById('ob-drawer');
+            if (panel && panel.classList.contains('closed')) {
+                panel.classList.remove('closed');
+            }
+        }
+
+        if (remainder && remainder.length > 0) {
+            // User spoke wake word and command in one utterance
+            if (obInput) obInput.value = remainder;
+            checkAutoSubmit(true);
+        } else {
+            // User spoke wake word alone -> start push-to-talk listening
+            startListening();
+        }
+    }
+
+    function startWakeWordSpotter() {
+        if (!wakeWordEnabled) return;
+        if (isListening || isProcessing) return;
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) return;
+
+        if (wakeWordRecognition) {
+            try {
+                wakeWordRecognition.abort();
+            } catch (e) {}
+            wakeWordRecognition = null;
+        }
+
+        try {
+            const spotter = new SpeechRecognition();
+            spotter.continuous = true;
+            spotter.interimResults = true;
+            spotter.lang = voiceStatus.language || 'en-US';
+
+            spotter.onresult = function (event) {
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    const transcript = event.results[i][0].transcript;
+                    const detected = detectWakeWord(transcript);
+                    if (detected) {
+                        try {
+                            spotter.abort();
+                        } catch (e) {}
+                        wakeWordRecognition = null;
+                        onWakeWordDetected(detected.remainder);
+                        return;
+                    }
+                }
+            };
+
+            spotter.onerror = function (event) {
+                if (wakeWordEnabled && !isListening && !isProcessing) {
+                    setTimeout(() => {
+                        if (wakeWordEnabled && !isListening && !isProcessing && !wakeWordRecognition) {
+                            startWakeWordSpotter();
+                        }
+                    }, 1000);
+                }
+            };
+
+            spotter.onend = function () {
+                wakeWordRecognition = null;
+                if (wakeWordEnabled && !isListening && !isProcessing) {
+                    setTimeout(() => {
+                        if (wakeWordEnabled && !isListening && !isProcessing && !wakeWordRecognition) {
+                            startWakeWordSpotter();
+                        }
+                    }, 500);
+                }
+            };
+
+            wakeWordRecognition = spotter;
+            spotter.start();
+        } catch (e) {
+            console.warn('[Voice] Failed to start wake word spotter:', e);
+        }
+    }
+
+    function stopWakeWordSpotter() {
+        if (wakeWordRecognition) {
+            try {
+                wakeWordRecognition.abort();
+            } catch (e) {}
+            wakeWordRecognition = null;
+        }
+    }
+
+    async function toggleWakeWord(explicitState) {
+        const target = typeof explicitState === 'boolean' ? explicitState : !wakeWordEnabled;
+        wakeWordEnabled = target;
+        updateWakeWordVisualState();
+
+        if (wakeWordEnabled) {
+            startWakeWordSpotter();
+        } else {
+            stopWakeWordSpotter();
+        }
+
+        try {
+            const token = getJarvisToken();
+            const res = await fetch('/api/oblivion/voice/wake-word', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { 'X-Jarvis-Token': token } : {})
+                },
+                body: JSON.stringify({ enabled: wakeWordEnabled })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                wakeWordEnabled = !!data.enabled;
+                if (data.phrases) wakeWordPhrases = data.phrases;
+                updateWakeWordVisualState();
+            }
+        } catch (e) {
+            console.warn('[Voice] Failed to sync wake word status with backend:', e);
+        }
+    }
+
+    async function fetchWakeWordStatus() {
+        try {
+            const token = getJarvisToken();
+            const res = await fetch('/api/oblivion/voice/wake-word', {
+                headers: token ? { 'X-Jarvis-Token': token } : {}
+            });
+            if (res.ok) {
+                const data = await res.json();
+                wakeWordEnabled = !!data.enabled;
+                if (data.phrases) wakeWordPhrases = data.phrases;
+                updateWakeWordVisualState();
+                if (wakeWordEnabled) {
+                    startWakeWordSpotter();
+                }
+            }
+        } catch (e) {
+            console.warn('[Voice] Failed to fetch wake word status:', e);
+        }
+    }
+
+    function updateWakeWordVisualState() {
+        if (!menubarWakeWordBtn) return;
+        if (wakeWordEnabled) {
+            menubarWakeWordBtn.classList.add('active');
+            if (menubarWakeWordIcon) menubarWakeWordIcon.textContent = '👂';
+            if (menubarWakeWordLabel) menubarWakeWordLabel.textContent = 'Wake Word: On';
+            menubarWakeWordBtn.title = "Wake Word: On (Hands-free listening for 'Hey Jarvis' / 'Jarvis' active)";
+        } else {
+            menubarWakeWordBtn.classList.remove('active');
+            if (menubarWakeWordIcon) menubarWakeWordIcon.textContent = '👂';
+            if (menubarWakeWordLabel) menubarWakeWordLabel.textContent = 'Wake Word: Off';
+            menubarWakeWordBtn.title = "Wake Word: Off (Click to enable hands-free 'Hey Jarvis')";
+        }
+    }
+
     function initEventListeners() {
         menubarMicBtn = document.getElementById('menubar-mic-btn');
         menubarMicIcon = document.getElementById('menubar-mic-icon');
@@ -613,6 +810,9 @@
         menubarSpeakerBtn = document.getElementById('menubar-speaker-btn');
         menubarSpeakerIcon = document.getElementById('menubar-speaker-icon');
         menubarSpeakerLabel = document.getElementById('menubar-speaker-label');
+        menubarWakeWordBtn = document.getElementById('menubar-wakeword-btn');
+        menubarWakeWordIcon = document.getElementById('menubar-wakeword-icon');
+        menubarWakeWordLabel = document.getElementById('menubar-wakeword-label');
         obMicBtn = document.getElementById('ob-mic-btn');
         obInput = document.getElementById('ob-input') || document.getElementById('input');
         obSend = document.getElementById('ob-send') || document.getElementById('send');
@@ -622,6 +822,7 @@
             voiceOutputEnabled = savedOutput === 'true';
         }
         updateSpeakerVisualState();
+        updateWakeWordVisualState();
 
         if (menubarMicBtn) {
             menubarMicBtn.addEventListener('click', function (e) {
@@ -634,6 +835,13 @@
             menubarSpeakerBtn.addEventListener('click', function (e) {
                 e.preventDefault();
                 toggleVoiceOutput();
+            });
+        }
+
+        if (menubarWakeWordBtn) {
+            menubarWakeWordBtn.addEventListener('click', function (e) {
+                e.preventDefault();
+                toggleWakeWord();
             });
         }
 
@@ -674,11 +882,13 @@
             initEventListeners();
             initSpeechRecognition();
             fetchVoiceStatus();
+            fetchWakeWordStatus();
         });
     } else {
         initEventListeners();
         initSpeechRecognition();
         fetchVoiceStatus();
+        fetchWakeWordStatus();
     }
 
     // Expose on window for programmatic control and testing
@@ -692,6 +902,11 @@
         onTurnEnd: onTurnEnd,
         toggleOutput: toggleVoiceOutput,
         handleVoiceApproval: handleVoiceApprovalIfPending,
+        toggleWakeWord: toggleWakeWord,
+        isWakeWordEnabled: () => wakeWordEnabled,
+        detectWakeWord: detectWakeWord,
+        startWakeWordSpotter: startWakeWordSpotter,
+        stopWakeWordSpotter: stopWakeWordSpotter,
         isSpeechEnabled: () => voiceOutputEnabled,
         status: () => Object.assign({}, voiceStatus),
         isListening: () => isListening,

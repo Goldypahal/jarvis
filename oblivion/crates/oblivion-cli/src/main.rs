@@ -1022,6 +1022,7 @@ async fn run_web(
         config_path: opts.config_path,
         voice_transcriber: None,
         voice_synthesizer: None,
+        wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     };
     tokio::spawn(web::pump(events, bus));
     tokio::spawn(async move {

@@ -109,6 +109,8 @@ pub struct Agent {
     pub small_model: bool,
     /// When true, enables spoken reply style (short conversational answers, code omitted from speech).
     pub spoken_reply: bool,
+    /// When true, enables hands-free wake word listening.
+    pub wake_word_enabled: bool,
     /// Currently active or pinned model label.
     pub active_model: Option<String>,
     /// Compact system prompt used when small-model mode is active.
@@ -152,6 +154,7 @@ impl Agent {
             routing_rules: crate::routing::RoutingRules::default(),
             small_model: false,
             spoken_reply: false,
+            wake_word_enabled: false,
             active_model: None,
             small_system_prompt: None,
             base_system_prompt: system_prompt,

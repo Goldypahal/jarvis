@@ -72,7 +72,7 @@ Current milestone: **Month 4 — voice** · Branch: `roadmap/m4`
 - [x] Push-to-talk hotkey and mic button; local speech-to-text — 2026-11-20, daf0ab0, cargo test: 185 passed; pytest: 78 passed; clippy: 0 warnings; node check: clean; browser subagent UI test verified (push-to-talk hotkey, menubar & panel mic buttons, light/dark themes)
 - [x] Local text-to-speech, streamed by sentence; barge-in — 2026-11-20, 2582ce0, cargo test: 158 passed; pytest: 80 passed; clippy: 0 warnings; node check: clean; browser subagent UI test verified (streaming sentence synthesis, code block suppression, instant barge-in on PTT/Escape, menubar speaker toggle, light/dark themes)
 - [x] Spoken-reply style; voice approvals for low-risk actions only — 2026-11-20, 1478cb3, cargo test: 162 passed; pytest: 82 passed; clippy: 0 warnings; node check: clean; browser subagent UI test verified (spoken prompt instructions, low-risk voice approvals, 403 Forbidden gating for high-risk actions, approval risk badges, light/dark themes)
-- [ ] Optional wake word
+- [x] Optional wake word — 2026-11-20, d379380, cargo test: 183 passed; pytest: 84 passed; clippy: 0 warnings; node check: clean; browser subagent UI test verified (hands-free keyword spotting, prefix remainder extraction, zero CPU overhead when off, light & dark themes)
 - [ ] Latency and accuracy measured; milestone check
 
 ## Month 5 — vision and computer use

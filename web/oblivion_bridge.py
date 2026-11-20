@@ -782,6 +782,20 @@ def register(app, bridge=None, allowed_port=None, token=None):
         code, text, ct = b.request("POST", "/api/voice/tts/speak", body=body)
         return Response(text, status=code, mimetype=ct)
 
+    @app.route("/api/oblivion/voice/wake-word", methods=["GET", "POST"])
+    @app.route("/api/voice/wake-word", methods=["GET", "POST"])
+    def oblivion_voice_wake_word():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        if request.method == "POST":
+            body = request.get_json(silent=True) or {}
+            code, text, ct = b.request("POST", "/api/voice/wake-word", body=body)
+        else:
+            code, text, ct = b.request("GET", "/api/voice/wake-word")
+        return Response(text, status=code, mimetype=ct)
+
     return bridge
 
 

@@ -73,6 +73,26 @@ class FakeVoiceBridge:
                 }),
                 "application/json",
             )
+        elif path == "/api/voice/wake-word":
+            if method == "POST":
+                enabled = bool(self.last_body.get("enabled", False)) if self.last_body else False
+                self.wake_word_enabled = enabled
+                return (
+                    200,
+                    json.dumps({
+                        "enabled": self.wake_word_enabled,
+                        "phrases": ["jarvis", "hey jarvis"],
+                    }),
+                    "application/json",
+                )
+            return (
+                200,
+                json.dumps({
+                    "enabled": getattr(self, "wake_word_enabled", False),
+                    "phrases": ["jarvis", "hey jarvis"],
+                }),
+                "application/json",
+            )
         elif path == "/approve":
             if (
                 self.last_body
@@ -216,3 +236,34 @@ def test_voice_approval_high_risk_forbidden(client_with_fake_bridge, auth_header
     assert data["code"] == "VOICE_APPROVAL_DISALLOWED"
     assert fake.last_method == "POST"
     assert fake.last_path == "/approve"
+
+
+def test_voice_wake_word_requires_auth(client_with_fake_bridge):
+    client, _ = client_with_fake_bridge
+    res = client.get("/api/voice/wake-word")
+    assert res.status_code == 403
+
+
+def test_voice_wake_word_get_and_post_toggle(client_with_fake_bridge, auth_headers):
+    client, fake = client_with_fake_bridge
+    # GET status
+    res = client.get("/api/voice/wake-word", headers=auth_headers)
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["enabled"] is False
+    assert "jarvis" in data["phrases"]
+    assert fake.last_method == "GET"
+    assert fake.last_path == "/api/voice/wake-word"
+
+    # POST enable
+    res = client.post(
+        "/api/oblivion/voice/wake-word",
+        headers=auth_headers,
+        json={"enabled": True},
+    )
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["enabled"] is True
+    assert fake.last_method == "POST"
+    assert fake.last_path == "/api/voice/wake-word"
+

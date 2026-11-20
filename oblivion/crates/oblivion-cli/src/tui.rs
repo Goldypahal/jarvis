@@ -1087,6 +1087,7 @@ mod tests {
             browser: false,
             instructions_file: Some("AGENTS.md".into()),
             spoken_reply: false,
+            wake_word_enabled: false,
         }));
         m.apply(UiEvent::User {
             text: "add a version flag".into(),
