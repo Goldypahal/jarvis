@@ -129,6 +129,14 @@ hard = ["groq/llama-3.3-70b-versatile", "openrouter/*", "ollama/*"]
 vision = ["openrouter/*", "ollama/llava*", "ollama/*"]
 long_context = ["openrouter/*", "groq/*", "ollama/*"]
 
+# Voice input and speech-to-text
+[voice]
+enabled = true
+stt_engine = "auto"         # "auto", "local-whisper", "groq", "openai", "web"
+# whisper_path = ""         # path to whisper-cli / whisper.exe if not on PATH
+hotkey = "Ctrl+Space"       # push-to-talk hotkey
+language = "en"
+
 # Skills: folders with SKILL.md from ~/.oblivion/skills, ~/.agents/skills, ~/.claude/skills,
 # ~/.codex/skills and the project's .agents/skills (Claude and Codex skills work as-is).
 [skills]
@@ -419,6 +427,51 @@ pub struct Config {
     pub mcp_servers: Vec<McpServerEntry>,
     #[serde(default)]
     pub browser: BrowserSection,
+    #[serde(default)]
+    pub voice: VoiceSettings,
+}
+
+/// `[voice]`: push-to-talk hotkey, local speech-to-text, and voice preferences.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct VoiceSettings {
+    #[serde(default = "default_voice_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_voice_stt_engine")]
+    pub stt_engine: String,
+    #[serde(default)]
+    pub whisper_path: Option<String>,
+    #[serde(default = "default_voice_hotkey")]
+    pub hotkey: String,
+    #[serde(default = "default_voice_language")]
+    pub language: String,
+}
+
+impl Default for VoiceSettings {
+    fn default() -> Self {
+        Self {
+            enabled: default_voice_enabled(),
+            stt_engine: default_voice_stt_engine(),
+            whisper_path: None,
+            hotkey: default_voice_hotkey(),
+            language: default_voice_language(),
+        }
+    }
+}
+
+fn default_voice_enabled() -> bool {
+    true
+}
+
+fn default_voice_stt_engine() -> String {
+    "auto".to_string()
+}
+
+fn default_voice_hotkey() -> String {
+    "Ctrl+Space".to_string()
+}
+
+fn default_voice_language() -> String {
+    "en".to_string()
 }
 
 /// `[browser]`: a real web browser through Playwright MCP (needs Node.js).

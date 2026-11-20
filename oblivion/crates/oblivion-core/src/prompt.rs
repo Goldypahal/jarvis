@@ -8,6 +8,18 @@ use oblivion_tools::Shell;
 pub const INSTRUCTION_FILES: [&str; 3] = ["OBLIVION.md", "AGENTS.md", "CLAUDE.md"];
 const MAX_INSTRUCTION_CHARS: usize = 20_000;
 
+/// Spoken reply instructions for voice mode.
+pub const SPOKEN_REPLY_INSTRUCTION: &str = "Voice Mode & Spoken Reply Style:
+- The user is interacting via voice/speech.
+- Keep spoken answers concise, natural, and conversational (1-3 sentences).
+- Do not read long code blocks, raw file contents, stack traces, markdown tables, or URLs aloud.
+- When generating code, long lists, or technical output, verbally summarize the key results and state that full details are rendered in the panel.";
+
+/// Append spoken reply instructions to a system prompt.
+pub fn append_spoken_instructions(prompt: &str) -> String {
+    format!("{prompt}\n\n{SPOKEN_REPLY_INSTRUCTION}")
+}
+
 /// `sections` are extra prompt parts (skill list, MCP servers), added in order.
 pub fn build(root: &Path, shell: Shell, today: &str, sections: &[String]) -> String {
     let mut p = format!(
@@ -162,5 +174,14 @@ mod tests {
         assert!(p.contains("Environment:"));
         assert!(p.contains("Keep tests passing."));
         assert!(p.len() < 1200); // significantly shorter than standard prompt
+    }
+
+    #[test]
+    fn test_spoken_instructions() {
+        let base = "You are Oblivion.";
+        let spoken = append_spoken_instructions(base);
+        assert!(spoken.starts_with(base));
+        assert!(spoken.contains("Voice Mode & Spoken Reply Style"));
+        assert!(spoken.contains("Do not read long code blocks"));
     }
 }

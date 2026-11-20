@@ -6,11 +6,11 @@
 //! 3. Offline document summary: summarizes a structured document using small-model mode prompt.
 //! 4. Memory footprint: idle RSS remains strictly under the 100 MB target (measured ~13.4 MB).
 
-use std::sync::{Arc, Mutex};
 use oblivion_core::{Agent, AgentEvent, ApprovalMode, Approver, Decision};
 use oblivion_providers::{ProviderConfig, Role, Router, Target};
 use oblivion_store::Store;
 use oblivion_tools::{Shell, ToolBox};
+use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -63,7 +63,9 @@ async fn fake_local_server(
                 let n = sock.read(&mut tmp).await.unwrap();
                 buf.extend_from_slice(&tmp[..n]);
             }
-            if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&buf[head_end..head_end + len]) {
+            if let Ok(v) =
+                serde_json::from_slice::<serde_json::Value>(&buf[head_end..head_end + len])
+            {
                 seen2.lock().unwrap().push(v);
             }
             let resp = format!(
@@ -121,7 +123,11 @@ async fn milestone_v1_offline_edit_file() {
     .await;
 
     let router = Router::new(vec![target("ollama", &url)]);
-    let tools = ToolBox::new(dir.path(), Shell::platform_default(), dir.path().join(".snap"));
+    let tools = ToolBox::new(
+        dir.path(),
+        Shell::platform_default(),
+        dir.path().join(".snap"),
+    );
     let mut agent = Agent::new(
         router,
         tools,
@@ -133,7 +139,10 @@ async fn milestone_v1_offline_edit_file() {
 
     let mut events = Vec::new();
     let mut sink = |e: AgentEvent| events.push(e);
-    let summary = agent.run_turn("Disable debug mode in config.py", &mut sink).await.unwrap();
+    let summary = agent
+        .run_turn("Disable debug mode in config.py", &mut sink)
+        .await
+        .unwrap();
 
     assert_eq!(summary.steps, 3);
     assert_eq!(summary.tool_calls, 2);
@@ -170,14 +179,16 @@ async fn milestone_v1_offline_answer_from_memory() {
     // Verify recalled memory is injected into prompt and answered offline
     let (url, seen) = fake_local_server(vec![(
         200,
-        sse(&[
-            r#"{"choices":[{"delta":{"content":"The release name is Project Chronos."}}]}"#,
-        ]),
+        sse(&[r#"{"choices":[{"delta":{"content":"The release name is Project Chronos."}}]}"#]),
     )])
     .await;
 
     let router = Router::new(vec![target("ollama", &url)]);
-    let tools = ToolBox::new(dir.path(), Shell::platform_default(), dir.path().join(".snap"));
+    let tools = ToolBox::new(
+        dir.path(),
+        Shell::platform_default(),
+        dir.path().join(".snap"),
+    );
     let sys_prompt = format!("You are Oblivion. Memory: {}", recalled[0].text);
     let mut agent = Agent::new(
         router,
@@ -190,11 +201,24 @@ async fn milestone_v1_offline_answer_from_memory() {
 
     let mut events = Vec::new();
     let mut sink = |e: AgentEvent| events.push(e);
-    let summary = agent.run_turn("What is the release name?", &mut sink).await.unwrap();
+    let summary = agent
+        .run_turn("What is the release name?", &mut sink)
+        .await
+        .unwrap();
     assert_eq!(summary.steps, 1);
 
-    let last_assistant = agent.session.messages.iter().rev().find(|m| m.role == Role::Assistant).unwrap();
-    assert!(last_assistant.content.as_deref().unwrap().contains("Project Chronos"));
+    let last_assistant = agent
+        .session
+        .messages
+        .iter()
+        .rev()
+        .find(|m| m.role == Role::Assistant)
+        .unwrap();
+    assert!(last_assistant
+        .content
+        .as_deref()
+        .unwrap()
+        .contains("Project Chronos"));
     assert_eq!(seen.lock().unwrap().len(), 1);
 }
 
@@ -231,12 +255,13 @@ Jarvis is an executive personal desktop interface powered by Oblivion engine in 
     .await;
 
     let router = Router::new(vec![target("ollama", &url)]);
-    let tools = ToolBox::new(dir.path(), Shell::platform_default(), dir.path().join(".snap"));
-    let small_prompt = oblivion_core::prompt::build_small(
+    let tools = ToolBox::new(
         dir.path(),
         Shell::platform_default(),
-        "2026-11-20",
+        dir.path().join(".snap"),
     );
+    let small_prompt =
+        oblivion_core::prompt::build_small(dir.path(), Shell::platform_default(), "2026-11-20");
     let mut agent = Agent::new(
         router,
         tools,
@@ -248,10 +273,19 @@ Jarvis is an executive personal desktop interface powered by Oblivion engine in 
 
     let mut events = Vec::new();
     let mut sink = |e: AgentEvent| events.push(e);
-    let summary = agent.run_turn("Summarise ARCHITECTURE.md", &mut sink).await.unwrap();
+    let summary = agent
+        .run_turn("Summarise ARCHITECTURE.md", &mut sink)
+        .await
+        .unwrap();
     assert_eq!(summary.steps, 2);
 
-    let last_assistant = agent.session.messages.iter().rev().find(|m| m.role == Role::Assistant).unwrap();
+    let last_assistant = agent
+        .session
+        .messages
+        .iter()
+        .rev()
+        .find(|m| m.role == Role::Assistant)
+        .unwrap();
     let text = last_assistant.content.as_deref().unwrap();
     assert!(text.contains("Summary:"));
     assert!(text.contains("Axum"));

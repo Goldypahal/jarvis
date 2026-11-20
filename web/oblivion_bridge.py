@@ -141,7 +141,7 @@ class OblivionBridge:
 
     # ---------- requests ----------
 
-    def request(self, method, path, body=None, params=None):
+    def request(self, method, path, body=None, params=None, headers=None):
         """Forward an HTTP request to Oblivion. Returns (status_code, text, content_type)."""
         if not self.running():
             self.start()
@@ -157,12 +157,19 @@ class OblivionBridge:
 
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=15)
         try:
-            headers = {"x-oblivion-token": self.token}
+            req_headers = {"x-oblivion-token": self.token}
+            if headers:
+                req_headers.update(headers)
             encoded_body = None
             if body is not None:
-                headers["content-type"] = "application/json"
-                encoded_body = json.dumps(body)
-            conn.request(method.upper(), url_path, body=encoded_body, headers=headers)
+                if isinstance(body, (bytes, bytearray)):
+                    encoded_body = body
+                elif isinstance(body, str):
+                    encoded_body = body.encode("utf-8")
+                else:
+                    req_headers.setdefault("content-type", "application/json")
+                    encoded_body = json.dumps(body)
+            conn.request(method.upper(), url_path, body=encoded_body, headers=req_headers)
             res = conn.getresponse()
             ct = res.getheader("content-type", "application/json")
             return res.status, res.read().decode("utf-8", "replace"), ct
@@ -410,8 +417,9 @@ def register(app, bridge=None, allowed_port=None, token=None):
             or request.args.get("t")
             or request.args.get("token")
         )
+        current_token = app.config.get("JARVIS_TOKEN", token)
         if not client_token or not hmac.compare_digest(
-            str(client_token), str(token)
+            str(client_token), str(current_token)
         ):
             return jsonify({"error": "unauthorized: invalid or missing token"}), 403
 
@@ -429,7 +437,8 @@ def register(app, bridge=None, allowed_port=None, token=None):
             return jsonify({"error": "expected a JSON body"}), 400
         b = get_bridge()
         code, text = b.post(path, body)
-        return Response(text, status=code, mimetype="text/plain")
+        mime = "application/json" if text.strip().startswith(("{", "[")) else "text/plain"
+        return Response(text, status=code, mimetype=mime)
 
     @app.get("/api/oblivion/status")
     def oblivion_status():
@@ -733,6 +742,58 @@ def register(app, bridge=None, allowed_port=None, token=None):
             code, text, ct = b.request("POST", "/api/routing", body=body)
         else:
             code, text, ct = b.request("GET", "/api/routing")
+        return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/voice/status", methods=["GET"])
+    @app.route("/api/voice/status", methods=["GET"])
+    def oblivion_voice_status():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        code, text, ct = b.request("GET", "/api/voice/status")
+        return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/voice/transcribe", methods=["POST"])
+    @app.route("/api/voice/transcribe", methods=["POST"])
+    def oblivion_voice_transcribe():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        body_bytes = request.get_data()
+        content_type = request.content_type or "application/json"
+        code, text, ct = b.request(
+            "POST",
+            "/api/voice/transcribe",
+            body=body_bytes,
+            headers={"content-type": content_type},
+        )
+        return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/voice/tts/speak", methods=["POST"])
+    @app.route("/api/voice/tts/speak", methods=["POST"])
+    def oblivion_voice_tts_speak():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        body = request.get_json(silent=True) or {}
+        code, text, ct = b.request("POST", "/api/voice/tts/speak", body=body)
+        return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/voice/wake-word", methods=["GET", "POST"])
+    @app.route("/api/voice/wake-word", methods=["GET", "POST"])
+    def oblivion_voice_wake_word():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        if request.method == "POST":
+            body = request.get_json(silent=True) or {}
+            code, text, ct = b.request("POST", "/api/voice/wake-word", body=body)
+        else:
+            code, text, ct = b.request("GET", "/api/voice/wake-word")
         return Response(text, status=code, mimetype=ct)
 
     return bridge

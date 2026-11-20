@@ -195,6 +195,40 @@ body[data-theme="black"] .ob-seg button.on { background: rgba(99, 99, 102, 0.7);
 .ob-sheet .acts .allow { background: var(--ob-accent); color: #fff; }
 .ob-sheet kbd { font: 10px var(--ob-mono); opacity: 0.6; margin-left: 3px; }
 
+/* Approval risk badges */
+.approval-risk-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 8px;
+    margin: 4px auto 10px;
+    width: fit-content;
+}
+.approval-risk-badge.low-risk {
+    background: rgba(52, 199, 89, 0.12);
+    color: #248a3d;
+    border: 1px solid rgba(52, 199, 89, 0.25);
+}
+.approval-risk-badge.high-risk {
+    background: rgba(255, 59, 48, 0.12);
+    color: #d70015;
+    border: 1px solid rgba(255, 59, 48, 0.25);
+}
+[data-theme="dark"] .approval-risk-badge.low-risk {
+    background: rgba(48, 209, 88, 0.18);
+    color: #30d158;
+    border-color: rgba(48, 209, 88, 0.35);
+}
+[data-theme="dark"] .approval-risk-badge.high-risk {
+    background: rgba(255, 69, 58, 0.18);
+    color: #ff453a;
+    border-color: rgba(255, 69, 58, 0.35);
+}
+
 /* ---------- composer ---------- */
 .ob-compose { position: relative; padding: 8px 12px 12px; }
 .ob-field { display: flex; align-items: flex-end; gap: 6px; padding: 6px 6px 6px 14px; background: var(--ob-card); border-radius: 20px; box-shadow: 0 0 0 0.5px var(--ob-line), 0 2px 8px rgba(0, 0, 0, 0.05); }
@@ -1252,6 +1286,161 @@ body[data-theme="black"] .menu-offline-toggle.active {
     border-color: #30d158;
     color: #30d158;
     box-shadow: 0 0 10px rgba(48, 209, 88, 0.4);
+}
+
+/* ==========================================================================
+   Voice & Push-to-Talk Button Styles
+   ========================================================================== */
+.menu-mic-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 10px;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.05);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    color: inherit;
+    transition: all 0.2s ease;
+    user-select: none;
+}
+.menu-mic-btn:hover {
+    background: rgba(0, 0, 0, 0.1);
+}
+.menu-speaker-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 10px;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.05);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    color: inherit;
+    transition: all 0.2s ease;
+    user-select: none;
+}
+.menu-speaker-btn:hover {
+    background: rgba(0, 0, 0, 0.1);
+}
+.menu-speaker-btn.muted {
+    opacity: 0.55;
+}
+body[data-theme="black"] .menu-speaker-btn {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.15);
+    color: rgba(255, 255, 255, 0.85);
+}
+body[data-theme="black"] .menu-speaker-btn:hover {
+    background: rgba(255, 255, 255, 0.14);
+}
+
+.menu-wakeword-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 10px;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.05);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    color: inherit;
+    transition: all 0.2s ease;
+    user-select: none;
+    opacity: 0.65;
+}
+.menu-wakeword-btn:hover {
+    background: rgba(0, 0, 0, 0.1);
+    opacity: 1;
+}
+.menu-wakeword-btn.active {
+    opacity: 1;
+    background: rgba(255, 149, 0, 0.12);
+    border-color: #ff9500;
+    color: #c77700;
+    box-shadow: 0 0 8px rgba(255, 149, 0, 0.3);
+    animation: wakeword-pulse 2s infinite ease-in-out;
+}
+@keyframes wakeword-pulse {
+    0%, 100% { box-shadow: 0 0 6px rgba(255, 149, 0, 0.25); }
+    50% { box-shadow: 0 0 14px rgba(255, 149, 0, 0.5); }
+}
+body[data-theme="black"] .menu-wakeword-btn {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.15);
+    color: rgba(255, 255, 255, 0.85);
+}
+body[data-theme="black"] .menu-wakeword-btn:hover {
+    background: rgba(255, 255, 255, 0.14);
+}
+body[data-theme="black"] .menu-wakeword-btn.active {
+    background: rgba(255, 149, 0, 0.2);
+    border-color: #ff9f0a;
+    color: #ff9f0a;
+    box-shadow: 0 0 10px rgba(255, 159, 10, 0.4);
+}
+.menu-mic-btn.recording {
+    background: rgba(255, 59, 48, 0.15);
+    border-color: #ff3b30;
+    color: #d70015;
+    box-shadow: 0 0 10px rgba(255, 59, 48, 0.4);
+    animation: mic-pulse 1.2s infinite ease-in-out;
+}
+
+body[data-theme="black"] .menu-mic-btn {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.15);
+    color: rgba(255, 255, 255, 0.85);
+}
+body[data-theme="black"] .menu-mic-btn:hover {
+    background: rgba(255, 255, 255, 0.14);
+}
+body[data-theme="black"] .menu-mic-btn.recording {
+    background: rgba(255, 69, 58, 0.25);
+    border-color: #ff453a;
+    color: #ff453a;
+    box-shadow: 0 0 12px rgba(255, 69, 58, 0.5);
+}
+
+.ob-mic-btn {
+    background: transparent;
+    border: none;
+    font-size: 14px;
+    padding: 4px 6px;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: inherit;
+}
+.ob-mic-btn:hover {
+    background: rgba(0, 0, 0, 0.06);
+}
+.ob-mic-btn.recording {
+    background: rgba(255, 59, 48, 0.2);
+    box-shadow: 0 0 8px rgba(255, 59, 48, 0.4);
+    animation: mic-pulse 1.2s infinite ease-in-out;
+}
+body[data-theme="black"] .ob-mic-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+body[data-theme="black"] .ob-mic-btn.recording {
+    background: rgba(255, 69, 58, 0.3);
+    box-shadow: 0 0 10px rgba(255, 69, 58, 0.6);
+}
+
+@keyframes mic-pulse {
+    0% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.08); opacity: 0.75; }
+    100% { transform: scale(1); opacity: 1; }
 }
 
 /* ==========================================================================

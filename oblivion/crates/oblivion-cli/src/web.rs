@@ -18,6 +18,7 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
+use base64::Engine;
 use futures_util::stream::{self, Stream, StreamExt};
 use oblivion_core::Decision;
 use serde::{Deserialize, Serialize};
@@ -120,6 +121,9 @@ pub struct WebState {
     pub ollama: Option<Arc<oblivion_core::OllamaClient>>,
     pub routing: Arc<std::sync::RwLock<oblivion_core::config::RoutingSettings>>,
     pub config_path: Option<PathBuf>,
+    pub voice_transcriber: Option<Arc<dyn oblivion_core::VoiceTranscriber>>,
+    pub voice_synthesizer: Option<Arc<dyn oblivion_core::VoiceSynthesizer>>,
+    pub wake_word_enabled: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl WebState {
@@ -135,6 +139,77 @@ impl WebState {
         } else {
             oblivion_core::OllamaClient::new("http://localhost:11434")
         }
+    }
+
+    pub fn voice_service(&self) -> oblivion_core::VoiceService {
+        let is_wake_word_on = self
+            .wake_word_enabled
+            .load(std::sync::atomic::Ordering::SeqCst);
+        if let Some(t) = &self.voice_transcriber {
+            let offline = self.routing.read().unwrap().offline;
+            let svc = oblivion_core::VoiceService::new(
+                t.clone(),
+                None,
+                self.voice_synthesizer.clone(),
+                "auto",
+                "Ctrl+Space",
+                "en",
+                offline,
+            );
+            svc.set_wake_word_enabled(is_wake_word_on);
+            return svc;
+        }
+
+        let cfg = oblivion_core::Config::load(&self.config_file_path()).unwrap_or_default();
+        let voice_cfg = cfg.voice;
+        let offline = self.routing.read().unwrap().offline;
+
+        let local = Arc::new(oblivion_core::LocalWhisperTranscriber::new(
+            voice_cfg.whisper_path.map(PathBuf::from),
+            None,
+        ));
+
+        let cloud: Option<Arc<dyn oblivion_core::VoiceTranscriber>> = if !offline {
+            if let Ok(groq_key) = std::env::var("GROQ_API_KEY") {
+                if !groq_key.trim().is_empty() {
+                    Some(Arc::new(oblivion_core::CloudWhisperTranscriber::groq(
+                        groq_key,
+                    )))
+                } else {
+                    None
+                }
+            } else if let Ok(openai_key) = std::env::var("OPENAI_API_KEY") {
+                if !openai_key.trim().is_empty() {
+                    Some(Arc::new(oblivion_core::CloudWhisperTranscriber::openai(
+                        openai_key,
+                    )))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let synth = self.voice_synthesizer.clone().or_else(|| {
+            Some(Arc::new(oblivion_core::LocalPiperSynthesizer::new(
+                None, None,
+            )))
+        });
+
+        let svc = oblivion_core::VoiceService::new(
+            local,
+            cloud,
+            synth,
+            voice_cfg.stt_engine,
+            voice_cfg.hotkey,
+            voice_cfg.language,
+            offline,
+        );
+        svc.set_wake_word_enabled(is_wake_word_on);
+        svc
     }
 
     fn authorized(&self, headers: &HeaderMap, query: &HashMap<String, String>) -> bool {
@@ -181,7 +256,7 @@ async fn static_file(Path(path): Path<String>) -> Response {
             (
                 [
                     (header::CONTENT_TYPE, mime),
-                    (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+                    (header::CACHE_CONTROL, "no-cache, must-revalidate"),
                 ],
                 content.data,
             )
@@ -516,6 +591,26 @@ pub fn router(state: WebState) -> Router {
             "/api/oblivion/sessions/{id}/workspace",
             post(update_session_workspace),
         )
+        // Voice & STT
+        .route("/api/voice/status", get(get_voice_status))
+        .route("/api/oblivion/voice/status", get(get_voice_status))
+        .route("/api/voice/transcribe", post(post_voice_transcribe))
+        .route(
+            "/api/oblivion/voice/transcribe",
+            post(post_voice_transcribe),
+        )
+        // Voice TTS
+        .route("/api/voice/tts/speak", post(post_voice_tts_speak))
+        .route("/api/oblivion/voice/tts/speak", post(post_voice_tts_speak))
+        // Voice Wake Word
+        .route(
+            "/api/voice/wake-word",
+            get(get_wake_word_status).post(post_wake_word_toggle),
+        )
+        .route(
+            "/api/oblivion/voice/wake-word",
+            get(get_wake_word_status).post(post_wake_word_toggle),
+        )
         .with_state(state)
 }
 
@@ -577,6 +672,8 @@ async fn events(
 #[derive(Deserialize)]
 struct SendBody {
     text: String,
+    #[serde(default)]
+    voice: bool,
 }
 
 async fn send(
@@ -591,7 +688,11 @@ async fn send(
     if body.text.trim().is_empty() {
         return StatusCode::BAD_REQUEST;
     }
-    st.controls.send(body.text);
+    if body.voice {
+        st.controls.send_voice(body.text);
+    } else {
+        st.controls.send(body.text);
+    }
     StatusCode::NO_CONTENT
 }
 
@@ -599,6 +700,8 @@ async fn send(
 struct ApproveBody {
     id: u64,
     answer: String,
+    #[serde(default)]
+    source: Option<String>,
 }
 
 async fn approve(
@@ -606,20 +709,34 @@ async fn approve(
     headers: HeaderMap,
     Query(q): Query<HashMap<String, String>>,
     Json(body): Json<ApproveBody>,
-) -> StatusCode {
+) -> Response {
     if !st.authorized(&headers, &q) {
-        return StatusCode::UNAUTHORIZED;
+        return StatusCode::UNAUTHORIZED.into_response();
     }
     let decision = match body.answer.as_str() {
         "yes" => Decision::Yes,
         "always" => Decision::Always,
         "no" => Decision::No,
-        _ => return StatusCode::BAD_REQUEST,
+        _ => return StatusCode::BAD_REQUEST.into_response(),
     };
-    if st.controls.approvals.answer(body.id, decision) {
-        StatusCode::NO_CONTENT
-    } else {
-        StatusCode::GONE
+    match st
+        .controls
+        .approvals
+        .answer_with_source(body.id, decision, body.source.as_deref())
+    {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(crate::app::ApprovalError::VoiceNotAllowed(msg)) => (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "error": msg,
+                "code": "VOICE_APPROVAL_DISALLOWED"
+            })),
+        )
+            .into_response(),
+        Err(crate::app::ApprovalError::NotFound) => StatusCode::GONE.into_response(),
+        Err(crate::app::ApprovalError::ChannelClosed) => {
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -1682,6 +1799,237 @@ pub async fn pump(mut rx: UnboundedReceiver<UiEvent>, bus: Arc<Bus>) {
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct VoiceTranscribeRequest {
+    #[serde(default)]
+    pub audio_base64: Option<String>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub format: Option<String>,
+    #[serde(default)]
+    pub language: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VoiceTranscribeResponse {
+    pub text: String,
+    pub language: Option<String>,
+    pub duration_ms: u64,
+    pub engine: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VoiceErrorResponse {
+    pub error: String,
+}
+
+async fn get_voice_status(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<oblivion_core::VoiceStatus>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let service = st.voice_service();
+    Ok(Json(service.status()))
+}
+
+async fn post_voice_transcribe(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    body: axum::body::Bytes,
+) -> Result<Json<VoiceTranscribeResponse>, (StatusCode, Json<VoiceErrorResponse>)> {
+    if !st.authorized(&headers, &q) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(VoiceErrorResponse {
+                error: "unauthorized: invalid or missing token".into(),
+            }),
+        ));
+    }
+
+    if body.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(VoiceErrorResponse {
+                error: "Empty audio payload".into(),
+            }),
+        ));
+    }
+
+    let (wav_bytes, requested_language) = if body.first() == Some(&b'{') {
+        let req: VoiceTranscribeRequest = serde_json::from_slice(&body).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(VoiceErrorResponse {
+                    error: format!("Invalid JSON request: {}", e),
+                }),
+            )
+        })?;
+
+        let decoded = if let Some(b64) = req.audio_base64 {
+            base64::engine::general_purpose::STANDARD
+                .decode(b64.trim())
+                .map_err(|e| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(VoiceErrorResponse {
+                            error: format!("Invalid base64 audio data: {}", e),
+                        }),
+                    )
+                })?
+        } else {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(VoiceErrorResponse {
+                    error: "Missing 'audio_base64' field in JSON request".into(),
+                }),
+            ));
+        };
+        (decoded, req.language)
+    } else {
+        (body.to_vec(), None)
+    };
+
+    let audio = oblivion_core::AudioBuffer::from_wav_bytes(&wav_bytes).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(VoiceErrorResponse {
+                error: format!("Failed to parse WAV audio buffer: {}", e),
+            }),
+        )
+    })?;
+
+    let service = st.voice_service();
+    let result = service.transcribe(&audio).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(VoiceErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    Ok(Json(VoiceTranscribeResponse {
+        text: result.text,
+        language: requested_language.or(result.language),
+        duration_ms: result.duration_ms,
+        engine: result.engine,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VoiceSpeakRequest {
+    pub text: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VoiceSpeakResponse {
+    pub text: String,
+    pub duration_ms: u64,
+    pub audio_base64: String,
+    pub format: String,
+}
+
+async fn post_voice_tts_speak(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Json(req): Json<VoiceSpeakRequest>,
+) -> Result<Json<VoiceSpeakResponse>, (StatusCode, Json<VoiceErrorResponse>)> {
+    if !st.authorized(&headers, &q) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(VoiceErrorResponse {
+                error: "unauthorized: invalid or missing token".into(),
+            }),
+        ));
+    }
+
+    if req.text.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(VoiceErrorResponse {
+                error: "Empty text to synthesize".into(),
+            }),
+        ));
+    }
+
+    let service = st.voice_service();
+    let audio = service.synthesize(&req.text).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(VoiceErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    let wav_bytes = audio.to_wav_bytes();
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&wav_bytes);
+
+    Ok(Json(VoiceSpeakResponse {
+        text: req.text,
+        duration_ms: audio.duration_ms(),
+        audio_base64: b64,
+        format: "audio/wav".to_string(),
+    }))
+}
+
+#[derive(Deserialize)]
+struct WakeWordToggleBody {
+    #[serde(default)]
+    enabled: Option<bool>,
+}
+
+async fn get_wake_word_status(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let enabled = st
+        .wake_word_enabled
+        .load(std::sync::atomic::Ordering::SeqCst);
+    Ok(Json(serde_json::json!({
+        "enabled": enabled,
+        "phrases": ["jarvis", "hey jarvis"],
+        "hotkey": "Ctrl+Space"
+    })))
+}
+
+async fn post_wake_word_toggle(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Json(body): Json<WakeWordToggleBody>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let new_state = match body.enabled {
+        Some(val) => val,
+        None => !st
+            .wake_word_enabled
+            .load(std::sync::atomic::Ordering::SeqCst),
+    };
+    st.wake_word_enabled
+        .store(new_state, std::sync::atomic::Ordering::SeqCst);
+    Ok(Json(serde_json::json!({
+        "enabled": new_state,
+        "phrases": ["jarvis", "hey jarvis"],
+        "message": if new_state {
+            "Wake word detection enabled (hands-free 'Hey Jarvis' keyword spotting)."
+        } else {
+            "Wake word detection disabled (push-to-talk only)."
+        }
+    })))
+}
+
 /// Bind 127.0.0.1:port, or any free port if that one is taken.
 pub async fn bind(port: u16) -> std::io::Result<(tokio::net::TcpListener, SocketAddr)> {
     let listener = match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
@@ -1790,6 +2138,9 @@ mod live {
                 oblivion_core::config::RoutingSettings::default(),
             )),
             config_path: None,
+            voice_transcriber: None,
+            voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
         tokio::spawn(pump(events, bus));
         tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
@@ -1873,12 +2224,31 @@ mod live {
         assert_eq!(start["detail"], "+ hi there");
         let ask = next_of(&mut erx, "approval").await;
         assert!(ask["summary"].as_str().unwrap().contains("hello.txt"));
+        assert_eq!(ask["low_risk"], false);
         assert!(
             !dir.path().join("hello.txt").exists(),
             "nothing written before approval"
         );
 
         let id = ask["id"].as_u64().unwrap();
+
+        // 1. Attempt voice approval on high-risk write_file: must be rejected with 403 Forbidden
+        let voice_attempt = http
+            .post(format!("{base}/approve"))
+            .header("x-oblivion-token", &token)
+            .json(&serde_json::json!({"id": id, "answer": "yes", "source": "voice"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(voice_attempt.status(), 403);
+        let err_json: Value = voice_attempt.json().await.unwrap();
+        assert_eq!(err_json["code"], "VOICE_APPROVAL_DISALLOWED");
+        assert!(
+            !dir.path().join("hello.txt").exists(),
+            "file must not be written after rejected voice approval"
+        );
+
+        // 2. Manual click approval succeeds
         let r = http
             .post(format!("{base}/approve"))
             .header("x-oblivion-token", &token)
@@ -1982,6 +2352,110 @@ mod live {
         assert!(!dir.path().join("x.txt").exists());
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn voice_approval_allowed_for_low_risk_actions() {
+        let outside = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(outside.path(), "external confidential data").unwrap();
+        let outside_path = outside.path().to_str().unwrap().replace('\\', "/");
+
+        let read = tool_call(
+            "r1",
+            "read_file",
+            &format!(r#"{{"path":"{}"}}"#, outside_path),
+        );
+        let (url, _seen) = fake_server(vec![
+            (200, sse(&[&read])),
+            (200, sse(&[&text("Read outside file content.")])),
+        ])
+        .await;
+        let dir = tempfile::tempdir().unwrap();
+        let (w, controls, events) = worker(&url, dir.path());
+        let _release = crate::testkit::Release(controls.clone());
+
+        let bus = Arc::new(Bus::default());
+        let token = new_token();
+        let (listener, addr) = bind(0).await.unwrap();
+        let store = Arc::new(oblivion_store::Store::in_memory().unwrap());
+        let state = WebState {
+            token: token.clone().into(),
+            controls: controls.clone(),
+            bus: bus.clone(),
+            store,
+            ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
+            config_path: None,
+            voice_transcriber: None,
+            voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
+        tokio::spawn(pump(events, bus));
+        tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+        tokio::spawn(w.run());
+        let base = format!("http://{addr}");
+        let http = reqwest::Client::new();
+
+        let es = http
+            .get(format!("{base}/events?t={token}"))
+            .send()
+            .await
+            .unwrap();
+        let (etx, mut erx) = tokio::sync::mpsc::unbounded_channel::<Value>();
+        tokio::spawn(async move {
+            let mut body = es.bytes_stream();
+            let mut buf = String::new();
+            while let Some(Ok(chunk)) = body.next().await {
+                buf.push_str(&String::from_utf8_lossy(&chunk));
+                while let Some(i) = buf.find("\n\n") {
+                    let frame: String = buf.drain(..i + 2).collect();
+                    for line in frame.lines() {
+                        if let Some(d) = line.strip_prefix("data: ").or(line.strip_prefix("data:"))
+                        {
+                            if let Ok(v) = serde_json::from_str::<Value>(d) {
+                                let _ = etx.send(v);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        let _st = next_of(&mut erx, "state").await;
+
+        let r = http
+            .post(format!("{base}/send"))
+            .header("x-oblivion-token", &token)
+            .json(&serde_json::json!({"text":"read outside doc", "voice": true}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 204);
+
+        let ask = next_of(&mut erx, "approval").await;
+        assert_eq!(ask["tool"], "read_file");
+        assert_eq!(
+            ask["low_risk"], true,
+            "read_file outside root must be marked low_risk"
+        );
+        let id = ask["id"].as_u64().unwrap();
+
+        // Spoken / voice approval succeeds for low-risk action!
+        let r_voice = http
+            .post(format!("{base}/approve"))
+            .header("x-oblivion-token", &token)
+            .json(&serde_json::json!({"id": id, "answer": "yes", "source": "voice"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r_voice.status(), 204);
+
+        let done_ev = next_of(&mut erx, "approval_done").await;
+        assert_eq!(done_ev["answer"], "yes");
+
+        let turn = next_of(&mut erx, "turn_end").await;
+        assert_eq!(turn["outcome"], "done");
+    }
+
     #[tokio::test]
     async fn memory_api_endpoints_crud_and_export() {
         let (url, _seen) = fake_server(vec![(200, sse(&[]))]).await;
@@ -2002,6 +2476,9 @@ mod live {
                 oblivion_core::config::RoutingSettings::default(),
             )),
             config_path: None,
+            voice_transcriber: None,
+            voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
         tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
         let base = format!("http://{addr}");
@@ -2123,6 +2600,9 @@ mod live {
                 oblivion_core::config::RoutingSettings::default(),
             )),
             config_path: None,
+            voice_transcriber: None,
+            voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
 
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
@@ -2272,6 +2752,9 @@ mod live {
                 oblivion_core::config::RoutingSettings::default(),
             )),
             config_path: None,
+            voice_transcriber: None,
+            voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
 
         let app = router(state);
@@ -2341,6 +2824,9 @@ mod live {
                 oblivion_core::config::RoutingSettings::default(),
             )),
             config_path: None,
+            voice_transcriber: None,
+            voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -2368,6 +2854,8 @@ mod live {
             skills: vec![],
             browser: false,
             instructions_file: Some("AGENTS.md".into()),
+            spoken_reply: false,
+            wake_word_enabled: false,
         }));
 
         // Add a project fact memory
@@ -2443,6 +2931,9 @@ mod live {
                 oblivion_core::config::RoutingSettings::default(),
             )),
             config_path: None,
+            voice_transcriber: None,
+            voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -2564,6 +3055,9 @@ mod live {
                 oblivion_core::config::RoutingSettings::default(),
             )),
             config_path: None,
+            voice_transcriber: None,
+            voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -2660,6 +3154,9 @@ mod live {
                 oblivion_core::config::RoutingSettings::default(),
             )),
             config_path: None,
+            voice_transcriber: None,
+            voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -2759,6 +3256,9 @@ mod live {
                 oblivion_core::config::RoutingSettings::default(),
             )),
             config_path: None,
+            voice_transcriber: None,
+            voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -2879,6 +3379,9 @@ mod live {
                 oblivion_core::config::RoutingSettings::default(),
             )),
             config_path: Some(cfg_path.clone()),
+            voice_transcriber: None,
+            voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -2969,5 +3472,167 @@ mod live {
         let s2: crate::wizard::WizardStatus = alias_res.json().await.unwrap();
         assert!(s2.completed);
         assert!(s2.offline);
+    }
+
+    fn make_test_wav(sample_rate: u32, duration_ms: u64) -> Vec<u8> {
+        let num_samples = ((sample_rate as u64 * duration_ms) / 1000) as usize;
+        let samples = vec![1000i16; num_samples];
+        let audio = oblivion_core::AudioBuffer::new_pcm16_mono(sample_rate, &samples);
+        audio.to_wav_bytes()
+    }
+
+    #[tokio::test]
+    async fn test_voice_status_and_transcribe_api() {
+        let dir = tempfile::tempdir().unwrap();
+        let store =
+            Arc::new(oblivion_store::Store::open(&dir.path().join("test_voice.db")).unwrap());
+        let (url, _seen) = crate::testkit::fake_server(vec![]).await;
+        let (_worker, controls, _events) = crate::testkit::worker(&url, dir.path());
+
+        let bus = Arc::new(Bus::default());
+        let token = "test-token-voice-endpoints";
+        let state = WebState {
+            token: token.into(),
+            controls,
+            bus: bus.clone(),
+            store: store.clone(),
+            ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
+            config_path: None,
+            voice_transcriber: Some(Arc::new(oblivion_core::MockTranscriber::new(
+                "mock-voice-engine",
+                "create a new workspace file",
+            ))),
+            voice_synthesizer: Some(Arc::new(oblivion_core::MockSynthesizer::new("mock-piper"))),
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
+
+        let (listener, addr) = bind(0).await.unwrap();
+        let base = format!("http://{addr}");
+        tokio::spawn(async move {
+            axum::serve(listener, router(state)).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+
+        // 1. Voice status - unauthorized without token
+        let res = client
+            .get(format!("{base}/api/voice/status"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+        // 2. Voice status - authorized via header
+        let res = client
+            .get(format!("{base}/api/voice/status"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let status: oblivion_core::VoiceStatus = res.json().await.unwrap();
+        assert!(status.enabled);
+        assert_eq!(status.hotkey, "Ctrl+Space");
+        assert!(status.local_whisper_available);
+
+        // 3. Voice transcribe - raw WAV audio
+        let wav_bytes = make_test_wav(16000, 300);
+        let res = client
+            .post(format!("{base}/api/oblivion/voice/transcribe"))
+            .header("x-jarvis-token", token)
+            .header("content-type", "audio/wav")
+            .body(wav_bytes.clone())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let tr: VoiceTranscribeResponse = res.json().await.unwrap();
+        assert_eq!(tr.text, "create a new workspace file");
+        assert_eq!(tr.engine, "mock-voice-engine");
+        assert_eq!(tr.duration_ms, 300);
+
+        // 4. Voice transcribe - JSON base64 payload
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&wav_bytes);
+        let res = client
+            .post(format!("{base}/api/voice/transcribe?t={token}"))
+            .json(&serde_json::json!({
+                "audio_base64": b64,
+                "language": "en"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let tr2: VoiceTranscribeResponse = res.json().await.unwrap();
+        assert_eq!(tr2.text, "create a new workspace file");
+
+        // 5. Voice transcribe - invalid audio returns 400 Bad Request
+        let res = client
+            .post(format!("{base}/api/voice/transcribe"))
+            .header("x-oblivion-token", token)
+            .body(vec![1, 2, 3, 4])
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+        // 6. Voice TTS speak - unauthorized without token
+        let res = client
+            .post(format!("{base}/api/voice/tts/speak"))
+            .json(&serde_json::json!({ "text": "Hello world" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+        // 7. Voice TTS speak - authorized synthesis
+        let res = client
+            .post(format!("{base}/api/voice/tts/speak"))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({ "text": "Hello world from Jarvis" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let speak_resp: VoiceSpeakResponse = res.json().await.unwrap();
+        assert_eq!(speak_resp.text, "Hello world from Jarvis");
+        assert!(speak_resp.duration_ms >= 100);
+        assert_eq!(speak_resp.format, "audio/wav");
+        assert!(!speak_resp.audio_base64.is_empty());
+
+        // 8. Wake word status - unauthorized without token
+        let res = client
+            .get(format!("{base}/api/voice/wake-word"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+        // 9. Wake word status - authorized
+        let res = client
+            .get(format!("{base}/api/voice/wake-word"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let ww_resp: serde_json::Value = res.json().await.unwrap();
+        assert_eq!(ww_resp["enabled"], false);
+        assert_eq!(ww_resp["phrases"][0], "jarvis");
+
+        // 10. Wake word toggle - authorized POST
+        let res = client
+            .post(format!("{base}/api/oblivion/voice/wake-word"))
+            .header("x-jarvis-token", token)
+            .json(&serde_json::json!({ "enabled": true }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let ww_resp2: serde_json::Value = res.json().await.unwrap();
+        assert_eq!(ww_resp2["enabled"], true);
     }
 }

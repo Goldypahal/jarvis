@@ -13,6 +13,7 @@ pub mod rules;
 pub mod session;
 pub mod small_model;
 pub mod subagent;
+pub mod voice;
 
 pub use agent::{Agent, AgentEvent, Approver, Decision, TurnSummary};
 pub use agents_md::AgentsMdProposal;
@@ -31,3 +32,9 @@ pub use rules::Rules;
 pub use session::{JsonDir, Session, SessionInfo, SessionStore};
 pub use small_model::{extract_tool_calls_from_text, is_small_model_name, repair_tool_arguments};
 pub use subagent::SubagentFactory;
+pub use voice::{
+    is_low_risk_action, AudioBuffer, CloudWhisperTranscriber, LocalPiperSynthesizer,
+    LocalWhisperTranscriber, MockSynthesizer, MockTranscriber, SentenceSplitter,
+    TranscriptionResult, VoiceService, VoiceStatus, VoiceSynthesizer, VoiceTranscriber,
+    WakeWordConfig, WakeWordDetector,
+};
