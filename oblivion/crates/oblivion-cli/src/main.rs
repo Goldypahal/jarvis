@@ -1,6 +1,7 @@
 //! `oblivion` command-line interface (SRS FR-70/71).
 
 mod app;
+pub mod autostart;
 mod commands;
 mod keys;
 #[cfg(test)]
@@ -8,6 +9,7 @@ mod testkit;
 pub mod trace;
 mod tui;
 mod web;
+pub mod wizard;
 
 use std::io::{BufRead, IsTerminal, Write};
 use std::path::PathBuf;
@@ -80,6 +82,22 @@ struct Cli {
     #[arg(long, value_name = "PROVIDER")]
     delete_key: Option<String>,
 
+    /// Detect system hardware (RAM, GPU, VRAM) and print model recommendation, then exit.
+    #[arg(long, short = 'H')]
+    hardware: bool,
+
+    /// First-run onboarding wizard (pick workspace, set keys or offline mode, autostart).
+    #[arg(long)]
+    wizard: bool,
+
+    /// Manage Windows autostart on boot (on, off, or status).
+    #[arg(long, value_name = "ACTION")]
+    autostart: Option<String>,
+
+    /// Force offline mode: send zero data to cloud models, use only local models (Ollama).
+    #[arg(long)]
+    offline: bool,
+
     /// Show today's requests and tokens per model, then exit.
     #[arg(long)]
     usage: bool,
@@ -116,6 +134,10 @@ struct Cli {
     /// Full-screen terminal interface (chat, task list and helpers side by side).
     #[arg(long)]
     tui: bool,
+
+    /// Small-model mode (shorter prompt, core tools only, strict output repair).
+    #[arg(long)]
+    small_model: bool,
 
     /// Print a run's trace log (JSON lines) by run id, then exit. Use "list" to show traces.
     #[arg(long, value_name = "ID")]
@@ -321,6 +343,50 @@ fn enable_ansi_colors() {
 #[cfg(not(windows))]
 fn enable_ansi_colors() {}
 
+fn print_hardware() {
+    let hw = oblivion_core::detect_hardware();
+    let rec = oblivion_core::recommend_model(&hw);
+
+    println!("{BOLD}Hardware Specs{RESET}");
+    println!(
+        "  • RAM:  {:.1} GB total ({:.1} GB available)",
+        hw.total_ram_gb, hw.available_ram_gb
+    );
+    let vram_str = match (hw.vram_gb, hw.is_integrated_gpu) {
+        (Some(v), true) => format!(" ({v:.1} GB, shared/integrated)"),
+        (Some(v), false) => format!(" ({v:.1} GB dedicated VRAM)"),
+        (None, _) => String::new(),
+    };
+    println!("  • GPU:  {}{vram_str}", hw.gpu_name);
+    println!("  • Disk: {:.1} GB free", hw.free_disk_gb);
+
+    println!("\n{BOLD}Local Model Recommendation{RESET}");
+    println!(
+        "  • Recommended size:  {GREEN}{BOLD}{}{RESET}",
+        rec.recommended_size
+    );
+    println!(
+        "  • Suggested models:  {}",
+        rec.recommended_models.join(", ")
+    );
+    println!(
+        "  • Quantization:      {} (~{:.1} GB needed)",
+        rec.recommended_quantization, rec.estimated_ram_required_gb
+    );
+    println!(
+        "  • Fits in VRAM:      {}",
+        if rec.fits_in_vram {
+            "Yes (fully offloaded to GPU)"
+        } else {
+            "No (CPU/shared memory execution)"
+        }
+    );
+    println!(
+        "  • Trade-off:         {DIM}{}{RESET}",
+        rec.tradeoff_explanation
+    );
+}
+
 async fn run() -> Result<()> {
     enable_ansi_colors();
     let cli = Cli::parse();
@@ -338,6 +404,43 @@ async fn run() -> Result<()> {
 
     if cli.init {
         return init_config(&config_path);
+    }
+    if cli.wizard {
+        return wizard::run_cli_wizard(&config_path);
+    }
+    if let Some(action) = &cli.autostart {
+        match action.to_ascii_lowercase().as_str() {
+            "on" | "enable" | "true" => {
+                let res = autostart::set_enabled(true)?;
+                println!(
+                    "Autostart enabled. Command: {}",
+                    res.command.unwrap_or_default()
+                );
+            }
+            "off" | "disable" | "false" => {
+                autostart::set_enabled(false)?;
+                println!("Autostart disabled.");
+            }
+            "status" => {
+                let st = autostart::get_status()?;
+                if st.enabled {
+                    println!(
+                        "Autostart is enabled (command: {}).",
+                        st.command.unwrap_or_default()
+                    );
+                } else {
+                    println!("Autostart is disabled.");
+                }
+            }
+            other => {
+                bail!("unknown autostart action '{other}'; use 'on', 'off', or 'status'");
+            }
+        }
+        return Ok(());
+    }
+    if cli.hardware {
+        print_hardware();
+        return Ok(());
     }
     if let Some(p) = &cli.set_key {
         return keys::set(p);
@@ -648,6 +751,11 @@ async fn run() -> Result<()> {
     agent.context_tokens = cfg.agent.context_tokens;
     agent.max_web_calls = cfg.agent.max_web_calls;
     agent.summary_prefer = cfg.routing.summary.clone();
+    agent.offline = cfg.routing.offline || cli.offline;
+    agent.routing_rules = cfg.routing.rules.clone();
+    agent.small_model = cfg.agent.small_model || cli.small_model;
+    agent.active_model = cli.model.clone();
+    agent.small_system_prompt = Some(prompt::build_small(&root, shell, &today));
     agent.memory_auto_extract = cfg.memory.enabled && cfg.memory.auto_extract;
     agent.memory_extract_tokens = cfg.memory.max_tokens;
     agent.set_subagents(oblivion_core::SubagentFactory {
@@ -696,15 +804,13 @@ async fn run() -> Result<()> {
             controls.send(cli.prompt.join(" "));
         }
         let result = if cli.web {
-            run_web(
-                worker,
-                controls,
-                store.clone(),
-                ev_rx,
-                cli.port,
-                !cli.no_open,
-            )
-            .await
+            let opts = WebOptions {
+                port: cli.port,
+                open: !cli.no_open,
+                offline: cli.offline,
+                config_path: Some(config_path),
+            };
+            run_web(worker, controls, store.clone(), ev_rx, opts, &cfg).await
         } else {
             tui::run(worker, controls, ev_rx).await
         };
@@ -875,26 +981,45 @@ async fn extract_and_persist_memories(agent: &Agent, store: &Arc<oblivion_store:
     }
 }
 
+struct WebOptions {
+    port: u16,
+    open: bool,
+    offline: bool,
+    config_path: Option<PathBuf>,
+}
+
 /// `oblivion --web`: serve the page, then run the agent until Ctrl+C or /exit.
 async fn run_web(
     worker: app::Worker,
     controls: app::Controls,
     store: Arc<oblivion_store::Store>,
     events: tokio::sync::mpsc::UnboundedReceiver<app::UiEvent>,
-    port: u16,
-    open: bool,
+    opts: WebOptions,
+    cfg: &Config,
 ) -> Result<()> {
     let bus = Arc::new(web::Bus::default());
     let token = web::new_token();
-    let (listener, addr) = web::bind(port)
+    let (listener, addr) = web::bind(opts.port)
         .await
         .context("could not open a local port for the web page")?;
     let url = format!("http://{addr}/#t={token}");
+    let ollama = cfg
+        .providers
+        .iter()
+        .find(|p| p.name == "ollama")
+        .map(|p| Arc::new(oblivion_core::ollama::OllamaClient::new(&p.base_url)));
+    let mut routing_cfg = cfg.routing.clone();
+    if opts.offline {
+        routing_cfg.offline = true;
+    }
     let state = web::WebState {
         token: token.into(),
         controls: controls.clone(),
         bus: bus.clone(),
         store,
+        ollama,
+        routing: Arc::new(std::sync::RwLock::new(routing_cfg)),
+        config_path: opts.config_path,
     };
     tokio::spawn(web::pump(events, bus));
     tokio::spawn(async move {
@@ -903,7 +1028,7 @@ async fn run_web(
     println!("{BOLD}Oblivion web{RESET} is running. Open this link (it contains your access key):");
     println!("  {CYAN}{url}{RESET}");
     println!("{DIM}Press Ctrl+C here to stop.{RESET}");
-    if open {
+    if opts.open {
         web::open_browser(&url);
     }
     // Ctrl+C: stop a running request first; a second press (or an idle one) quits.

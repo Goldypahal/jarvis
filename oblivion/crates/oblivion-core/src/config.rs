@@ -28,6 +28,7 @@ max_steps = 50          # tool-call rounds per request before stopping
 approval = "ask"        # ask | auto-edit | yolo
 context_tokens = 24000  # shrink the conversation when it grows past about this size
 max_web_calls = 15      # web searches + fetches per request (sub-agents get 8 each)
+small_model = false     # small-model mode: shorter prompt, fewer tools, strict repair
 # shell = "powershell"  # powershell | cmd | bash | sh (default: powershell on Windows, bash elsewhere)
 
 # Long-term memory across sessions.
@@ -114,10 +115,19 @@ models = ["mistral-small-latest"]
 
 # Which models do which jobs. Each value is a filter on "provider/model"; matching
 # models are tried first, the rest stay as fallbacks. Use "ollama" to keep cheap work local.
+# offline: when true, only local models (Ollama) are used; no data is sent to cloud.
 [routing]
+offline = false
 summary = ""            # shrinking long conversations, e.g. "ollama"
 subagent = ""           # sub-agents started by the `task` tool, e.g. "groq/openai/gpt-oss-20b"
 subagent_max_steps = 25
+
+[routing.rules]
+private = ["ollama/*", "local/*"]
+simple = ["ollama/*", "groq/llama-3.1-8b-instant", "openrouter/*"]
+hard = ["groq/llama-3.3-70b-versatile", "openrouter/*", "ollama/*"]
+vision = ["openrouter/*", "ollama/llava*", "ollama/*"]
+long_context = ["openrouter/*", "groq/*", "ollama/*"]
 
 # Skills: folders with SKILL.md from ~/.oblivion/skills, ~/.agents/skills, ~/.claude/skills,
 # ~/.codex/skills and the project's .agents/skills (Claude and Codex skills work as-is).
@@ -173,6 +183,8 @@ pub struct AgentSettings {
     pub context_tokens: usize,
     #[serde(default = "default_max_web_calls")]
     pub max_web_calls: usize,
+    #[serde(default)]
+    pub small_model: bool,
 }
 
 impl Default for AgentSettings {
@@ -183,6 +195,7 @@ impl Default for AgentSettings {
             shell: None,
             context_tokens: default_context_tokens(),
             max_web_calls: default_max_web_calls(),
+            small_model: false,
         }
     }
 }
@@ -215,6 +228,10 @@ pub struct RoutingSettings {
     pub subagent: String,
     #[serde(default = "default_subagent_steps")]
     pub subagent_max_steps: usize,
+    #[serde(default)]
+    pub offline: bool,
+    #[serde(default)]
+    pub rules: crate::routing::RoutingRules,
 }
 
 impl Default for RoutingSettings {
@@ -223,6 +240,8 @@ impl Default for RoutingSettings {
             summary: String::new(),
             subagent: String::new(),
             subagent_max_steps: default_subagent_steps(),
+            offline: false,
+            rules: crate::routing::RoutingRules::default(),
         }
     }
 }
@@ -370,8 +389,18 @@ fn default_ollama_endpoint() -> String {
     "http://localhost:11434".to_string()
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct SetupSection {
+    #[serde(default)]
+    pub completed: bool,
+    #[serde(default)]
+    pub workspace: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
+    #[serde(default)]
+    pub setup: SetupSection,
     #[serde(default)]
     pub agent: AgentSettings,
     #[serde(default)]
@@ -473,6 +502,83 @@ pub fn enable_browser_in(text: &str, mode: &str) -> String {
     let mut joined = out.join("\n");
     joined.push('\n');
     joined
+}
+
+/// Updates or inserts `[setup]` and `offline` settings in config text.
+pub fn apply_setup_to_config_text(
+    text: &str,
+    completed: bool,
+    workspace: Option<&str>,
+    offline: Option<bool>,
+) -> String {
+    let mut out: Vec<String> = text.lines().map(|s| s.to_string()).collect();
+    let setup_idx = out.iter().position(|l| l.trim() == "[setup]");
+
+    if let Some(idx) = setup_idx {
+        let mut i = idx + 1;
+        let mut found_completed = false;
+        let mut found_workspace = false;
+        while i < out.len() && !out[i].trim().starts_with('[') {
+            let trimmed = out[i].trim();
+            if trimmed.starts_with("completed") {
+                out[i] = format!("completed = {completed}");
+                found_completed = true;
+            } else if trimmed.starts_with("workspace") {
+                if let Some(ws) = workspace {
+                    out[i] = format!("workspace = \"{}\"", ws.replace('\\', "/"));
+                    found_workspace = true;
+                }
+            }
+            i += 1;
+        }
+        if !found_completed {
+            out.insert(idx + 1, format!("completed = {completed}"));
+        }
+        if !found_workspace {
+            if let Some(ws) = workspace {
+                out.insert(
+                    idx + 1,
+                    format!("workspace = \"{}\"", ws.replace('\\', "/")),
+                );
+            }
+        }
+    } else {
+        out.push(String::new());
+        out.push("[setup]".to_string());
+        out.push(format!("completed = {completed}"));
+        if let Some(ws) = workspace {
+            out.push(format!("workspace = \"{}\"", ws.replace('\\', "/")));
+        }
+    }
+
+    if let Some(off) = offline {
+        let routing_idx = out.iter().position(|l| l.trim() == "[routing]");
+        if let Some(r_idx) = routing_idx {
+            let mut i = r_idx + 1;
+            let mut found_off = false;
+            while i < out.len() && !out[i].trim().starts_with('[') {
+                if out[i].trim().starts_with("offline") {
+                    out[i] = format!("offline = {off}");
+                    found_off = true;
+                    break;
+                }
+                i += 1;
+            }
+            if !found_off {
+                out.insert(r_idx + 1, format!("offline = {off}"));
+            }
+        } else {
+            out.push(String::new());
+            out.push("[routing]".to_string());
+            out.push(format!("offline = {off}"));
+        }
+    }
+
+    let mut res = out.join("\n");
+    if !res.ends_with('\n') {
+        res.push('\n');
+    }
+    res
 }
 
 fn default_browser_mode() -> String {
@@ -750,5 +856,24 @@ models = ["openai/gpt-oss-120b"]
             .unwrap()
             .validate()
             .is_err());
+    }
+
+    #[test]
+    fn setup_section_apply_and_parse() {
+        let base = "[agent]\nmax_steps = 50\n";
+        let updated =
+            apply_setup_to_config_text(base, true, Some("D:/Projects/Jarvis"), Some(true));
+        let cfg = Config::parse(&updated).unwrap();
+        assert!(cfg.setup.completed);
+        assert_eq!(cfg.setup.workspace.as_deref(), Some("D:/Projects/Jarvis"));
+        assert!(cfg.routing.offline);
+
+        // Update existing setup section
+        let reupdated =
+            apply_setup_to_config_text(&updated, false, Some("C:/Workspace"), Some(false));
+        let cfg2 = Config::parse(&reupdated).unwrap();
+        assert!(!cfg2.setup.completed);
+        assert_eq!(cfg2.setup.workspace.as_deref(), Some("C:/Workspace"));
+        assert!(!cfg2.routing.offline);
     }
 }

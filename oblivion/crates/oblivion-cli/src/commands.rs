@@ -41,6 +41,11 @@ pub const HELP: &str = "\
 /workspace <p> change working directory for this session
 /new [path]    start a fresh session with optional folder
 /agents-md     show or update AGENTS.md project instructions
+/hardware      show system specs (RAM, GPU, VRAM) and model recommendation
+/ollama        manage local models (list, pull <name>, delete <name>, test <name>)
+/offline [on|off] toggle or show offline mode (forces local models only)
+/routing       show request classification rules and target priorities
+/small-model [on|off] toggle or show small-model mode (short prompt, core tools, strict repair)
 /skills        list skills; run one with /<skill-name> [request]
 /mcp           list MCP servers and their tools
 /exit          quit";
@@ -276,6 +281,206 @@ pub async fn handle_command(
                 )
             }
         }
+        "hardware" | "specs" => {
+            let hw = oblivion_core::detect_hardware();
+            let rec = oblivion_core::recommend_model(&hw);
+            let vram_str = match (hw.vram_gb, hw.is_integrated_gpu) {
+                (Some(v), true) => format!(" ({v:.1} GB, shared/integrated)"),
+                (Some(v), false) => format!(" ({v:.1} GB dedicated VRAM)"),
+                (None, _) => String::new(),
+            };
+            format!(
+                "Hardware Specs:\n  • RAM:  {:.1} GB total ({:.1} GB available)\n  • GPU:  {}{vram_str}\n  • Disk: {:.1} GB free\n\nLocal Model Recommendation:\n  • Recommended size:  {}\n  • Suggested models:  {}\n  • Quantization:      {} (~{:.1} GB needed)\n  • Fits in VRAM:      {}\n  • Trade-off:         {}",
+                hw.total_ram_gb,
+                hw.available_ram_gb,
+                hw.gpu_name,
+                hw.free_disk_gb,
+                rec.recommended_size,
+                rec.recommended_models.join(", "),
+                rec.recommended_quantization,
+                rec.estimated_ram_required_gb,
+                if rec.fits_in_vram { "Yes (fully offloaded to GPU)" } else { "No (runs in system RAM)" },
+                rec.tradeoff_explanation
+            )
+        }
+        "ollama" | "local-models" => {
+            let client = oblivion_core::OllamaClient::new("http://localhost:11434");
+            let status = client.check_status().await;
+            if !status.running {
+                let err = status.error.unwrap_or_else(|| "cannot connect".into());
+                format!(
+                    "Ollama is not running at {} ({err}).\nInstall or start Ollama (`ollama serve`) to run local models.",
+                    client.endpoint()
+                )
+            } else {
+                let parts: Vec<&str> = arg.split_whitespace().collect();
+                match parts.first().copied().unwrap_or("") {
+                    "" | "list" => match client.list_models().await {
+                        Ok(models) if models.is_empty() => {
+                            "Ollama is running, but no local models are installed yet. Try `/ollama pull <name>` (e.g. `/ollama pull qwen2.5-coder:7b`).".to_string()
+                        }
+                        Ok(models) => {
+                            let mut lines = vec![format!(
+                                "Local models in Ollama (version {}):",
+                                status.version.unwrap_or_else(|| "unknown".into())
+                            )];
+                            for m in models {
+                                let param = m
+                                    .details
+                                    .as_ref()
+                                    .and_then(|d| d.parameter_size.clone())
+                                    .unwrap_or_else(|| "?".into());
+                                let quant = m
+                                    .details
+                                    .as_ref()
+                                    .and_then(|d| d.quantization_level.clone())
+                                    .unwrap_or_default();
+                                lines.push(format!(
+                                    "  • {:<24} {:>8}  {:<6} {:<8}",
+                                    m.name, m.size_formatted, param, quant
+                                ));
+                            }
+                            lines.join("\n")
+                        }
+                        Err(e) => format!("Failed to list Ollama models: {e}"),
+                    },
+                    "pull" => {
+                        let name = parts.get(1).copied().unwrap_or("");
+                        if name.is_empty() {
+                            "Usage: /ollama pull <model-name> (e.g. /ollama pull qwen2.5-coder:7b)"
+                                .to_string()
+                        } else {
+                            match client.pull_model_stream(name).await {
+                                Ok(mut stream) => {
+                                    use futures_util::StreamExt;
+                                    let mut last_status = String::new();
+                                    while let Some(item) = stream.next().await {
+                                        match item {
+                                            Ok(p) => {
+                                                if let Some(pct) = p.percent {
+                                                    last_status = format!("{}: {:.1}%", p.status, pct);
+                                                } else {
+                                                    last_status = p.status;
+                                                }
+                                            }
+                                            Err(e) => {
+                                                return Ok(Command::Done(format!("Pull failed: {e}")));
+                                            }
+                                        }
+                                    }
+                                    format!("Successfully pulled {name}. Status: {last_status}")
+                                }
+                                Err(e) => format!("Failed to start pull for {name}: {e}"),
+                            }
+                        }
+                    }
+                    "delete" | "rm" => {
+                        let name = parts.get(1).copied().unwrap_or("");
+                        if name.is_empty() {
+                            "Usage: /ollama delete <model-name>".to_string()
+                        } else {
+                            match client.delete_model(name).await {
+                                Ok(()) => format!("Deleted model {name} from Ollama."),
+                                Err(e) => format!("Failed to delete {name}: {e}"),
+                            }
+                        }
+                    }
+                    "test" | "benchmark" => {
+                        let name = parts.get(1).copied().unwrap_or("");
+                        if name.is_empty() {
+                            "Usage: /ollama test <model-name>".to_string()
+                        } else {
+                            match client.speed_test(name, None).await {
+                                Ok(res) => {
+                                    format!(
+                                        "Speed test for {name}:\n  • Generation speed:    {:.1} tokens/sec ({} tokens in {:.0}ms)\n  • Prompt evaluation:   {:.1} tokens/sec ({} tokens in {:.0}ms)\n  • Model load duration: {:.0}ms\n  • Total roundtrip:     {:.0}ms\n  • Output sample:       {}",
+                                        res.tokens_per_second,
+                                        res.eval_count,
+                                        res.eval_duration_ms,
+                                        res.prompt_eval_tokens_per_second,
+                                        res.prompt_eval_count,
+                                        res.prompt_eval_duration_ms,
+                                        res.load_duration_ms,
+                                        res.total_duration_ms,
+                                        res.sample_text
+                                    )
+                                }
+                                Err(e) => format!("Failed to run speed test on {name}: {e}"),
+                            }
+                        }
+                    }
+                    other => format!(
+                        "Unknown /ollama subcommand '{other}'. Try /ollama list, /ollama pull <name>, /ollama delete <name>, /ollama test <name>"
+                    ),
+                }
+            }
+        }
+        "offline" => match arg {
+            "on" | "true" | "enable" | "1" => {
+                agent.offline = true;
+                "Offline mode enabled. Only local models (Ollama/localhost) will be used."
+                    .to_string()
+            }
+            "off" | "false" | "disable" | "0" => {
+                agent.offline = false;
+                "Offline mode disabled. Configured cloud and local models will be used.".to_string()
+            }
+            "" => {
+                format!(
+                    "Offline mode is currently {}.\nUse `/offline on` or `/offline off` to change.",
+                    if agent.offline {
+                        "ENABLED (local only)"
+                    } else {
+                        "DISABLED (cloud + local)"
+                    }
+                )
+            }
+            other => format!("Unknown argument '{other}'. Use `/offline on` or `/offline off`."),
+        },
+        "routing" => {
+            let rules = &agent.routing_rules;
+            let status = if agent.offline {
+                "ENABLED (Forces all requests to local models only)"
+            } else {
+                "DISABLED (Cloud and local models based on request class)"
+            };
+            format!(
+                "Routing & Privacy Rules:\n  • Offline Mode: {}\n\nRequest Classes & Target Priorities:\n  • Private (sensitive/credentials):  {}\n  • Vision (image inputs):           {}\n  • Long Context (>16k tokens):       {}\n  • Hard Reasoning (math, debug):    {}\n  • Simple (greetings, syntax):       {}",
+                status,
+                rules.private.join(", "),
+                rules.vision.join(", "),
+                rules.long_context.join(", "),
+                rules.hard.join(", "),
+                rules.simple.join(", ")
+            )
+        }
+        "small-model" | "small" => match arg {
+            "on" | "true" | "enable" | "1" => {
+                agent.small_model = true;
+                "Small-model mode enabled (compact system prompt, core tools only, robust argument repair).".to_string()
+            }
+            "off" | "false" | "disable" | "0" => {
+                agent.small_model = false;
+                "Small-model mode disabled (full prompt and all tools active).".to_string()
+            }
+            "" => {
+                let status = if agent.is_small_model_active() {
+                    if agent.small_model {
+                        "ENABLED (manually turned on)"
+                    } else {
+                        "ENABLED (automatically detected based on model name)"
+                    }
+                } else {
+                    "DISABLED"
+                };
+                format!(
+                    "Small-model mode is currently {status}.\nUse `/small-model on` or `/small-model off` to change."
+                )
+            }
+            other => {
+                format!("Unknown argument '{other}'. Use `/small-model on` or `/small-model off`.")
+            }
+        },
         other => format!("Unknown command /{other}. Try /help or /skills."),
     };
     Ok(Command::Done(text))

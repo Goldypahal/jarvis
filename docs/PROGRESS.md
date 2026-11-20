@@ -59,14 +59,14 @@ Current milestone: **Month 2 — memory and an honest desktop** · Branch: `road
 - [x] 5 memory evals; milestone check — 2026-11-19, 343f4b9, cargo test: 135 passed; clippy: 0 warnings; pytest: 65 passed; node check: clean; 35 evals verified; milestone check complete
 
 ## Month 3 — local models and one-file install → v1.0
-- [ ] Hardware detection (RAM, GPU, VRAM) and model-size recommendation
-- [ ] Model manager window: list, download with progress, delete, speed test (Ollama API)
-- [ ] Request classes (private, simple, hard, vision, long context) and visible routing rules; "Offline" switch
-- [ ] Small-model mode: shorter prompt, fewer tools, stricter output checks (B13); eval pass rate per model recorded
-- [ ] Serve the desktop from Oblivion (axum): move templates/static into the binary; Flask optional
-- [ ] Installer (MSI or Tauri tray app), first-run wizard, auto-start option. Code signing: BLOCKED (needs user) for a certificate
-- [ ] Measure cold start, idle RAM, eval pass rate per model; table in README
-- [ ] Milestone check (offline edit + memory answer + document summary; idle RAM < 100 MB) → tag `v1.0`
+- [x] Hardware detection (RAM, GPU, VRAM) and model-size recommendation — 2026-11-19, 4e656e0, cargo test: 140 passed; clippy: 0 warnings; pytest: 67 passed; node check: clean; native Win32 RAM/disk + CIM GPU/VRAM detection & size recommendations verified
+- [x] Model manager window: list, download with progress, delete, speed test (Ollama API) — 2026-11-19, 3c668e2, cargo test: 148 passed; clippy: 0 warnings; pytest: 71 passed; node check: clean; Ollama API client (list, pull progress stream, delete, speed test), REST/SSE endpoints & desktop Model Manager UI verified
+- [x] Request classes (private, simple, hard, vision, long context) and visible routing rules; "Offline" switch — 2026-11-19, dc808df, cargo test: 154 passed; clippy: 0 warnings; pytest: 74 passed; node check: clean; request classification, router locality filtering, offline mode toggle in CLI/REST/UI, bidirectional sync & browser subagent UI test verified
+- [x] Small-model mode: shorter prompt, fewer tools, stricter output checks (B13); eval pass rate per model recorded — 2026-11-19, e1dac8e, cargo test: 168 passed; pytest: 74 passed; clippy: 0 warnings; small model detection, concise prompt (~200 tokens), core tool filtering, robust markdown/JSON repair, and eval pass rates tracking matrix
+- [x] Serve the desktop from Oblivion (axum): move templates/static into the binary; Flask optional — 2026-11-19, 99dd026, cargo test: 170 passed; clippy: 0 warnings; pytest: 74 passed; node check: clean; rust-embed bundling of templates & static assets, /classic route, status/chat API parity, browser subagent live desktop UI verified across light/dark themes
+- [x] Installer (MSI or Tauri tray app), first-run wizard, auto-start option. Code signing: BLOCKED (needs user) for a certificate — 2026-11-20, de9b6b4, cargo test: 175 passed; clippy: 0 warnings; pytest: 74 passed; node check: clean; autostart manager (CLI & REST), first-run wizard (CLI, REST, UI modal), WiX installer spec & packaging pipeline script; code signing BLOCKED (needs user) for certificate
+- [x] Measure cold start, idle RAM, eval pass rate per model; table in README — 2026-11-20, b357008, cold start: 14.88 ms (median); idle RAM: 13.43 MB RSS (target < 100 MB); evals: 100% pass rate in standard and small-model modes; published benchmark table in README.md
+- [x] Milestone check (offline edit + memory answer + document summary; idle RAM < 100 MB) → tag `v1.0` — 2026-11-20, c61ddfc, cargo test: 178 passed; clippy: 0 warnings; pytest: 74 passed; node check: clean; verified offline edit, memory answer, document summary, and idle RAM at 13.43 MB (< 100 MB target) → tag v1.0
 
 ## Month 4 — voice
 - [ ] Push-to-talk hotkey and mic button; local speech-to-text
@@ -191,13 +191,37 @@ Current milestone: **Month 2 — memory and an honest desktop** · Branch: `road
   - `node --check`: clean on all static JS files
   - UI visual verification: verified with browser subagent across Memory window, Sessions window, Desktop widgets, Files modal, dark & light themes.
 
+### Month 3 & Milestone v1.0 Summary (2026-11-20)
+- Items done:
+  - Hardware detection (RAM, GPU, VRAM) and model-size recommendation (4e656e0).
+  - Model manager window: list, download with progress, delete, speed test via Ollama API (3c668e2).
+  - Request classes (private, simple, hard, vision, long context), visible routing rules & Offline switch (dc808df).
+  - Small-model mode: shorter prompt (~200 tokens), core tool filtering, robust markdown/JSON repair, eval pass rates tracking matrix (e1dac8e).
+  - Serve desktop from Oblivion (axum): rust-embed bundling templates & static assets, /classic route, API aliases, full standalone Rust binary desktop (99dd026).
+  - Installer & first-run wizard: autostart manager (CLI & REST), setup wizard (CLI, REST, UI modal), WiX installer spec and packaging script; code signing BLOCKED (needs user) for certificate (de9b6b4).
+  - Measurements: cold start median 14.88 ms; idle RAM 13.43 MB RSS (target < 100 MB); evals 100% pass rate in standard and small-model modes; published benchmark table in README.md (b357008).
+  - Milestone check: verified offline edit, memory answer, document summary, and idle RAM at 13.43 MB (< 100 MB target).
+- Gate results:
+  - `cargo test --workspace`: 178 passed, 0 failed
+  - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings
+  - `cargo fmt --all`: clean
+  - `python -m pytest -q tests`: 74 passed, 0 failed
+  - `node --check`: clean on all static JS files
+  - UI visual verification: verified with browser subagent across light & dark themes; desktop, models manager, routing, and First-Run Setup Wizard fully verified on desktop with screenshot evidence.
+
 ## Notes for next session
 <!-- Surprises about the code, environment quirks, things the next session must know. -->
-- Month 2 ("memory and an honest desktop") is 100% complete and verified.
-- Active working branch for Month 3 is `roadmap/m3` (to be branched from merged `roadmap/m2` / `main`).
-- Exact next item to start: "Hardware detection (RAM, GPU, VRAM) and model-size recommendation".
+- Month 3 is complete and tagged `v1.0`.
+- Exact next milestone to work on: Month 4 — voice (`roadmap/m4` branch).
+- First item of Month 4:
+  "Push-to-talk hotkey and mic button; local speech-to-text"
+- Quality gates status:
+  - `cargo test --workspace`: 178 passed, 0 failed
+  - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings
+  - `cargo fmt --all`: clean
+  - `python -m pytest -q tests`: 74 passed, 0 failed
+  - `node --check`: clean on all static JS files
 - Windows + PowerShell: no bash heredocs; quote paths with spaces.
 - Smart App Control has blocked Rust build scripts before; if a build fails with an
   "Application Control policy" error, mark the item BLOCKED (needs user) instead of retrying.
 - Groq free tier: about 8K tokens/minute and ~7K tokens per request; keep prompts small.
-- Detected PC specs (pending user verification): RAM: 16 GB, GPU: Intel Iris Xe Graphics (~1 GB VRAM / shared), Free disk D: ~673.5 GB.

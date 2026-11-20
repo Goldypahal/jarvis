@@ -68,6 +68,44 @@ How to work
     p
 }
 
+/// Compact system prompt tailored for small models (1B-8B parameters, B13).
+/// Minimizes token overhead (~200 tokens) while retaining crucial safety and tool rules.
+pub fn build_small(root: &Path, shell: Shell, today: &str) -> String {
+    let mut p = format!(
+        "You are Oblivion, a software engineering agent. Solve the user's task using available tools.
+
+Environment:
+- Workspace: {root}
+- Shell: {shell}
+- Date: {today}
+
+Instructions:
+1. Read files with `read_file` before editing. Never guess file contents.
+2. Edit files with `edit_file` or write new files with `write_file`.
+3. Verify your work: run tests or build with the `shell` tool after making changes.
+4. Reply concisely with a summary of what changed and verification results.
+5. Never execute destructive commands (e.g. deleting directories, formatting disks).",
+        root = root.display(),
+        shell = shell.name(),
+    );
+
+    if shell == Shell::PowerShell {
+        p.push_str(
+            "\n\nPowerShell Notes:\n- No bash heredocs (<<EOF). Write multi-line scripts to files.\n- Use `python`, not `python3`.",
+        );
+    }
+
+    if let Some((name, text)) = project_instructions(root) {
+        let truncated = if text.chars().count() > 3000 {
+            text.chars().take(3000).collect::<String>() + "\n[truncated]"
+        } else {
+            text
+        };
+        p.push_str(&format!("\n\nProject instructions ({name}):\n{truncated}"));
+    }
+    p
+}
+
 /// Find and read project instructions from the workspace root (e.g. AGENTS.md, OBLIVION.md).
 pub fn project_instructions(root: &Path) -> Option<(String, String)> {
     for name in INSTRUCTION_FILES {
@@ -114,5 +152,15 @@ mod tests {
         std::fs::write(d.path().join("OBLIVION.md"), "oblivion").unwrap();
         let p = build(d.path(), Shell::Bash, "x", &[]);
         assert!(p.contains("from OBLIVION.md"));
+    }
+
+    #[test]
+    fn small_model_prompt_is_concise() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("AGENTS.md"), "Keep tests passing.").unwrap();
+        let p = build_small(d.path(), Shell::Bash, "2026-11-19");
+        assert!(p.contains("Environment:"));
+        assert!(p.contains("Keep tests passing."));
+        assert!(p.len() < 1200); // significantly shorter than standard prompt
     }
 }

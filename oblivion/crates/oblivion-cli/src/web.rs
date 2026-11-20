@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -26,6 +27,11 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use crate::app::{Controls, UiEvent};
 
 const PAGE: &str = include_str!("../web/index.html");
+const DESKTOP_PAGE: &str = include_str!("../../../../web/templates/index.html");
+
+#[derive(rust_embed::RustEmbed)]
+#[folder = "../../../web/static/"]
+pub struct StaticAssets;
 /// Events kept for pages that connect later (streamed text is merged first).
 const HISTORY_LIMIT: usize = 4_000;
 
@@ -111,17 +117,269 @@ pub struct WebState {
     pub controls: Controls,
     pub bus: Arc<Bus>,
     pub store: Arc<oblivion_store::Store>,
+    pub ollama: Option<Arc<oblivion_core::OllamaClient>>,
+    pub routing: Arc<std::sync::RwLock<oblivion_core::config::RoutingSettings>>,
+    pub config_path: Option<PathBuf>,
 }
 
 impl WebState {
+    pub fn config_file_path(&self) -> PathBuf {
+        self.config_path
+            .clone()
+            .unwrap_or_else(oblivion_core::config::default_config_path)
+    }
+
+    pub fn ollama_client(&self) -> oblivion_core::OllamaClient {
+        if let Some(c) = &self.ollama {
+            (**c).clone()
+        } else {
+            oblivion_core::OllamaClient::new("http://localhost:11434")
+        }
+    }
+
     fn authorized(&self, headers: &HeaderMap, query: &HashMap<String, String>) -> bool {
         let given = headers
             .get("x-oblivion-token")
+            .or_else(|| headers.get("x-jarvis-token"))
             .and_then(|v| v.to_str().ok())
             .or(query.get("t").map(String::as_str))
             .unwrap_or("");
         constant_time_eq(given.as_bytes(), self.token.as_bytes())
     }
+}
+
+fn content_type(path: &str) -> &'static str {
+    if path.ends_with(".css") {
+        "text/css; charset=utf-8"
+    } else if path.ends_with(".js") {
+        "application/javascript; charset=utf-8"
+    } else if path.ends_with(".ttf") {
+        "font/ttf"
+    } else if path.ends_with(".woff2") {
+        "font/woff2"
+    } else if path.ends_with(".woff") {
+        "font/woff"
+    } else if path.ends_with(".html") {
+        "text/html; charset=utf-8"
+    } else if path.ends_with(".json") {
+        "application/json"
+    } else if path.ends_with(".png") {
+        "image/png"
+    } else if path.ends_with(".svg") {
+        "image/svg+xml"
+    } else {
+        "application/octet-stream"
+    }
+}
+
+async fn static_file(Path(path): Path<String>) -> Response {
+    let clean = path.replace('\\', "/");
+    let clean = clean.trim_start_matches('/');
+    match StaticAssets::get(clean) {
+        Some(content) => {
+            let mime = content_type(clean);
+            (
+                [
+                    (header::CONTENT_TYPE, mime),
+                    (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+                ],
+                content.data,
+            )
+                .into_response()
+        }
+        None => (StatusCode::NOT_FOUND, "Static file not found").into_response(),
+    }
+}
+
+#[derive(Serialize)]
+struct StatusResponse {
+    running: bool,
+    port: u16,
+    error: Option<String>,
+}
+
+async fn get_status(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    if !st.authorized(&headers, &q) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        )
+            .into_response();
+    }
+    (
+        StatusCode::OK,
+        Json(StatusResponse {
+            running: true,
+            port: 7878,
+            error: None,
+        }),
+    )
+        .into_response()
+}
+
+#[derive(Deserialize)]
+struct ChatBody {
+    #[serde(default)]
+    message: String,
+    #[serde(default)]
+    text: String,
+}
+
+async fn chat_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Json(body): Json<ChatBody>,
+) -> impl IntoResponse {
+    if !st.authorized(&headers, &q) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        )
+            .into_response();
+    }
+    let msg = if !body.message.is_empty() {
+        body.message
+    } else {
+        body.text
+    };
+    if msg.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "empty message"})),
+        )
+            .into_response();
+    }
+    st.controls.send(msg);
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({"response": "Message sent to agent"})),
+    )
+        .into_response()
+}
+
+#[derive(Deserialize)]
+struct SetAutostartBody {
+    enabled: bool,
+}
+
+async fn get_autostart_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    if !st.authorized(&headers, &q) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        )
+            .into_response();
+    }
+    match crate::autostart::get_status() {
+        Ok(status) => (StatusCode::OK, Json(serde_json::to_value(status).unwrap())).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+
+async fn set_autostart_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Json(body): Json<SetAutostartBody>,
+) -> impl IntoResponse {
+    if !st.authorized(&headers, &q) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        )
+            .into_response();
+    }
+    match crate::autostart::set_enabled(body.enabled) {
+        Ok(status) => (StatusCode::OK, Json(serde_json::to_value(status).unwrap())).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+
+async fn get_wizard_status_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    if !st.authorized(&headers, &q) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        )
+            .into_response();
+    }
+    let p = st.config_file_path();
+    let status = crate::wizard::get_wizard_status(&p);
+    (StatusCode::OK, Json(serde_json::to_value(status).unwrap())).into_response()
+}
+
+async fn complete_wizard_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Json(req): Json<crate::wizard::WizardCompleteRequest>,
+) -> impl IntoResponse {
+    if !st.authorized(&headers, &q) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        )
+            .into_response();
+    }
+    let p = st.config_file_path();
+    if let Ok(mut r) = st.routing.write() {
+        r.offline = req.offline;
+    }
+    match crate::wizard::complete_wizard(&p, &req) {
+        Ok(status) => (StatusCode::OK, Json(serde_json::to_value(status).unwrap())).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+
+async fn test_wizard_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    if !st.authorized(&headers, &q) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        )
+            .into_response();
+    }
+    let p = st.config_file_path();
+    let status = crate::wizard::get_wizard_status(&p);
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "status": "ok",
+            "message": "Connection and environment verified",
+            "offline": status.offline,
+            "workspace": status.workspace
+        })),
+    )
+        .into_response()
 }
 
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
@@ -137,50 +395,154 @@ pub fn new_token() -> String {
 
 pub fn router(state: WebState) -> Router {
     Router::new()
+        // Page and static assets
         .route("/", get(page))
+        .route("/classic", get(classic_page))
+        .route("/static/{*path}", get(static_file))
+        // Live stream and controls
         .route("/events", get(events))
+        .route("/api/oblivion/events", get(events))
         .route("/send", post(send))
+        .route("/api/oblivion/send", post(send))
+        .route("/api/oblivion/input", post(send))
         .route("/approve", post(approve))
+        .route("/api/oblivion/approve", post(approve))
         .route("/cancel", post(cancel))
+        .route("/api/oblivion/cancel", post(cancel))
+        .route("/api/oblivion/start", post(get_status).get(get_status))
+        .route("/api/oblivion/status", get(get_status))
+        .route("/api/chat", post(chat_handler))
+        // System & dashboard
         .route("/api/system/dashboard", get(get_dashboard))
+        .route("/api/oblivion/dashboard", get(get_dashboard))
+        .route("/api/system/hardware", get(get_hardware))
+        .route("/api/oblivion/system/hardware", get(get_hardware))
         .route(
             "/api/system/agents-md",
             get(get_agents_md).post(apply_agents_md),
         )
+        .route(
+            "/api/oblivion/system/agents-md",
+            get(get_agents_md).post(apply_agents_md),
+        )
         .route("/api/system/agents-md/apply", post(apply_agents_md))
+        .route(
+            "/api/oblivion/system/agents-md/apply",
+            post(apply_agents_md),
+        )
+        // Autostart
+        .route(
+            "/api/system/autostart",
+            get(get_autostart_handler).post(set_autostart_handler),
+        )
+        .route(
+            "/api/oblivion/system/autostart",
+            get(get_autostart_handler).post(set_autostart_handler),
+        )
+        // First-run Wizard
+        .route("/api/system/wizard/status", get(get_wizard_status_handler))
+        .route(
+            "/api/oblivion/system/wizard/status",
+            get(get_wizard_status_handler),
+        )
+        .route("/api/system/wizard/complete", post(complete_wizard_handler))
+        .route(
+            "/api/oblivion/system/wizard/complete",
+            post(complete_wizard_handler),
+        )
+        .route("/api/system/wizard/test", post(test_wizard_handler))
+        .route(
+            "/api/oblivion/system/wizard/test",
+            post(test_wizard_handler),
+        )
+        // Models & routing
+        .route("/api/models", get(get_models))
+        .route("/api/oblivion/models", get(get_models))
+        .route("/api/models/pull", post(pull_model))
+        .route("/api/oblivion/models/pull", post(pull_model))
+        .route("/api/models/delete", post(delete_model_handler))
+        .route("/api/oblivion/models/delete", post(delete_model_handler))
+        .route("/api/models/speed-test", post(speed_test_handler))
+        .route("/api/oblivion/models/speed-test", post(speed_test_handler))
+        .route("/api/routing", get(get_routing).post(update_routing))
+        .route(
+            "/api/oblivion/routing",
+            get(get_routing).post(update_routing),
+        )
+        // Memory
         .route(
             "/api/memory",
             get(list_or_search_memories).post(create_memory),
         )
+        .route(
+            "/api/oblivion/memory",
+            get(list_or_search_memories).post(create_memory),
+        )
         .route("/api/memory/{id}", put(update_memory).delete(delete_memory))
+        .route(
+            "/api/oblivion/memory/{id}",
+            put(update_memory).delete(delete_memory),
+        )
         .route("/api/memory/forget", post(forget_memories_topic))
+        .route("/api/oblivion/memory/forget", post(forget_memories_topic))
         .route("/api/memory/export", get(export_memories))
+        .route("/api/oblivion/memory/export", get(export_memories))
+        // Sessions
         .route(
             "/api/sessions",
+            get(list_or_search_sessions).post(create_or_switch_session),
+        )
+        .route(
+            "/api/oblivion/sessions",
             get(list_or_search_sessions).post(create_or_switch_session),
         )
         .route(
             "/api/sessions/{id}",
             get(get_session).delete(delete_session),
         )
+        .route(
+            "/api/oblivion/sessions/{id}",
+            get(get_session).delete(delete_session),
+        )
         .route("/api/sessions/{id}/rename", post(rename_session))
+        .route("/api/oblivion/sessions/{id}/rename", post(rename_session))
         .route("/api/sessions/{id}/resume", post(resume_session))
+        .route("/api/oblivion/sessions/{id}/resume", post(resume_session))
         .route(
             "/api/sessions/{id}/workspace",
+            post(update_session_workspace),
+        )
+        .route(
+            "/api/oblivion/sessions/{id}/workspace",
             post(update_session_workspace),
         )
         .with_state(state)
 }
 
-async fn page() -> Response {
+async fn page(State(st): State<WebState>) -> Response {
+    let html = DESKTOP_PAGE.replace("{{ jarvis_token }}", &st.token);
     (
         [
             (header::CONTENT_TYPE, "text/html; charset=utf-8"),
             (header::CACHE_CONTROL, "no-store"),
-            // The page only talks to this server; no outside scripts, frames or images.
             (
                 header::CONTENT_SECURITY_POLICY,
-                "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'",
+                "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https:; connect-src 'self' https:; frame-ancestors 'none'",
+            ),
+        ],
+        Html(html),
+    )
+        .into_response()
+}
+
+async fn classic_page() -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-store"),
+            (
+                header::CONTENT_SECURITY_POLICY,
+                "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'",
             ),
         ],
         Html(PAGE),
@@ -698,6 +1060,10 @@ pub struct DashboardEngine {
     pub status: String,
     pub model: String,
     pub workspace: String,
+    #[serde(default)]
+    pub hardware: Option<oblivion_core::HardwareInfo>,
+    #[serde(default)]
+    pub recommendation: Option<oblivion_core::ModelRecommendation>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -769,11 +1135,15 @@ async fn get_dashboard(
         "ready".to_string()
     };
 
+    let hw = oblivion_core::detect_hardware();
+    let rec = oblivion_core::recommend_model(&hw);
     let engine = DashboardEngine {
         version: env!("CARGO_PKG_VERSION").to_string(),
         status,
         model: model_label,
         workspace: workspace_path.clone(),
+        hardware: Some(hw),
+        recommendation: Some(rec),
     };
 
     let recent_files = scan_recent_files(std::path::Path::new(&workspace_path), 20);
@@ -787,6 +1157,287 @@ async fn get_dashboard(
         sessions_count,
         engine,
     }))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HardwareResponse {
+    pub hardware: oblivion_core::HardwareInfo,
+    pub recommendation: oblivion_core::ModelRecommendation,
+}
+
+async fn get_hardware(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<HardwareResponse>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let hardware = oblivion_core::detect_hardware();
+    let recommendation = oblivion_core::recommend_model(&hardware);
+    Ok(Json(HardwareResponse {
+        hardware,
+        recommendation,
+    }))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelsResponse {
+    pub status: oblivion_core::OllamaStatus,
+    pub models: Vec<oblivion_core::OllamaModel>,
+    pub recommendation: oblivion_core::ModelRecommendation,
+}
+
+#[derive(Deserialize)]
+struct PullModelRequest {
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct DeleteModelRequest {
+    name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeleteModelResponse {
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct SpeedTestRequest {
+    model: String,
+    #[serde(default)]
+    prompt: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpeedTestResponse {
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<oblivion_core::OllamaSpeedTestResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+async fn get_models(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<ModelsResponse>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let client = st.ollama_client();
+    let status = client.check_status().await;
+    let models = if status.running {
+        client.list_models().await.unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let hardware = oblivion_core::detect_hardware();
+    let recommendation = oblivion_core::recommend_model(&hardware);
+
+    Ok(Json(ModelsResponse {
+        status,
+        models,
+        recommendation,
+    }))
+}
+
+async fn pull_model(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Json(body): Json<PullModelRequest>,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let model_name = body.name.trim();
+    if model_name.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let client = st.ollama_client();
+    let stream_res = client.pull_model_stream(model_name).await;
+    let event_stream: std::pin::Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>> =
+        match stream_res {
+            Ok(s) => Box::pin(s.map(|item| {
+                let json_str = match item {
+                    Ok(progress) => serde_json::to_string(&progress).unwrap_or_default(),
+                    Err(e) => serde_json::json!({
+                        "status": "error",
+                        "error": e.to_string()
+                    })
+                    .to_string(),
+                };
+                Ok(Event::default().data(json_str))
+            })),
+            Err(e) => {
+                let err_ev = serde_json::json!({
+                    "status": "error",
+                    "error": e.to_string()
+                });
+                Box::pin(stream::once(async move {
+                    Ok(Event::default().data(err_ev.to_string()))
+                }))
+            }
+        };
+
+    Ok(Sse::new(event_stream).keep_alive(KeepAlive::default()))
+}
+
+async fn delete_model_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Json(body): Json<DeleteModelRequest>,
+) -> Result<Json<DeleteModelResponse>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let model_name = body.name.trim();
+    if model_name.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let client = st.ollama_client();
+    match client.delete_model(model_name).await {
+        Ok(()) => Ok(Json(DeleteModelResponse {
+            status: "ok".into(),
+            message: None,
+        })),
+        Err(e) => Ok(Json(DeleteModelResponse {
+            status: "error".into(),
+            message: Some(e.to_string()),
+        })),
+    }
+}
+
+async fn speed_test_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Json(body): Json<SpeedTestRequest>,
+) -> Result<Json<SpeedTestResponse>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let model_name = body.model.trim();
+    if model_name.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let client = st.ollama_client();
+    match client.speed_test(model_name, body.prompt.as_deref()).await {
+        Ok(res) => Ok(Json(SpeedTestResponse {
+            status: "ok".into(),
+            result: Some(res),
+            error: None,
+        })),
+        Err(e) => Ok(Json(SpeedTestResponse {
+            status: "error".into(),
+            result: None,
+            error: Some(e.to_string()),
+        })),
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoutingResponse {
+    pub offline: bool,
+    pub rules: oblivion_core::routing::RoutingRules,
+    pub classes: Vec<RequestClassInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RequestClassInfo {
+    pub id: String,
+    pub label: String,
+    pub description: String,
+    pub priority: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct UpdateRoutingRequest {
+    #[serde(default)]
+    pub offline: Option<bool>,
+    #[serde(default)]
+    pub rules: Option<oblivion_core::routing::RoutingRules>,
+}
+
+async fn get_routing(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<RoutingResponse>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let r = st.routing.read().unwrap();
+    let rules = r.rules.clone();
+    let offline = r.offline;
+    let classes = vec![
+        RequestClassInfo {
+            id: "private".into(),
+            label: "Private / Sensitive".into(),
+            description: "Passwords, tokens, credentials, and offline mode. Cloud models are forbidden; routes strictly to local models.".into(),
+            priority: rules.private.clone(),
+        },
+        RequestClassInfo {
+            id: "simple".into(),
+            label: "Simple".into(),
+            description: "Quick questions, fast edits, basic explanations.".into(),
+            priority: rules.simple.clone(),
+        },
+        RequestClassInfo {
+            id: "hard".into(),
+            label: "Hard / Complex".into(),
+            description: "Complex refactoring, architectural redesign, debugging, security audits.".into(),
+            priority: rules.hard.clone(),
+        },
+        RequestClassInfo {
+            id: "vision".into(),
+            label: "Vision".into(),
+            description: "Requests inspecting screenshots, images, or pictures.".into(),
+            priority: rules.vision.clone(),
+        },
+        RequestClassInfo {
+            id: "long_context".into(),
+            label: "Long Context".into(),
+            description: "Conversation history + workspace context exceeds standard limits (> 16K tokens).".into(),
+            priority: rules.long_context.clone(),
+        },
+    ];
+
+    Ok(Json(RoutingResponse {
+        offline,
+        rules,
+        classes,
+    }))
+}
+
+async fn update_routing(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Json(body): Json<UpdateRoutingRequest>,
+) -> Result<Json<RoutingResponse>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    {
+        let mut r = st.routing.write().unwrap();
+        if let Some(off) = body.offline {
+            r.offline = off;
+        }
+        if let Some(rules) = body.rules {
+            r.rules = rules;
+        }
+    }
+    get_routing(State(st), headers, Query(q)).await
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1134,6 +1785,11 @@ mod live {
             controls: controls.clone(),
             bus: bus.clone(),
             store,
+            ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
+            config_path: None,
         };
         tokio::spawn(pump(events, bus));
         tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
@@ -1147,7 +1803,11 @@ mod live {
             .to_str()
             .unwrap()
             .contains("default-src 'self'"));
-        assert!(page
+        let page_text = page.text().await.unwrap();
+        assert!(page_text.contains("<title>Jarvis - Executive Desktop</title>"));
+
+        let classic_page = http.get(format!("{base}/classic")).send().await.unwrap();
+        assert!(classic_page
             .text()
             .await
             .unwrap()
@@ -1337,6 +1997,11 @@ mod live {
             controls,
             bus,
             store: store.clone(),
+            ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
+            config_path: None,
         };
         tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
         let base = format!("http://{addr}");
@@ -1453,6 +2118,11 @@ mod live {
             controls,
             bus,
             store: store.clone(),
+            ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
+            config_path: None,
         };
 
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
@@ -1597,6 +2267,11 @@ mod live {
             controls,
             bus,
             store: store.clone(),
+            ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
+            config_path: None,
         };
 
         let app = router(state);
@@ -1661,6 +2336,11 @@ mod live {
             controls,
             bus: bus.clone(),
             store: store.clone(),
+            ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
+            config_path: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -1742,5 +2422,552 @@ mod live {
             .unwrap();
         let resp2: AgentsMdResponse = res2.json().await.unwrap();
         assert_eq!(resp2.proposed_additions.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn web_hardware_endpoint_returns_specs_and_recommendation() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(oblivion_store::Store::open(&dir.path().join("test.db")).unwrap());
+        let (url, _seen) = crate::testkit::fake_server(vec![]).await;
+        let (_worker, controls, _events) = crate::testkit::worker(&url, dir.path());
+
+        let bus = Arc::new(Bus::default());
+        let token = "test-token-hw";
+        let state = WebState {
+            token: token.into(),
+            controls,
+            bus: bus.clone(),
+            store: store.clone(),
+            ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
+            config_path: None,
+        };
+
+        let (listener, addr) = bind(0).await.unwrap();
+        let base = format!("http://{addr}");
+        tokio::spawn(async move {
+            axum::serve(listener, router(state)).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+
+        // 1. Unauthorized
+        let unauth = client
+            .get(format!("{base}/api/system/hardware"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unauth.status(), StatusCode::UNAUTHORIZED);
+
+        // 2. Authorized
+        let res = client
+            .get(format!("{base}/api/system/hardware"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let data: HardwareResponse = res.json().await.unwrap();
+        assert!(data.hardware.total_ram_gb > 0.0);
+        assert!(!data.hardware.gpu_name.is_empty());
+        assert!(!data.recommendation.recommended_size.is_empty());
+        assert!(!data.recommendation.recommended_models.is_empty());
+        assert!(!data.recommendation.tradeoff_explanation.is_empty());
+    }
+
+    #[tokio::test]
+    async fn web_models_endpoints_work() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        // 1. Mock Ollama HTTP server
+        let ollama_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let ollama_addr = ollama_listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            loop {
+                let (mut sock, _) = match ollama_listener.accept().await {
+                    Ok(c) => c,
+                    Err(_) => break,
+                };
+                tokio::spawn(async move {
+                    let mut buf = Vec::new();
+                    let mut tmp = [0u8; 4096];
+                    loop {
+                        let n = sock.read(&mut tmp).await.unwrap_or(0);
+                        if n == 0 {
+                            break;
+                        }
+                        buf.extend_from_slice(&tmp[..n]);
+                        if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                    let req = String::from_utf8_lossy(&buf);
+                    let (status, ctype, body) = if req.contains("GET /api/version") {
+                        (
+                            200,
+                            "application/json",
+                            r#"{"version":"0.5.4"}"#.to_string(),
+                        )
+                    } else if req.contains("GET /api/tags") {
+                        (200, "application/json", r#"{"models":[{"name":"qwen2.5-coder:7b","size":4683074360,"digest":"abc","details":{"parameter_size":"7.6B","quantization_level":"Q4_K_M"}}]}"#.to_string())
+                    } else if req.contains("POST /api/pull") {
+                        (
+                            200,
+                            "application/x-ndjson",
+                            "{\"status\":\"pulling manifest\"}\n{\"status\":\"success\"}\n"
+                                .to_string(),
+                        )
+                    } else if req.contains("DELETE /api/delete") {
+                        (
+                            200,
+                            "application/json",
+                            r#"{"status":"success"}"#.to_string(),
+                        )
+                    } else if req.contains("POST /api/generate") {
+                        (200, "application/json", r#"{"model":"qwen2.5-coder:7b","response":"gravity","eval_count":10,"eval_duration":500000000,"prompt_eval_count":5,"prompt_eval_duration":100000000,"load_duration":200000000,"total_duration":800000000}"#.to_string())
+                    } else {
+                        (404, "text/plain", "Not Found".to_string())
+                    };
+
+                    let resp = format!(
+                        "HTTP/1.1 {status} OK\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = sock.write_all(resp.as_bytes()).await;
+                });
+            }
+        });
+
+        let ollama_client = Arc::new(oblivion_core::OllamaClient::new(&format!(
+            "http://{ollama_addr}"
+        )));
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(oblivion_store::Store::open(&dir.path().join("test.db")).unwrap());
+        let (url, _seen) = crate::testkit::fake_server(vec![]).await;
+        let (_worker, controls, _events) = crate::testkit::worker(&url, dir.path());
+
+        let bus = Arc::new(Bus::default());
+        let token = "test-token-models";
+        let state = WebState {
+            token: token.into(),
+            controls,
+            bus: bus.clone(),
+            store: store.clone(),
+            ollama: Some(ollama_client),
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
+            config_path: None,
+        };
+
+        let (listener, addr) = bind(0).await.unwrap();
+        let base = format!("http://{addr}");
+        tokio::spawn(async move {
+            axum::serve(listener, router(state)).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+
+        // 1. GET /api/models unauth
+        let unauth = client
+            .get(format!("{base}/api/models"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unauth.status(), StatusCode::UNAUTHORIZED);
+
+        // 2. GET /api/models auth
+        let res = client
+            .get(format!("{base}/api/models"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let data: ModelsResponse = res.json().await.unwrap();
+        assert!(data.status.running);
+        assert_eq!(data.status.version.as_deref(), Some("0.5.4"));
+        assert_eq!(data.models.len(), 1);
+        assert_eq!(data.models[0].name, "qwen2.5-coder:7b");
+        assert_eq!(data.models[0].size_formatted, "4.36 GB");
+        assert!(!data.recommendation.recommended_size.is_empty());
+
+        // 3. POST /api/models/pull auth
+        let pull_res = client
+            .post(format!("{base}/api/models/pull"))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({ "name": "qwen2.5-coder:7b" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(pull_res.status(), StatusCode::OK);
+        let pull_text = pull_res.text().await.unwrap();
+        assert!(pull_text.contains("pulling manifest"));
+        assert!(pull_text.contains("success"));
+
+        // 4. POST /api/models/delete auth
+        let del_res = client
+            .post(format!("{base}/api/models/delete"))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({ "name": "qwen2.5-coder:7b" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(del_res.status(), StatusCode::OK);
+        let del_data: DeleteModelResponse = del_res.json().await.unwrap();
+        assert_eq!(del_data.status, "ok");
+
+        // 5. POST /api/models/speed-test auth
+        let speed_res = client
+            .post(format!("{base}/api/models/speed-test"))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({ "model": "qwen2.5-coder:7b" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(speed_res.status(), StatusCode::OK);
+        let speed_data: SpeedTestResponse = speed_res.json().await.unwrap();
+        assert_eq!(speed_data.status, "ok");
+        let result = speed_data.result.unwrap();
+        assert_eq!(result.model, "qwen2.5-coder:7b");
+        assert_eq!(result.eval_count, 10);
+        assert!((result.tokens_per_second - 20.0).abs() < 0.1);
+        assert_eq!(result.sample_text, "gravity");
+    }
+
+    #[tokio::test]
+    async fn web_routing_endpoints_work() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(oblivion_store::Store::open(&dir.path().join("test.db")).unwrap());
+        let (url, _seen) = crate::testkit::fake_server(vec![]).await;
+        let (_worker, controls, _events) = crate::testkit::worker(&url, dir.path());
+
+        let bus = Arc::new(Bus::default());
+        let token = "test-token-routing";
+        let state = WebState {
+            token: token.into(),
+            controls,
+            bus: bus.clone(),
+            store: store.clone(),
+            ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
+            config_path: None,
+        };
+
+        let (listener, addr) = bind(0).await.unwrap();
+        let base = format!("http://{addr}");
+        tokio::spawn(async move {
+            axum::serve(listener, router(state)).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+
+        // 1. GET /api/routing without auth -> 401
+        let unauth = client
+            .get(format!("{base}/api/routing"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unauth.status(), StatusCode::UNAUTHORIZED);
+
+        // 2. GET /api/routing with auth -> 200 OK
+        let res = client
+            .get(format!("{base}/api/routing"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let data: RoutingResponse = res.json().await.unwrap();
+        assert!(!data.offline);
+        assert!(!data.rules.private.is_empty());
+        assert!(!data.rules.simple.is_empty());
+        assert!(!data.rules.hard.is_empty());
+        assert!(!data.rules.vision.is_empty());
+        assert!(!data.rules.long_context.is_empty());
+        assert_eq!(data.classes.len(), 5);
+
+        // 3. POST /api/routing without auth -> 401
+        let unauth_post = client
+            .post(format!("{base}/api/routing"))
+            .json(&serde_json::json!({ "offline": true }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unauth_post.status(), StatusCode::UNAUTHORIZED);
+
+        // 4. POST /api/routing toggle offline -> true
+        let post_res = client
+            .post(format!("{base}/api/routing"))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({ "offline": true }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(post_res.status(), StatusCode::OK);
+        let updated: RoutingResponse = post_res.json().await.unwrap();
+        assert!(updated.offline);
+
+        // 5. GET confirms offline is true
+        let res2 = client
+            .get(format!("{base}/api/routing"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res2.status(), StatusCode::OK);
+        let data2: RoutingResponse = res2.json().await.unwrap();
+        assert!(data2.offline);
+
+        // 6. POST /api/routing toggle offline -> false
+        let post_res2 = client
+            .post(format!("{base}/api/routing"))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({ "offline": false }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(post_res2.status(), StatusCode::OK);
+        let updated2: RoutingResponse = post_res2.json().await.unwrap();
+        assert!(!updated2.offline);
+    }
+
+    #[tokio::test]
+    async fn web_serves_desktop_and_embedded_static_assets() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(oblivion_store::Store::open(&dir.path().join("test.db")).unwrap());
+        let (url, _seen) = crate::testkit::fake_server(vec![]).await;
+        let (_worker, controls, _events) = crate::testkit::worker(&url, dir.path());
+
+        let bus = Arc::new(Bus::default());
+        let token = "test-token-embedded-desktop";
+        let state = WebState {
+            token: token.into(),
+            controls,
+            bus: bus.clone(),
+            store: store.clone(),
+            ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
+            config_path: None,
+        };
+
+        let (listener, addr) = bind(0).await.unwrap();
+        let base = format!("http://{addr}");
+        tokio::spawn(async move {
+            axum::serve(listener, router(state)).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+
+        // 1. Root desktop page GET /
+        let res = client.get(format!("{base}/")).send().await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(
+            res.headers().get("content-type").unwrap(),
+            "text/html; charset=utf-8"
+        );
+        let html = res.text().await.unwrap();
+        assert!(html.contains("<title>Jarvis - Executive Desktop</title>"));
+        // Check jarvis token replacement
+        assert!(html.contains(token));
+        assert!(!html.contains("{{ jarvis_token }}"));
+
+        // 2. Classic Oblivion page GET /classic
+        let res_classic = client.get(format!("{base}/classic")).send().await.unwrap();
+        assert_eq!(res_classic.status(), StatusCode::OK);
+        let classic_html = res_classic.text().await.unwrap();
+        assert!(classic_html.contains("<title>Oblivion</title>"));
+
+        // 3. Embedded static assets: CSS
+        let res_css = client
+            .get(format!("{base}/static/css/style.css"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res_css.status(), StatusCode::OK);
+        assert_eq!(
+            res_css.headers().get("content-type").unwrap(),
+            "text/css; charset=utf-8"
+        );
+        let css = res_css.text().await.unwrap();
+        assert!(css.contains("--bg-desktop"));
+
+        // 4. Embedded static assets: JS
+        let res_js = client
+            .get(format!("{base}/static/js/app.js"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res_js.status(), StatusCode::OK);
+        assert_eq!(
+            res_js.headers().get("content-type").unwrap(),
+            "application/javascript; charset=utf-8"
+        );
+        let js = res_js.text().await.unwrap();
+        assert!(js.contains("document.addEventListener"));
+
+        // 5. Embedded fonts
+        let res_font = client
+            .get(format!("{base}/static/fonts/JetBrainsMono-400-normal.ttf"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res_font.status(), StatusCode::OK);
+        assert_eq!(res_font.headers().get("content-type").unwrap(), "font/ttf");
+        let bytes = res_font.bytes().await.unwrap();
+        assert!(!bytes.is_empty());
+
+        // 6. Nonexistent static asset -> 404
+        let res_404 = client
+            .get(format!("{base}/static/nonexistent-file.xyz"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res_404.status(), StatusCode::NOT_FOUND);
+
+        // 7. Desktop status endpoint with x-jarvis-token
+        let status_res = client
+            .get(format!("{base}/api/oblivion/status"))
+            .header("x-jarvis-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(status_res.status(), StatusCode::OK);
+        let status_json: serde_json::Value = status_res.json().await.unwrap();
+        assert_eq!(status_json["running"], true);
+
+        // 8. Desktop chat endpoint with x-jarvis-token
+        let chat_res = client
+            .post(format!("{base}/api/chat"))
+            .header("x-jarvis-token", token)
+            .json(&serde_json::json!({ "message": "hello from desktop test" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(chat_res.status(), StatusCode::OK);
+        let chat_json: serde_json::Value = chat_res.json().await.unwrap();
+        assert_eq!(chat_json["response"], "Message sent to agent");
+    }
+
+    #[tokio::test]
+    async fn web_autostart_and_wizard_endpoints_work() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg_path = dir.path().join("oblivion.toml");
+        let store = Arc::new(oblivion_store::Store::open(&dir.path().join("test.db")).unwrap());
+        let (url, _seen) = crate::testkit::fake_server(vec![]).await;
+        let (_worker, controls, _events) = crate::testkit::worker(&url, dir.path());
+
+        let bus = Arc::new(Bus::default());
+        let token = "test-token-wizard";
+        let state = WebState {
+            token: token.into(),
+            controls,
+            bus: bus.clone(),
+            store: store.clone(),
+            ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
+            config_path: Some(cfg_path.clone()),
+        };
+
+        let (listener, addr) = bind(0).await.unwrap();
+        let base = format!("http://{addr}");
+        tokio::spawn(async move {
+            axum::serve(listener, router(state)).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+
+        // 1. Autostart endpoint: unauth -> 401
+        let unauth = client
+            .get(format!("{base}/api/system/autostart"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unauth.status(), StatusCode::UNAUTHORIZED);
+
+        // 2. Autostart endpoint: auth -> 200 OK
+        let autostart_res = client
+            .get(format!("{base}/api/system/autostart"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(autostart_res.status(), StatusCode::OK);
+
+        // 3. Wizard status endpoint: unauth -> 401
+        let wizard_unauth = client
+            .get(format!("{base}/api/system/wizard/status"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(wizard_unauth.status(), StatusCode::UNAUTHORIZED);
+
+        // 4. Wizard status endpoint: auth -> completed: false
+        let wiz_status = client
+            .get(format!("{base}/api/system/wizard/status"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(wiz_status.status(), StatusCode::OK);
+        let s0: crate::wizard::WizardStatus = wiz_status.json().await.unwrap();
+        assert!(!s0.completed);
+        assert!(!s0.offline);
+
+        // 5. Complete wizard via POST /api/system/wizard/complete
+        let custom_ws = dir.path().join("my_new_workspace");
+        let complete_res = client
+            .post(format!("{base}/api/system/wizard/complete"))
+            .header("x-oblivion-token", token)
+            .json(&crate::wizard::WizardCompleteRequest {
+                workspace: Some(custom_ws.to_string_lossy().to_string()),
+                offline: true,
+                autostart: false,
+                api_keys: std::collections::HashMap::new(),
+            })
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(complete_res.status(), StatusCode::OK);
+        let s1: crate::wizard::WizardStatus = complete_res.json().await.unwrap();
+        assert!(s1.completed);
+        assert!(s1.offline);
+        assert_eq!(std::path::Path::new(&s1.workspace), custom_ws.as_path());
+        assert!(custom_ws.exists());
+
+        // 6. Test wizard test connection endpoint
+        let test_res = client
+            .post(format!("{base}/api/system/wizard/test"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(test_res.status(), StatusCode::OK);
+        let test_json: serde_json::Value = test_res.json().await.unwrap();
+        assert_eq!(test_json["status"], "ok");
+
+        // 7. Re-check wizard status via alias route /api/oblivion/system/wizard/status
+        let alias_res = client
+            .get(format!("{base}/api/oblivion/system/wizard/status"))
+            .header("x-jarvis-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(alias_res.status(), StatusCode::OK);
+        let s2: crate::wizard::WizardStatus = alias_res.json().await.unwrap();
+        assert!(s2.completed);
+        assert!(s2.offline);
     }
 }

@@ -101,6 +101,16 @@ pub struct Agent {
     /// Maximum tokens budgeted for the memory extraction pass.
     pub memory_extract_tokens: usize,
     pub memory_recall: Option<Arc<dyn crate::extract::MemoryRecall>>,
+    /// When true, only local models are used and cloud providers are purged.
+    pub offline: bool,
+    /// Model priority patterns for each request class.
+    pub routing_rules: crate::routing::RoutingRules,
+    /// When true, enables small-model mode (shorter prompt, core tools, strict repair).
+    pub small_model: bool,
+    /// Currently active or pinned model label.
+    pub active_model: Option<String>,
+    /// Compact system prompt used when small-model mode is active.
+    pub small_system_prompt: Option<String>,
     base_system_prompt: String,
     rules: Rules,
     store: Option<Arc<dyn SessionStore>>,
@@ -136,6 +146,11 @@ impl Agent {
             memory_auto_extract: true,
             memory_extract_tokens: 2000,
             memory_recall: None,
+            offline: false,
+            routing_rules: crate::routing::RoutingRules::default(),
+            small_model: false,
+            active_model: None,
+            small_system_prompt: None,
             base_system_prompt: system_prompt,
             rules: Rules::default(),
             store: None,
@@ -166,10 +181,34 @@ impl Agent {
         self.subagents = Some(Arc::new(factory));
     }
 
+    /// Check whether small-model mode is explicitly enabled or automatically active.
+    pub fn is_small_model_active(&self) -> bool {
+        if self.small_model {
+            return true;
+        }
+        if let Some(ref m) = self.active_model {
+            crate::small_model::is_small_model_name(m)
+        } else {
+            false
+        }
+    }
+
     fn all_specs(&self) -> Vec<oblivion_providers::ToolSpec> {
         let mut specs = self.tools.specs();
-        if self.subagents.is_some() {
+        if self.subagents.is_some() && !self.is_small_model_active() {
             specs.push(task_spec());
+        }
+        if self.is_small_model_active() {
+            const CORE_TOOLS: &[&str] = &[
+                "read_file",
+                "write_file",
+                "edit_file",
+                "glob",
+                "grep",
+                "shell",
+                "todo",
+            ];
+            specs.retain(|s| CORE_TOOLS.contains(&s.name.as_str()));
         }
         specs
     }
@@ -501,6 +540,26 @@ impl Agent {
         self.session.messages.push(Message::user(user_text));
         self.save();
 
+        let history_tokens = self.budget();
+        let class =
+            crate::routing::classify_request(user_text, history_tokens, false, self.offline);
+        let patterns = self.routing_rules.patterns_for(class);
+        let offline_or_private = self.offline || class == crate::routing::RequestClass::Private;
+        let mut turn_router = self
+            .router
+            .share()
+            .for_patterns(patterns, offline_or_private);
+
+        if self.is_small_model_active() {
+            if let Some(ref small_prompt) = self.small_system_prompt {
+                if !self.session.messages.is_empty()
+                    && self.session.messages[0].role == Role::System
+                {
+                    self.session.messages[0].content = Some(small_prompt.clone());
+                }
+            }
+        }
+
         let specs = self.all_specs();
         let mut summary = TurnSummary::default();
         // Loop guard: free models sometimes forget a result and repeat the exact
@@ -554,8 +613,7 @@ impl Agent {
                     StreamEvent::Waiting { seconds } => on_event(AgentEvent::Waiting(seconds)),
                 };
                 let tools: &[ToolSpec] = if last_step { &[] } else { &specs };
-                match self
-                    .router
+                match turn_router
                     .complete(&self.session.messages, tools, &mut forward)
                     .await
                 {
@@ -592,7 +650,20 @@ impl Agent {
                     "The model returned an empty reply.".into(),
                 ));
             }
-            let calls = msg.tool_calls.clone();
+            let mut calls = msg.tool_calls.clone();
+            if calls.is_empty() && self.is_small_model_active() {
+                if let Some(ref text_content) = msg.content {
+                    let valid_names: Vec<&str> = specs.iter().map(|s| s.name.as_str()).collect();
+                    let extracted = crate::small_model::extract_tool_calls_from_text(
+                        text_content,
+                        &valid_names,
+                    );
+                    if !extracted.is_empty() {
+                        calls = extracted.clone();
+                        msg.tool_calls = extracted;
+                    }
+                }
+            }
             self.session.messages.push(msg);
             self.save();
 
@@ -633,26 +704,27 @@ impl Agent {
                     continue;
                 }
                 let name = call.function.name.clone();
-                let args: Value = match serde_json::from_str(&call.function.arguments) {
-                    Ok(v @ Value::Object(_)) => v,
-                    Ok(_) | Err(_) => {
-                        let msg = format!(
+                let args: Value =
+                    match crate::small_model::repair_tool_arguments(&call.function.arguments) {
+                        Some(v @ Value::Object(_)) => v,
+                        _ => {
+                            let msg = format!(
                             "Error: the arguments for {name} were not a valid JSON object: {}. \
                              Call the tool again with valid JSON.",
                             truncate(&call.function.arguments, 300)
                         );
-                        on_event(AgentEvent::ToolEnd {
-                            name: name.clone(),
-                            preview: "invalid JSON arguments".into(),
-                            is_error: true,
-                            output: msg.clone(),
-                        });
-                        self.session
-                            .messages
-                            .push(Message::tool_result(&call.id, msg));
-                        continue;
-                    }
-                };
+                            on_event(AgentEvent::ToolEnd {
+                                name: name.clone(),
+                                preview: "invalid JSON arguments".into(),
+                                is_error: true,
+                                output: msg.clone(),
+                            });
+                            self.session
+                                .messages
+                                .push(Message::tool_result(&call.id, msg));
+                            continue;
+                        }
+                    };
 
                 if name == "web_search" || name == "web_fetch" {
                     web_calls += 1;

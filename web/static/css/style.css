@@ -714,6 +714,39 @@ a, button, .desktop-icon-item, .dock-app-btn, .theme-circle {
     white-space: nowrap;
 }
 
+.engine-hardware-row {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    padding: 6px 8px;
+    margin: 6px 0;
+    font-size: 0.65rem;
+    font-family: "JetBrains Mono", monospace;
+}
+
+.hw-spec-item, .hw-recommendation-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.hw-recommendation-item {
+    color: #60a5fa;
+    font-weight: 500;
+}
+
+.hw-icon {
+    font-size: 0.7rem;
+    flex-shrink: 0;
+}
+
 .engine-capabilities-list {
     display: flex;
     flex-direction: column;
@@ -1126,3 +1159,107 @@ body[data-theme="black"] .files-window-frame {
     .split-frame-body { flex-direction: column; }
     .split-left-chat, .split-right-workspace { flex: 1; }
 }
+
+/* First-Run Setup Wizard */
+.wizard-window-frame {
+    max-width: 640px;
+    height: auto;
+    min-height: 440px;
+}
+.wizard-window-body {
+    padding: 24px 32px;
+    display: flex;
+    flex-direction: column;
+}
+.wizard-step-pane {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+.wizard-step-icon {
+    font-size: 2.2rem;
+    margin-bottom: 2px;
+}
+.wizard-step-pane h3 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #ffffff;
+}
+.wizard-step-desc {
+    font-size: 0.88rem;
+    color: rgba(255, 255, 255, 0.7);
+    line-height: 1.5;
+}
+.wizard-field-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 8px;
+}
+.wizard-text-input {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    color: #ffffff;
+    font-size: 0.9rem;
+    padding: 10px 14px;
+    outline: none;
+    font-family: inherit;
+}
+.wizard-text-input:focus {
+    border-color: #00f2fe;
+    box-shadow: 0 0 0 2px rgba(0, 242, 254, 0.2);
+}
+.wizard-options-container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 6px;
+}
+.wizard-mode-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.wizard-mode-card:hover {
+    border-color: rgba(0, 242, 254, 0.4);
+    background: rgba(255, 255, 255, 0.07);
+}
+.wizard-mode-card .card-content {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.wizard-mode-card .card-content strong {
+    font-size: 0.92rem;
+    color: #ffffff;
+}
+.wizard-mode-card .card-content span {
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.65);
+}
+.wizard-button-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 20px;
+}
+.wizard-test-container {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 10px;
+}
+.wizard-test-status {
+    font-size: 0.85rem;
+}
+.wizard-test-status.success { color: #27c93f; }
+.wizard-test-status.warning { color: #ffbd2e; }
+.wizard-test-status.error { color: #ff5f56; }
+.wizard-test-status.testing { color: #00f2fe; }
