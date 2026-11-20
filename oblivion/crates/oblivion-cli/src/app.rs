@@ -88,6 +88,8 @@ pub enum UiEvent {
         id: u64,
         tool: String,
         summary: String,
+        #[serde(default)]
+        low_risk: bool,
     },
     ApprovalDone {
         id: u64,
@@ -145,6 +147,8 @@ pub struct StateView {
     pub skills: Vec<String>,
     pub browser: bool,
     pub instructions_file: Option<String>,
+    #[serde(default)]
+    pub spoken_reply: bool,
 }
 
 impl From<AgentEvent> for UiEvent {
@@ -241,13 +245,50 @@ pub fn state_view(agent: &Agent, skills: &SkillSet, browser: bool) -> StateView 
         browser,
         instructions_file: oblivion_core::prompt::project_instructions(agent.tools.root())
             .map(|(name, _)| name),
+        spoken_reply: agent.spoken_reply,
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct UserInput {
+    pub text: String,
+    pub voice: bool,
+}
+
+impl From<String> for UserInput {
+    fn from(text: String) -> Self {
+        Self { text, voice: false }
+    }
+}
+
+impl From<&str> for UserInput {
+    fn from(text: &str) -> Self {
+        Self {
+            text: text.to_string(),
+            voice: false,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct PendingApproval {
+    pub tx: std::sync::mpsc::Sender<Decision>,
+    pub tool: String,
+    pub summary: String,
+    pub low_risk: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ApprovalError {
+    NotFound,
+    VoiceNotAllowed(String),
+    ChannelClosed,
 }
 
 /// Approval requests waiting for an answer from the interface.
 pub struct Approvals {
     next: AtomicU64,
-    pending: Mutex<HashMap<u64, std::sync::mpsc::Sender<Decision>>>,
+    pending: Mutex<HashMap<u64, PendingApproval>>,
     tx: EventTx,
 }
 
@@ -260,18 +301,48 @@ impl Approvals {
         })
     }
 
+    /// Answer one request, specifying the decision source (e.g. Some("voice") or None/Some("manual")).
+    ///
+    /// Low-risk actions (reads outside workspace, web fetches, memories) can be approved by voice.
+    /// Risky actions (file modifications, shell commands) CANNOT be approved by voice and return
+    /// `Err(ApprovalError::VoiceNotAllowed(...))`, leaving the request pending for manual confirmation.
+    pub fn answer_with_source(
+        &self,
+        id: u64,
+        decision: Decision,
+        source: Option<&str>,
+    ) -> Result<(), ApprovalError> {
+        let is_voice = source
+            .map(|s| s.eq_ignore_ascii_case("voice"))
+            .unwrap_or(false);
+        let mut lock = self.pending.lock().unwrap();
+        let pending = lock.get(&id).ok_or(ApprovalError::NotFound)?;
+
+        // If answered by voice with an approval, verify that the action is low-risk
+        if is_voice && decision != Decision::No && !pending.low_risk {
+            return Err(ApprovalError::VoiceNotAllowed(format!(
+                "Action '{}' ({}) is high-risk and requires manual click confirmation; voice approval is disallowed.",
+                pending.tool, pending.summary
+            )));
+        }
+
+        // Decision is accepted (or is a decline, which is always permitted by voice)
+        let removed = lock.remove(&id).unwrap();
+        removed
+            .tx
+            .send(decision)
+            .map_err(|_| ApprovalError::ChannelClosed)
+    }
+
     /// Answer one request; false if it was already answered or unknown.
     pub fn answer(&self, id: u64, decision: Decision) -> bool {
-        match self.pending.lock().unwrap().remove(&id) {
-            Some(tx) => tx.send(decision).is_ok(),
-            None => false,
-        }
+        self.answer_with_source(id, decision, None).is_ok()
     }
 
     /// Say no to everything waiting (used when a request is cancelled).
     pub fn decline_all(&self) {
-        for (_, tx) in self.pending.lock().unwrap().drain() {
-            let _ = tx.send(Decision::No);
+        for (_, pending) in self.pending.lock().unwrap().drain() {
+            let _ = pending.tx.send(Decision::No);
         }
     }
 
@@ -287,11 +358,21 @@ impl Approver for ChannelApprover {
         let a = &self.0;
         let id = a.next.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = std::sync::mpsc::channel();
-        a.pending.lock().unwrap().insert(id, tx);
+        let low_risk = oblivion_core::is_low_risk_action(tool, summary);
+        a.pending.lock().unwrap().insert(
+            id,
+            PendingApproval {
+                tx,
+                tool: tool.into(),
+                summary: summary.into(),
+                low_risk,
+            },
+        );
         let _ = a.tx.send(UiEvent::Approval {
             id,
             tool: tool.into(),
             summary: summary.into(),
+            low_risk,
         });
         // The agent calls this inside `block_in_place`, so waiting here does not
         // stall the rest of the program.
@@ -313,7 +394,7 @@ impl Approver for ChannelApprover {
 /// What an interface holds to drive the worker.
 #[derive(Clone)]
 pub struct Controls {
-    pub input: UnboundedSender<String>,
+    pub input: UnboundedSender<UserInput>,
     pub approvals: Arc<Approvals>,
     cancel: Arc<Notify>,
     busy: Arc<AtomicBool>,
@@ -334,8 +415,15 @@ impl Controls {
         self.busy.load(Ordering::SeqCst)
     }
 
-    pub fn send(&self, text: impl Into<String>) {
-        let _ = self.input.send(text.into());
+    pub fn send(&self, input: impl Into<UserInput>) {
+        let _ = self.input.send(input.into());
+    }
+
+    pub fn send_voice(&self, text: impl Into<String>) {
+        let _ = self.input.send(UserInput {
+            text: text.into(),
+            voice: true,
+        });
     }
 }
 
@@ -344,7 +432,7 @@ pub struct Worker {
     pub skills: Arc<SkillSet>,
     pub hub: Arc<McpHub>,
     pub browser: bool,
-    input: UnboundedReceiver<String>,
+    input: UnboundedReceiver<UserInput>,
     tx: EventTx,
     cancel: Arc<Notify>,
     busy: Arc<AtomicBool>,
@@ -426,12 +514,16 @@ impl Worker {
     /// Handle inputs until every [`Controls`] is dropped or `/exit` is typed.
     pub async fn run(mut self) {
         self.send_state();
-        while let Some(text) = self.input.recv().await {
-            let text = text.trim().to_string();
+        while let Some(input) = self.input.recv().await {
+            let text = input.text.trim().to_string();
             if text.is_empty() {
                 continue;
             }
             let _ = self.tx.send(UiEvent::User { text: text.clone() });
+            let prev_spoken = self.agent.spoken_reply;
+            if input.voice {
+                self.agent.spoken_reply = true;
+            }
             let task = match text.strip_prefix('/') {
                 Some(cmd) => {
                     let tx = self.tx.clone();
@@ -493,6 +585,9 @@ impl Worker {
                 None => text,
             };
             self.run_turn(&task).await;
+            if input.voice {
+                self.agent.spoken_reply = prev_spoken;
+            }
         }
     }
 

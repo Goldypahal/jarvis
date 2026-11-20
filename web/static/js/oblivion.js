@@ -176,10 +176,10 @@
             return r.ok;
         } catch { return false; }
     }
-    function send(text) {
+    function send(text, isVoice = false) {
         text = (text ?? input.value).trim(); if (!text) return;
         if (phase !== "connected") { ensureStarted(); return; }
-        post("send", { text }); input.value = ""; autosize(); hideSuggest();
+        post("send", { text, voice: Boolean(isVoice) }); input.value = ""; autosize(); hideSuggest();
     }
 
     // ---------- transcript ----------
@@ -262,12 +262,30 @@
 
     function approval(e) {
         const card = el("div", "ob-sheet");
+        card.dataset.approvalId = String(e.id);
+        card.dataset.tool = e.tool || "";
+        card.dataset.summary = e.summary || "";
+        card.dataset.lowRisk = e.low_risk ? "true" : "false";
+
+        const badge = e.low_risk
+            ? `<div class="approval-risk-badge low-risk"><span class="risk-icon">🎙️</span> Voice approvable ("yes" / "no")</div>`
+            : `<div class="approval-risk-badge high-risk"><span class="risk-icon">🔒</span> Manual click required (high-risk action)</div>`;
+
         card.innerHTML = `<div class="q">Allow ${esc(e.summary)}?</div><div class="w">Oblivion wants to use ${esc(e.tool)}</div>
+            ${badge}
             <div class="acts"><button class="deny" data-a="no">Deny<kbd>N</kbd></button><button data-a="always">Always<kbd>A</kbd></button><button class="allow" data-a="yes">Allow<kbd>Y</kbd></button></div>`;
-        card.querySelectorAll("button").forEach((b) => b.onclick = () => post("approve", { id: e.id, answer: b.dataset.a }));
+        card.querySelectorAll("button").forEach((b) => b.onclick = () => post("approve", { id: e.id, answer: b.dataset.a, source: "manual" }));
         approvals.set(e.id, card); $("ob-sheets").appendChild(card);
         if (!isOpen()) { open(); }
         setTimeout(() => card.querySelector(".allow").focus(), 300);
+
+        if (window.JarvisVoice && typeof window.JarvisVoice.isSpeechEnabled === "function" && window.JarvisVoice.isSpeechEnabled()) {
+            if (e.low_risk) {
+                window.JarvisVoice.speakSentence("Approval requested for " + e.summary + ". Say yes to approve or no to decline.");
+            } else {
+                window.JarvisVoice.speakSentence("Approval requested for " + e.summary + ". This is a high-risk action; please confirm with a click in the panel.");
+            }
+        }
     }
 
     function renderTodos(items) {
@@ -458,9 +476,18 @@
                 if (splitApprovals) {
                     const card = el("div", "ob-sheet");
                     card.dataset.approvalId = String(e.id);
+                    card.dataset.tool = e.tool || "";
+                    card.dataset.summary = e.summary || "";
+                    card.dataset.lowRisk = e.low_risk ? "true" : "false";
+
+                    const badge = e.low_risk
+                        ? `<div class="approval-risk-badge low-risk"><span class="risk-icon">🎙️</span> Voice approvable ("yes" / "no")</div>`
+                        : `<div class="approval-risk-badge high-risk"><span class="risk-icon">🔒</span> Manual click required (high-risk action)</div>`;
+
                     card.innerHTML = `<div class="q">Allow ${esc(e.summary)}?</div><div class="w">Oblivion wants to use ${esc(e.tool)}</div>
+                        ${badge}
                         <div class="acts"><button class="deny" data-a="no">Deny<kbd>N</kbd></button><button data-a="always">Always<kbd>A</kbd></button><button class="allow" data-a="yes">Allow<kbd>Y</kbd></button></div>`;
-                    card.querySelectorAll("button").forEach((b) => b.onclick = () => post("approve", { id: e.id, answer: b.dataset.a }));
+                    card.querySelectorAll("button").forEach((b) => b.onclick = () => post("approve", { id: e.id, answer: b.dataset.a, source: "manual" }));
                     splitApprovals.appendChild(card);
                     splitApprovals.scrollIntoView({ behavior: "smooth" });
                 }
@@ -592,5 +619,24 @@
 
     window.Oblivion = { ensureStarted, send, post, isOpen, toggle, open, close };
     window.OblivionPanel = window.Oblivion;
+    window.JarvisApprovals = {
+        getActive() {
+            if (!approvals.size) return null;
+            const id = [...approvals.keys()][0];
+            const card = approvals.get(id);
+            return {
+                id,
+                tool: card?.dataset?.tool || "",
+                summary: card?.dataset?.summary || "",
+                low_risk: card?.dataset?.lowRisk === "true",
+            };
+        },
+        answer(id, answer, source = "manual") {
+            return post("approve", { id, answer, source });
+        }
+    };
+    window.JarvisOblivionSend = function (text, isVoice = false) {
+        send(text, isVoice);
+    };
     document.addEventListener("DOMContentLoaded", init);
 })();

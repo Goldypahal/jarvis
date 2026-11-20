@@ -254,9 +254,9 @@ impl Model {
                 };
                 self.items.push(Item::End(text, color));
             }
-            UiEvent::Approval { id, tool, summary } => {
-                self.approvals.push_back(Approval { id, tool, summary })
-            }
+            UiEvent::Approval {
+                id, tool, summary, ..
+            } => self.approvals.push_back(Approval { id, tool, summary }),
             UiEvent::ApprovalDone { id, .. } => self.approvals.retain(|a| a.id != id),
             UiEvent::Info { text } => {
                 self.close_bot();
@@ -1086,6 +1086,7 @@ mod tests {
             skills: vec!["code-review".into(), "deep-research".into()],
             browser: false,
             instructions_file: Some("AGENTS.md".into()),
+            spoken_reply: false,
         }));
         m.apply(UiEvent::User {
             text: "add a version flag".into(),
@@ -1194,6 +1195,7 @@ mod tests {
             id: 7,
             tool: "edit_file".into(),
             summary: "edit src/main.rs".into(),
+            low_risk: false,
         });
         let s = screen(&mut m, 120, 30);
         assert!(
@@ -1282,6 +1284,7 @@ mod tests {
             id: 42,
             tool: "write_file".into(),
             summary: "write test.txt".into(),
+            low_risk: false,
         });
         assert!(screen(&mut m, 120, 30).contains("Approval needed"));
         m.key(key(KeyCode::Char('Y')), None);
@@ -1291,6 +1294,7 @@ mod tests {
             id: 43,
             tool: "run_command".into(),
             summary: "cargo build".into(),
+            low_risk: false,
         });
         m.key(key(KeyCode::Esc), None);
         assert!(m.approvals.is_empty());

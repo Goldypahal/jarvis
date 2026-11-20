@@ -437,7 +437,8 @@ def register(app, bridge=None, allowed_port=None, token=None):
             return jsonify({"error": "expected a JSON body"}), 400
         b = get_bridge()
         code, text = b.post(path, body)
-        return Response(text, status=code, mimetype="text/plain")
+        mime = "application/json" if text.strip().startswith(("{", "[")) else "text/plain"
+        return Response(text, status=code, mimetype=mime)
 
     @app.get("/api/oblivion/status")
     def oblivion_status():

@@ -107,6 +107,8 @@ pub struct Agent {
     pub routing_rules: crate::routing::RoutingRules,
     /// When true, enables small-model mode (shorter prompt, core tools, strict repair).
     pub small_model: bool,
+    /// When true, enables spoken reply style (short conversational answers, code omitted from speech).
+    pub spoken_reply: bool,
     /// Currently active or pinned model label.
     pub active_model: Option<String>,
     /// Compact system prompt used when small-model mode is active.
@@ -149,6 +151,7 @@ impl Agent {
             offline: false,
             routing_rules: crate::routing::RoutingRules::default(),
             small_model: false,
+            spoken_reply: false,
             active_model: None,
             small_system_prompt: None,
             base_system_prompt: system_prompt,
@@ -518,6 +521,7 @@ impl Agent {
         on_event: &mut (dyn FnMut(AgentEvent) + Send),
     ) -> Result<TurnSummary> {
         self.turn_marks.push(self.tools.journal().mark());
+        let mut effective_system = self.base_system_prompt.clone();
         if let Some(ref recall) = self.memory_recall {
             let project = self.tools.root().to_string_lossy();
             let relevant = recall.recall_for_prompt(user_text, &project, 2000).await;
@@ -527,15 +531,17 @@ impl Agent {
                     .map(|m| format!("- {m}"))
                     .collect::<Vec<_>>()
                     .join("\n");
-                if !self.session.messages.is_empty() {
-                    self.session.messages[0].content = Some(format!(
-                        "{}\n\nRelevant memories from earlier sessions:\n<relevant_memories>\n{}\n</relevant_memories>",
-                        self.base_system_prompt, mem_lines
-                    ));
-                }
-            } else if !self.session.messages.is_empty() {
-                self.session.messages[0].content = Some(self.base_system_prompt.clone());
+                effective_system = format!(
+                    "{}\n\nRelevant memories from earlier sessions:\n<relevant_memories>\n{}\n</relevant_memories>",
+                    effective_system, mem_lines
+                );
             }
+        }
+        if self.spoken_reply {
+            effective_system = crate::prompt::append_spoken_instructions(&effective_system);
+        }
+        if !self.session.messages.is_empty() && self.session.messages[0].role == Role::System {
+            self.session.messages[0].content = Some(effective_system);
         }
         self.session.messages.push(Message::user(user_text));
         self.save();
@@ -555,7 +561,12 @@ impl Agent {
                 if !self.session.messages.is_empty()
                     && self.session.messages[0].role == Role::System
                 {
-                    self.session.messages[0].content = Some(small_prompt.clone());
+                    let final_small = if self.spoken_reply {
+                        crate::prompt::append_spoken_instructions(small_prompt)
+                    } else {
+                        small_prompt.clone()
+                    };
+                    self.session.messages[0].content = Some(final_small);
                 }
             }
         }
@@ -1111,5 +1122,23 @@ mod tests {
         assert_eq!(a.tools.root(), d.path());
         assert_eq!(a.session.workspace, d.path());
         assert_eq!(a.session.messages.len(), 2); // system + user
+    }
+
+    #[tokio::test]
+    async fn test_spoken_reply_injects_instruction() {
+        let d = tempfile::tempdir().unwrap();
+        let mut a = agent(d.path());
+        let mut sink = |_e: AgentEvent| {};
+
+        // Normal run: does not contain spoken instruction
+        let _ = a.run_turn("what time is it", &mut sink).await;
+        assert_eq!(a.session.messages[0].content.as_deref().unwrap(), "sys");
+
+        // Spoken reply mode enabled
+        a.spoken_reply = true;
+        let _ = a.run_turn("what is the weather", &mut sink).await;
+        let spoken_prompt = a.session.messages[0].content.as_deref().unwrap();
+        assert!(spoken_prompt.contains("Voice Mode & Spoken Reply Style"));
+        assert!(spoken_prompt.contains("Do not read long code blocks"));
     }
 }

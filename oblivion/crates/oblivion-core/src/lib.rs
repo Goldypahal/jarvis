@@ -33,7 +33,7 @@ pub use session::{JsonDir, Session, SessionInfo, SessionStore};
 pub use small_model::{extract_tool_calls_from_text, is_small_model_name, repair_tool_arguments};
 pub use subagent::SubagentFactory;
 pub use voice::{
-    AudioBuffer, CloudWhisperTranscriber, LocalPiperSynthesizer, LocalWhisperTranscriber,
-    MockSynthesizer, MockTranscriber, SentenceSplitter, TranscriptionResult, VoiceService,
-    VoiceStatus, VoiceSynthesizer, VoiceTranscriber,
+    is_low_risk_action, AudioBuffer, CloudWhisperTranscriber, LocalPiperSynthesizer,
+    LocalWhisperTranscriber, MockSynthesizer, MockTranscriber, SentenceSplitter,
+    TranscriptionResult, VoiceService, VoiceStatus, VoiceSynthesizer, VoiceTranscriber,
 };

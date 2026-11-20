@@ -248,7 +248,7 @@ async fn static_file(Path(path): Path<String>) -> Response {
             (
                 [
                     (header::CONTENT_TYPE, mime),
-                    (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+                    (header::CACHE_CONTROL, "no-cache, must-revalidate"),
                 ],
                 content.data,
             )
@@ -655,6 +655,8 @@ async fn events(
 #[derive(Deserialize)]
 struct SendBody {
     text: String,
+    #[serde(default)]
+    voice: bool,
 }
 
 async fn send(
@@ -669,7 +671,11 @@ async fn send(
     if body.text.trim().is_empty() {
         return StatusCode::BAD_REQUEST;
     }
-    st.controls.send(body.text);
+    if body.voice {
+        st.controls.send_voice(body.text);
+    } else {
+        st.controls.send(body.text);
+    }
     StatusCode::NO_CONTENT
 }
 
@@ -677,6 +683,8 @@ async fn send(
 struct ApproveBody {
     id: u64,
     answer: String,
+    #[serde(default)]
+    source: Option<String>,
 }
 
 async fn approve(
@@ -684,20 +692,34 @@ async fn approve(
     headers: HeaderMap,
     Query(q): Query<HashMap<String, String>>,
     Json(body): Json<ApproveBody>,
-) -> StatusCode {
+) -> Response {
     if !st.authorized(&headers, &q) {
-        return StatusCode::UNAUTHORIZED;
+        return StatusCode::UNAUTHORIZED.into_response();
     }
     let decision = match body.answer.as_str() {
         "yes" => Decision::Yes,
         "always" => Decision::Always,
         "no" => Decision::No,
-        _ => return StatusCode::BAD_REQUEST,
+        _ => return StatusCode::BAD_REQUEST.into_response(),
     };
-    if st.controls.approvals.answer(body.id, decision) {
-        StatusCode::NO_CONTENT
-    } else {
-        StatusCode::GONE
+    match st
+        .controls
+        .approvals
+        .answer_with_source(body.id, decision, body.source.as_deref())
+    {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(crate::app::ApprovalError::VoiceNotAllowed(msg)) => (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "error": msg,
+                "code": "VOICE_APPROVAL_DISALLOWED"
+            })),
+        )
+            .into_response(),
+        Err(crate::app::ApprovalError::NotFound) => StatusCode::GONE.into_response(),
+        Err(crate::app::ApprovalError::ChannelClosed) => {
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -2132,12 +2154,31 @@ mod live {
         assert_eq!(start["detail"], "+ hi there");
         let ask = next_of(&mut erx, "approval").await;
         assert!(ask["summary"].as_str().unwrap().contains("hello.txt"));
+        assert_eq!(ask["low_risk"], false);
         assert!(
             !dir.path().join("hello.txt").exists(),
             "nothing written before approval"
         );
 
         let id = ask["id"].as_u64().unwrap();
+
+        // 1. Attempt voice approval on high-risk write_file: must be rejected with 403 Forbidden
+        let voice_attempt = http
+            .post(format!("{base}/approve"))
+            .header("x-oblivion-token", &token)
+            .json(&serde_json::json!({"id": id, "answer": "yes", "source": "voice"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(voice_attempt.status(), 403);
+        let err_json: Value = voice_attempt.json().await.unwrap();
+        assert_eq!(err_json["code"], "VOICE_APPROVAL_DISALLOWED");
+        assert!(
+            !dir.path().join("hello.txt").exists(),
+            "file must not be written after rejected voice approval"
+        );
+
+        // 2. Manual click approval succeeds
         let r = http
             .post(format!("{base}/approve"))
             .header("x-oblivion-token", &token)
@@ -2239,6 +2280,109 @@ mod live {
         );
         assert!(!controls.busy());
         assert!(!dir.path().join("x.txt").exists());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn voice_approval_allowed_for_low_risk_actions() {
+        let outside = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(outside.path(), "external confidential data").unwrap();
+        let outside_path = outside.path().to_str().unwrap().replace('\\', "/");
+
+        let read = tool_call(
+            "r1",
+            "read_file",
+            &format!(r#"{{"path":"{}"}}"#, outside_path),
+        );
+        let (url, _seen) = fake_server(vec![
+            (200, sse(&[&read])),
+            (200, sse(&[&text("Read outside file content.")])),
+        ])
+        .await;
+        let dir = tempfile::tempdir().unwrap();
+        let (w, controls, events) = worker(&url, dir.path());
+        let _release = crate::testkit::Release(controls.clone());
+
+        let bus = Arc::new(Bus::default());
+        let token = new_token();
+        let (listener, addr) = bind(0).await.unwrap();
+        let store = Arc::new(oblivion_store::Store::in_memory().unwrap());
+        let state = WebState {
+            token: token.clone().into(),
+            controls: controls.clone(),
+            bus: bus.clone(),
+            store,
+            ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
+            config_path: None,
+            voice_transcriber: None,
+            voice_synthesizer: None,
+        };
+        tokio::spawn(pump(events, bus));
+        tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+        tokio::spawn(w.run());
+        let base = format!("http://{addr}");
+        let http = reqwest::Client::new();
+
+        let es = http
+            .get(format!("{base}/events?t={token}"))
+            .send()
+            .await
+            .unwrap();
+        let (etx, mut erx) = tokio::sync::mpsc::unbounded_channel::<Value>();
+        tokio::spawn(async move {
+            let mut body = es.bytes_stream();
+            let mut buf = String::new();
+            while let Some(Ok(chunk)) = body.next().await {
+                buf.push_str(&String::from_utf8_lossy(&chunk));
+                while let Some(i) = buf.find("\n\n") {
+                    let frame: String = buf.drain(..i + 2).collect();
+                    for line in frame.lines() {
+                        if let Some(d) = line.strip_prefix("data: ").or(line.strip_prefix("data:"))
+                        {
+                            if let Ok(v) = serde_json::from_str::<Value>(d) {
+                                let _ = etx.send(v);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        let _st = next_of(&mut erx, "state").await;
+
+        let r = http
+            .post(format!("{base}/send"))
+            .header("x-oblivion-token", &token)
+            .json(&serde_json::json!({"text":"read outside doc", "voice": true}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 204);
+
+        let ask = next_of(&mut erx, "approval").await;
+        assert_eq!(ask["tool"], "read_file");
+        assert_eq!(
+            ask["low_risk"], true,
+            "read_file outside root must be marked low_risk"
+        );
+        let id = ask["id"].as_u64().unwrap();
+
+        // Spoken / voice approval succeeds for low-risk action!
+        let r_voice = http
+            .post(format!("{base}/approve"))
+            .header("x-oblivion-token", &token)
+            .json(&serde_json::json!({"id": id, "answer": "yes", "source": "voice"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r_voice.status(), 204);
+
+        let done_ev = next_of(&mut erx, "approval_done").await;
+        assert_eq!(done_ev["answer"], "yes");
+
+        let turn = next_of(&mut erx, "turn_end").await;
+        assert_eq!(turn["outcome"], "done");
     }
 
     #[tokio::test]
@@ -2635,6 +2779,7 @@ mod live {
             skills: vec![],
             browser: false,
             instructions_file: Some("AGENTS.md".into()),
+            spoken_reply: false,
         }));
 
         // Add a project fact memory

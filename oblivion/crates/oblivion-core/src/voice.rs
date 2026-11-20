@@ -916,6 +916,49 @@ impl VoiceService {
     }
 }
 
+/// Determines whether an action requiring user approval is "low-risk"
+/// and eligible for approval via voice ("yes" / "no").
+///
+/// Security rule: Risky actions (file modifications, shell commands, destructive operations)
+/// MUST NEVER be approved by voice, to prevent accidental execution from ambient noise,
+/// misrecognized speech, or prompt injections. They require explicit manual click confirmation.
+pub fn is_low_risk_action(tool: &str, summary: &str) -> bool {
+    // 1. Tool-level exclusion: editing files, writing files, and running shell commands are high-risk.
+    if matches!(tool, "write_file" | "edit_file" | "shell") {
+        return false;
+    }
+
+    // 2. Destructive keyword scanning: any action referencing deletion or system disruption is high-risk.
+    let s_lower = summary.to_lowercase();
+    let dangerous_keywords = [
+        "delete",
+        "remove",
+        "rm ",
+        "rmdir",
+        "drop",
+        "truncate",
+        "kill",
+        "format",
+        "wipe",
+        "reset",
+        "shutdown",
+        "reboot",
+        "unlink",
+        "overwrite",
+    ];
+    for kw in dangerous_keywords {
+        if s_lower.contains(kw) {
+            return false;
+        }
+    }
+
+    // 3. Known safe/low-risk tools (read-only outside workspace, memory storage, web fetch, sub-agent queries)
+    matches!(
+        tool,
+        "read_file" | "glob" | "grep" | "web_fetch" | "remember" | "forget" | "recall" | "task"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1084,5 +1127,55 @@ mod tests {
             flushed,
             Some("Trailing sentence without period".to_string())
         );
+    }
+
+    #[test]
+    fn test_is_low_risk_action() {
+        // High-risk tools requiring manual click confirmation
+        assert!(!is_low_risk_action("write_file", "write main.rs"));
+        assert!(!is_low_risk_action("edit_file", "edit src/lib.rs"));
+        assert!(!is_low_risk_action("shell", "run: cargo test"));
+        assert!(!is_low_risk_action("shell", "run: ls"));
+
+        // Destructive keyword actions requiring manual click
+        assert!(!is_low_risk_action(
+            "task",
+            "delete temporary test directories"
+        ));
+        assert!(!is_low_risk_action(
+            "forget",
+            "forget and drop database tables"
+        ));
+        assert!(!is_low_risk_action("read_file", "format and wipe disk"));
+
+        // Low-risk read-only and memory actions eligible for voice approval
+        assert!(is_low_risk_action(
+            "read_file",
+            "read C:\\secrets\\doc.txt (outside the workspace)"
+        ));
+        assert!(is_low_risk_action(
+            "glob",
+            "search ../outside (outside the workspace)"
+        ));
+        assert!(is_low_risk_action(
+            "grep",
+            "search ../outside (outside the workspace)"
+        ));
+        assert!(is_low_risk_action("web_fetch", "fetch https://docs.rs"));
+        assert!(is_low_risk_action(
+            "remember",
+            "remember: user prefers rust"
+        ));
+        assert!(is_low_risk_action("forget", "forget memory id 42"));
+        assert!(is_low_risk_action(
+            "task",
+            "research rust async best practices"
+        ));
+
+        // Unknown custom tool defaults to requiring manual click
+        assert!(!is_low_risk_action(
+            "custom_mcp_exec",
+            "run arbitrary action"
+        ));
     }
 }

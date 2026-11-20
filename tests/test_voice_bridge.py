@@ -29,6 +29,10 @@ class FakeVoiceBridge:
     def start(self):
         return {"running": True, "port": 5000, "error": None}
 
+    def post(self, path, body):
+        code, text, _ = self.request("POST", path, body)
+        return code, text
+
     def request(self, method, path, body=None, params=None, headers=None):
         self.last_method = method
         self.last_path = path
@@ -69,6 +73,22 @@ class FakeVoiceBridge:
                 }),
                 "application/json",
             )
+        elif path == "/approve":
+            if (
+                self.last_body
+                and self.last_body.get("source") == "voice"
+                and self.last_body.get("answer") == "yes"
+                and self.last_body.get("is_high_risk")
+            ):
+                return (
+                    403,
+                    json.dumps({
+                        "error": "Voice approval disallowed for high-risk action",
+                        "code": "VOICE_APPROVAL_DISALLOWED",
+                    }),
+                    "application/json",
+                )
+            return 204, "", "text/plain"
         return 404, "Not found", "text/plain"
 
 
@@ -161,3 +181,38 @@ def test_voice_tts_speak_authorized(client_with_fake_bridge, auth_headers):
     assert data["audio_base64"] == "UklGRgAAAAA="
     assert fake.last_method == "POST"
     assert fake.last_path == "/api/voice/tts/speak"
+
+
+def test_voice_approval_low_risk_forwarded(client_with_fake_bridge, auth_headers):
+    client, fake = client_with_fake_bridge
+    payload = {"id": 1, "answer": "yes", "source": "voice"}
+    res = client.post(
+        "/api/oblivion/approve",
+        headers=auth_headers,
+        json=payload,
+    )
+    assert res.status_code == 204
+    assert fake.last_method == "POST"
+    assert fake.last_path == "/approve"
+    assert fake.last_body["source"] == "voice"
+    assert fake.last_body["answer"] == "yes"
+
+
+def test_voice_approval_high_risk_forbidden(client_with_fake_bridge, auth_headers):
+    client, fake = client_with_fake_bridge
+    payload = {
+        "id": 2,
+        "answer": "yes",
+        "source": "voice",
+        "is_high_risk": True,
+    }
+    res = client.post(
+        "/api/oblivion/approve",
+        headers=auth_headers,
+        json=payload,
+    )
+    assert res.status_code == 403
+    data = res.get_json()
+    assert data["code"] == "VOICE_APPROVAL_DISALLOWED"
+    assert fake.last_method == "POST"
+    assert fake.last_path == "/approve"

@@ -540,10 +540,50 @@
         }
     }
 
+    function handleVoiceApprovalIfPending(text) {
+        if (!window.JarvisApprovals || typeof window.JarvisApprovals.getActive !== 'function') {
+            return false;
+        }
+        const active = window.JarvisApprovals.getActive();
+        if (!active) return false;
+
+        const clean = text.toLowerCase().trim().replace(/[.,!?;:]/g, '');
+        const isAffirmative = /^(yes|allow|confirm|approve|okay|ok|proceed|yup|yeah)$/i.test(clean);
+        const isNegative = /^(no|deny|cancel|decline|reject|stop|nope)$/i.test(clean);
+
+        if (isAffirmative) {
+            if (!active.low_risk) {
+                // High-risk action: notify user that voice approval is disallowed
+                if (obInput) obInput.value = '';
+                speakSentence("Voice approval is disabled for high-risk actions. Please click Allow in the panel.");
+                return true;
+            }
+            // Low-risk: approve via voice
+            window.JarvisApprovals.answer(active.id, "yes", "voice");
+            speakSentence("Approved.");
+            if (obInput) obInput.value = '';
+            return true;
+        } else if (isNegative) {
+            // Decline is always allowed by voice
+            window.JarvisApprovals.answer(active.id, "no", "voice");
+            speakSentence("Declined.");
+            if (obInput) obInput.value = '';
+            return true;
+        }
+        return false;
+    }
+
     function checkAutoSubmit(submit) {
         if (submit && obInput && obInput.value.trim().length > 0) {
-            if (obSend && !obSend.disabled) {
-                bargeIn();
+            const val = obInput.value.trim();
+            if (handleVoiceApprovalIfPending(val)) {
+                return;
+            }
+            bargeIn();
+            if (typeof window.JarvisOblivionSend === 'function') {
+                window.JarvisOblivionSend(val, true);
+                obInput.value = '';
+            } else if (obSend && !obSend.disabled) {
                 obSend.click();
             }
         }
@@ -651,6 +691,8 @@
         onTextChunk: onTextChunk,
         onTurnEnd: onTurnEnd,
         toggleOutput: toggleVoiceOutput,
+        handleVoiceApproval: handleVoiceApprovalIfPending,
+        isSpeechEnabled: () => voiceOutputEnabled,
         status: () => Object.assign({}, voiceStatus),
         isListening: () => isListening,
         isSpeaking: () => isSpeaking,

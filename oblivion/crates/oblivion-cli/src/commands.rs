@@ -46,6 +46,7 @@ pub const HELP: &str = "\
 /offline [on|off] toggle or show offline mode (forces local models only)
 /routing       show request classification rules and target priorities
 /small-model [on|off] toggle or show small-model mode (short prompt, core tools, strict repair)
+/spoken [on|off] toggle or show spoken reply style (short answers, code omitted from speech)
 /skills        list skills; run one with /<skill-name> [request]
 /mcp           list MCP servers and their tools
 /exit          quit";
@@ -479,6 +480,29 @@ pub async fn handle_command(
             }
             other => {
                 format!("Unknown argument '{other}'. Use `/small-model on` or `/small-model off`.")
+            }
+        },
+        "spoken" | "voice" => match arg {
+            "on" | "true" | "enable" | "1" => {
+                agent.spoken_reply = true;
+                "Spoken reply style enabled (short conversational answers, code omitted from speech).".to_string()
+            }
+            "off" | "false" | "disable" | "0" => {
+                agent.spoken_reply = false;
+                "Spoken reply style disabled.".to_string()
+            }
+            "" => {
+                let status = if agent.spoken_reply {
+                    "ENABLED"
+                } else {
+                    "DISABLED"
+                };
+                format!(
+                    "Spoken reply style is currently {status}.\nUse `/spoken on` or `/spoken off` to change."
+                )
+            }
+            other => {
+                format!("Unknown argument '{other}'. Use `/spoken on` or `/spoken off`.")
             }
         },
         other => format!("Unknown command /{other}. Try /help or /skills."),
