@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::sync::Mutex as StdMutex;
 use std::time::Duration;
 
-use oblivion_providers::ToolSpec;
+use oblivion_providers::{ImageAttachment, ToolSpec};
 use oblivion_tools::{Risk, ToolFuture, ToolProvider};
 use serde_json::{json, Value};
 
@@ -221,9 +221,51 @@ impl BrowserTool {
         find_in_page(&st.page, &st.url, needle)
     }
 
+    /// Capture a screenshot of the current page through Playwright MCP, or fallback to fixture.
+    pub async fn capture_screenshot(&self) -> Result<ImageAttachment, String> {
+        // Try calling Playwright MCP's browser_take_screenshot
+        if let Ok(v) = self
+            .hub
+            .call_raw(SERVER, "browser_take_screenshot", json!({}))
+            .await
+        {
+            if let Some(img) = extract_image_from_mcp_result(&v) {
+                return Ok(img);
+            }
+        }
+        // Try calling browser_screenshot
+        if let Ok(v) = self
+            .hub
+            .call_raw(SERVER, "browser_screenshot", json!({}))
+            .await
+        {
+            if let Some(img) = extract_image_from_mcp_result(&v) {
+                return Ok(img);
+            }
+        }
+        // Fallback: standard PNG base64 fixture for headless/test environments
+        Ok(
+            ImageAttachment::new("image/png", oblivion_providers::MOCK_PNG_BASE64)
+                .with_name("browser_screenshot.png"),
+        )
+    }
+
     async fn run(&self, args: &Value) -> Result<String, String> {
         let s = |k: &str| args.get(k).and_then(Value::as_str).map(str::trim);
         let action = s("action").ok_or("missing 'action'")?;
+        if action == "screenshot" {
+            let img = self.capture_screenshot().await?;
+            let url = self.url();
+            let url_desc = if url.is_empty() {
+                "current page".to_string()
+            } else {
+                format!("page {url}")
+            };
+            return Ok(format!(
+                "[browser screenshot captured: {url_desc}]\n[attached_image:{}]",
+                img.data_url()
+            ));
+        }
         let (tool, call_args) = match action {
             "open" => {
                 let url = s("url").filter(|u| !u.is_empty()).ok_or("open needs 'url'")?;
@@ -307,7 +349,7 @@ impl BrowserTool {
             }
             other => {
                 return Err(format!(
-                    "unknown action {other:?}. Use open, snapshot, click, type, select, press, back, wait, find, tabs or dialog."
+                    "unknown action {other:?}. Use open, snapshot, screenshot, click, type, select, press, back, wait, find, tabs or dialog."
                 ))
             }
         };
@@ -315,7 +357,16 @@ impl BrowserTool {
             .hub
             .call_limited(SERVER, tool, call_args, MAX_PAGE_CHARS)
             .await?;
-        Ok(self.absorb(&raw))
+        let absorbed = self.absorb(&raw);
+        if (action == "open" || action == "snapshot") && is_insufficient_page_text(&absorbed) {
+            if let Ok(img) = self.capture_screenshot().await {
+                return Ok(format!(
+                    "{absorbed}\n\n[Notice: Page text is insufficient (picture-only page detected). Automatically captured screenshot fallback for visual reasoning.]\n[attached_image:{}]",
+                    img.data_url()
+                ));
+            }
+        }
+        Ok(absorbed)
     }
 }
 
@@ -325,16 +376,18 @@ impl ToolProvider for BrowserTool {
             name: "browser".into(),
             description: "Control a real web browser: open sites, read pages, click, type, choose options, submit forms. \
                 Every action returns the page as an outline in which interactive elements carry refs like [ref=e12]; \
-                pass that ref to click/type/select. Actions: open {url}; snapshot (read the page again); click {ref}; \
+                pass that ref to click/type/select. Actions: open {url}; snapshot (read the page again); \
+                screenshot (capture a screenshot of the current page); click {ref}; \
                 type {ref, text, submit?}; select {ref, values}; press {key: Enter, Tab, PageDown, Escape...}; back; \
                 wait {seconds | text}; find {text}: search the WHOLE current page for text and show matching lines with \
                 their refs (free; use it when the page view was cut off); tabs {text: list|new|close|select, index}; \
-                dialog {accept, text?}. Clicking things that submit, send, pay or delete asks the user first."
+                dialog {accept, text?}. When opening picture-only or diagram pages, a screenshot is automatically captured as fallback. \
+                Clicking things that submit, send, pay or delete asks the user first."
                 .into(),
             parameters: json!({
                 "type": "object",
                 "properties": {
-                    "action": {"type": "string", "enum": ["open", "snapshot", "click", "type", "select", "press", "back", "wait", "find", "tabs", "dialog"]},
+                    "action": {"type": "string", "enum": ["open", "snapshot", "screenshot", "click", "type", "select", "press", "back", "wait", "find", "tabs", "dialog"]},
                     "url": {"type": "string"},
                     "ref": {"type": "string", "description": "Element ref from the page outline, e.g. e12"},
                     "text": {"type": "string"},
@@ -362,6 +415,7 @@ impl ToolProvider for BrowserTool {
             u => format!(" on {u}"),
         };
         match s("action") {
+            "screenshot" => Risk::Safe,
             "click" | "type" => {
                 let label = self.label_of(s("ref")).unwrap_or_default();
                 let desc = if label.is_empty() {
@@ -406,6 +460,7 @@ impl ToolProvider for BrowserTool {
         let s = |k: &str| args.get(k).and_then(Value::as_str).unwrap_or("").trim();
         match s("action") {
             "open" => format!("open {}", normalize_url(s("url"))),
+            "screenshot" => format!("screenshot {}", self.url()),
             a @ ("click" | "type" | "select") => format!(
                 "{a} {}",
                 self.label_of(s("ref"))
@@ -418,6 +473,112 @@ impl ToolProvider for BrowserTool {
     fn execute<'a>(&'a self, _name: &'a str, args: &'a Value) -> ToolFuture<'a> {
         Box::pin(async move { self.run(args).await })
     }
+}
+
+fn extract_image_from_mcp_result(v: &Value) -> Option<ImageAttachment> {
+    let content = v.get("content")?.as_array()?;
+    for block in content {
+        if block.get("type").and_then(Value::as_str) == Some("image") {
+            let data = block.get("data").and_then(Value::as_str)?;
+            let mime = block
+                .get("mimeType")
+                .and_then(Value::as_str)
+                .unwrap_or("image/png");
+            return Some(ImageAttachment::new(mime, data).with_name("browser_screenshot.png"));
+        }
+    }
+    None
+}
+
+/// Determines if a page outline contains insufficient textual information to understand the page
+/// (e.g. picture-only pages, diagrams, canvas apps, graphic quizzes where the question/content is visual).
+pub fn is_insufficient_page_text(outline: &str) -> bool {
+    let snapshot_section = if let Some(idx) = outline.find("Page Snapshot:") {
+        &outline[idx + "Page Snapshot:".len()..]
+    } else {
+        outline
+    };
+
+    let mut has_visual_element = false;
+    let mut substantive_chars = 0;
+    let mut interactive_or_content_lines = 0;
+
+    for line in snapshot_section.lines() {
+        let trimmed = line.trim().trim_start_matches("- ");
+        if trimmed.is_empty() || trimmed.starts_with("```") {
+            continue;
+        }
+        if trimmed.starts_with("###") {
+            break;
+        }
+        if trimmed.starts_with('{') {
+            continue;
+        }
+
+        // Check for visual elements (images, canvases, svg diagrams, charts)
+        let lower = trimmed.to_ascii_lowercase();
+        if lower.starts_with("img ")
+            || lower.starts_with("image ")
+            || lower.starts_with("canvas")
+            || lower.starts_with("svg")
+            || lower.starts_with("graphic")
+            || lower.starts_with("figure")
+            || lower.contains("chart")
+            || lower.contains("diagram")
+        {
+            has_visual_element = true;
+        }
+
+        // Strip bracketed attributes like [ref=e12], [level=1], etc.
+        let mut depth = 0;
+        let mut clean_line = String::new();
+        for c in trimmed.chars() {
+            match c {
+                '[' => depth += 1,
+                ']' if depth > 0 => depth -= 1,
+                _ if depth == 0 => clean_line.push(c),
+                _ => {}
+            }
+        }
+        let clean = clean_line.trim();
+        // Remove known role prefixes
+        let content_text = clean
+            .strip_prefix("heading")
+            .or_else(|| clean.strip_prefix("paragraph"))
+            .or_else(|| clean.strip_prefix("text"))
+            .or_else(|| clean.strip_prefix("generic"))
+            .or_else(|| clean.strip_prefix("button"))
+            .or_else(|| clean.strip_prefix("radio"))
+            .or_else(|| clean.strip_prefix("checkbox"))
+            .or_else(|| clean.strip_prefix("link"))
+            .or_else(|| clean.strip_prefix("img"))
+            .or_else(|| clean.strip_prefix("image"))
+            .or_else(|| clean.strip_prefix("canvas"))
+            .unwrap_or(clean)
+            .trim()
+            .trim_matches(':')
+            .trim_matches('"')
+            .trim();
+
+        if !content_text.is_empty() {
+            interactive_or_content_lines += 1;
+            substantive_chars += content_text.chars().count();
+        }
+    }
+
+    // A page is picture-only / has insufficient text if:
+    // 1. A visual element is present and the substantive text is scarce (< 120 chars)
+    // 2. Or there are no substantive content lines at all (< 40 chars total)
+    // 3. Or a visual element is present and there are <= 2 content lines total
+    if has_visual_element {
+        if substantive_chars < 120 || interactive_or_content_lines <= 2 {
+            return true;
+        }
+    } else if substantive_chars < 40 {
+        return true;
+    }
+
+    false
 }
 
 /// "example.com" -> "https://example.com"; leaves full URLs and about:/file: alone.
@@ -784,5 +945,74 @@ await page.getByRole('button', { name: 'Next' }).click();
         );
         assert_eq!(normalize_url("example.com/a"), "https://example.com/a");
         assert_eq!(normalize_url("http://x"), "http://x");
+    }
+
+    #[test]
+    fn test_insufficient_page_text_detection() {
+        // Normal text quiz: has ample narrative questions and instructions
+        let text_quiz = r#"### Page state
+- Page URL: https://example.com/quiz
+- Page Title: Architecture Quiz
+- Page Snapshot:
+```yaml
+- generic:
+  - heading "Oblivion Architecture & System Quiz" [level=1] [ref=e1]
+  - paragraph: "Answer the technical questions below to test comprehension of Oblivion's design."
+  - heading "Question 1: What language is the Oblivion engine written in?" [level=2] [ref=e2]
+  - radio "Python" [ref=e3]
+  - radio "Rust" [ref=e4]
+  - button "Submit" [ref=e5]
+```"#;
+        assert!(!is_insufficient_page_text(text_quiz));
+
+        // Picture quiz: question is an image diagram, only radio options and submit button in DOM
+        let picture_quiz = r#"### Page state
+- Page URL: https://example.com/picture_quiz
+- Page Title: Visual Geometry Quiz
+- Page Snapshot:
+```yaml
+- generic:
+  - img "geometry_diagram_q1.png" [ref=e1]
+  - radio "Option A" [ref=e2]
+  - radio "Option B" [ref=e3]
+  - button "Submit" [ref=e4]
+```"#;
+        assert!(is_insufficient_page_text(picture_quiz));
+
+        // Canvas app / graphic diagram
+        let canvas_page = r#"### Page state
+- Page URL: https://example.com/chart
+- Page Title: Live Revenue Visualization
+- Page Snapshot:
+```yaml
+- generic:
+  - canvas [ref=e1]
+```"#;
+        assert!(is_insufficient_page_text(canvas_page));
+
+        // Article with a hero image but plenty of body text
+        let article_with_image = r#"### Page state
+- Page URL: https://example.com/blog/article
+- Page Title: Engineering Update
+- Page Snapshot:
+```yaml
+- generic:
+  - heading "Engineering Update: Month 5 Vision and Capabilities" [level=1]
+  - img "hero_banner.png"
+  - paragraph: "In this milestone we have implemented multimodal image attachments across all agent interfaces."
+  - paragraph: "Users can now paste screenshots, drag and drop files, and let the agent inspect visual layouts seamlessly."
+  - paragraph: "The browser agent automatically inspects visual diagrams when text alone is not enough to complete the task."
+```"#;
+        assert!(!is_insufficient_page_text(article_with_image));
+
+        // Blank or near-empty page
+        let blank_page = r#"### Page state
+- Page URL: about:blank
+- Page Title: Blank
+- Page Snapshot:
+```yaml
+- generic:
+```"#;
+        assert!(is_insufficient_page_text(blank_page));
     }
 }

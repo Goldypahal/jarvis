@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visual &amp; Picture Quiz - Oblivion Evals</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 680px; margin: 40px auto; padding: 0 20px; line-height: 1.6; }
+        .question-card { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin-bottom: 24px; }
+        .question-title { font-size: 1.1rem; font-weight: 600; margin-top: 0; margin-bottom: 12px; color: #111827; }
+        .diagram-container { background: #ffffff; border: 1px solid #d1d5db; border-radius: 6px; padding: 12px; text-align: center; margin-bottom: 14px; }
+        .option-label { display: block; padding: 8px 12px; margin-bottom: 8px; border: 1px solid #d1d5db; border-radius: 6px; cursor: pointer; transition: background 0.15s; }
+        .option-label:hover { background: #f3f4f6; }
+        input[type="radio"] { margin-right: 10px; }
+        button { padding: 12px 24px; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-size: 1rem; font-weight: 600; cursor: pointer; }
+        button:hover { background: #1d4ed8; }
+        .results-box { display: none; padding: 20px; border-radius: 8px; margin-top: 24px; }
+        .results-box.pass { background: #ecfdf5; border: 1px solid #10b981; color: #065f46; }
+        .results-box.fail { background: #fef2f2; border: 1px solid #ef4444; color: #991b1b; }
+        .score-headline { font-size: 1.3rem; font-weight: bold; margin-bottom: 8px; }
+    </style>
+</head>
+<body>
+    <h1>Visual Reasoning &amp; Picture Practice Quiz</h1>
+    <p>Complete the visual questions below. Some questions require reading diagrams directly.</p>
+
+    <form id="quiz-form" onsubmit="event.preventDefault(); evaluateQuiz();">
+        <!-- Question 1: Visual Angle Problem -->
+        <div class="question-card" id="card-q1">
+            <h2 class="question-title">Question 1: Visual Geometry Problem</h2>
+            <div class="diagram-container">
+                <svg width="240" height="120" viewBox="0 0 240 120" xmlns="http://www.w3.org/2000/svg">
+                    <line x1="20" y1="100" x2="220" y2="100" stroke="#374151" stroke-width="3" />
+                    <line x1="120" y1="100" x2="120" y2="20" stroke="#2563eb" stroke-width="3" />
+                    <rect x="120" y="80" width="20" height="20" fill="none" stroke="#dc2626" stroke-width="2" />
+                    <text x="150" y="70" font-size="14" font-weight="bold" fill="#111827">Angle &theta; = ?</text>
+                </svg>
+            </div>
+            <label class="option-label">
+                <input type="radio" name="q1" value="45"> 45 degrees
+            </label>
+            <label class="option-label">
+                <input type="radio" name="q1" value="90"> 90 degrees (right angle)
+            </label>
+            <label class="option-label">
+                <input type="radio" name="q1" value="180"> 180 degrees
+            </label>
+        </div>
+
+        <!-- Question 2: Picture-Only Logic Gate -->
+        <div class="question-card" id="card-q2">
+            <div class="diagram-container">
+                <!-- Question is completely embedded in this SVG diagram -->
+                <svg width="280" height="100" viewBox="0 0 280 100" xmlns="http://www.w3.org/2000/svg">
+                    <text x="10" y="25" font-size="13" font-weight="bold" fill="#1f2937">Identify this logic gate:</text>
+                    <!-- AND gate shape -->
+                    <path d="M 40 40 L 80 40 A 25 25 0 0 1 80 90 L 40 90 Z" fill="#dbeafe" stroke="#1d4ed8" stroke-width="2" />
+                    <line x1="20" y1="50" x2="40" y2="50" stroke="#1f2937" stroke-width="2" />
+                    <line x1="20" y1="80" x2="40" y2="80" stroke="#1f2937" stroke-width="2" />
+                    <line x1="105" y1="65" x2="135" y2="65" stroke="#1f2937" stroke-width="2" />
+                    <text x="145" y="70" font-size="12" fill="#4b5563">Output Q</text>
+                </svg>
+            </div>
+            <label class="option-label">
+                <input type="radio" name="q2" value="and"> AND gate
+            </label>
+            <label class="option-label">
+                <input type="radio" name="q2" value="or"> OR gate
+            </label>
+            <label class="option-label">
+                <input type="radio" name="q2" value="not"> NOT gate
+            </label>
+        </div>
+
+        <button type="submit" id="btn-submit-picture-quiz">Submit Quiz</button>
+    </form>
+
+    <div class="results-box" id="quiz-results">
+        <div class="score-headline" id="score-text">Score: 0/2</div>
+        <div id="feedback-text"></div>
+    </div>
+
+    <script>
+        function evaluateQuiz() {
+            const answers = {
+                q1: '90',
+                q2: 'and'
+            };
+
+            let correct = 0;
+            const q1Val = document.querySelector('input[name="q1"]:checked')?.value;
+            const q2Val = document.querySelector('input[name="q2"]:checked')?.value;
+
+            if (q1Val === answers.q1) correct++;
+            if (q2Val === answers.q2) correct++;
+
+            const resultsBox = document.getElementById('quiz-results');
+            const scoreText = document.getElementById('score-text');
+            const feedbackText = document.getElementById('feedback-text');
+
+            scoreText.textContent = `Score: ${correct}/2`;
+            if (correct === 2) {
+                resultsBox.className = 'results-box pass';
+                feedbackText.textContent = 'Excellent! All visual questions correctly answered.';
+            } else {
+                resultsBox.className = 'results-box fail';
+                feedbackText.textContent = `You scored ${correct} of 2. Please review your answers.`;
+            }
+            resultsBox.style.display = 'block';
+        }
+    </script>
+</body>
+</html>

@@ -9,5 +9,5 @@ pub use client::{Client, ProviderConfig, ProviderError, StreamEvent};
 pub use router::{AllFailed, Router, Target, TargetStatus, UsageLedger};
 pub use types::{
     estimate_tokens, Completion, FunctionCall, ImageAttachment, Message, Role, ToolCall, ToolSpec,
-    Usage,
+    Usage, MOCK_PNG_BASE64,
 };

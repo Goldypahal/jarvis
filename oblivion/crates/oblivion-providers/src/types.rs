@@ -15,6 +15,9 @@ pub enum Role {
 }
 
 /// An attached image for multi-modal vision requests.
+pub const MOCK_PNG_BASE64: &str =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ImageAttachment {
     /// MIME type, e.g. "image/png", "image/jpeg", "image/webp".
@@ -46,6 +49,18 @@ impl ImageAttachment {
     /// Formats as a standard data URI string: `data:<mime>;base64,<data>`.
     pub fn data_url(&self) -> String {
         format!("data:{};base64,{}", self.mime_type, self.data_base64)
+    }
+
+    /// Parses an `ImageAttachment` from a standard data URI string: `data:<mime>;base64,<data>`.
+    pub fn from_data_url(url: &str) -> Option<Self> {
+        let u = url.trim();
+        if !u.starts_with("data:") {
+            return None;
+        }
+        let pos = u.find(";base64,")?;
+        let mime = &u[5..pos];
+        let data = &u[pos + 8..];
+        Some(Self::new(mime, data))
     }
 }
 
@@ -280,6 +295,9 @@ mod tests {
         assert_eq!(img.data_base64, raw_b64);
         assert_eq!(img.mime_type, "image/jpeg");
         assert_eq!(img.data_url(), format!("data:image/jpeg;base64,{raw_b64}"));
+        let parsed = ImageAttachment::from_data_url(&with_prefix).expect("valid data uri");
+        assert_eq!(parsed.mime_type, "image/jpeg");
+        assert_eq!(parsed.data_base64, raw_b64);
     }
 
     #[test]

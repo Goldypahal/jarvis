@@ -257,6 +257,21 @@ impl McpHub {
         arguments: Value,
         max_chars: usize,
     ) -> Result<String, String> {
+        let v = self.call_raw(server, tool, arguments).await?;
+        let text = result_text_max(&v, max_chars);
+        if v.get("isError").and_then(Value::as_bool).unwrap_or(false) {
+            return Err(format!("{server}.{tool} reported an error: {text}"));
+        }
+        Ok(text)
+    }
+
+    /// Call an MCP tool and return the parsed JSON response value from the server.
+    pub async fn call_raw(
+        &self,
+        server: &str,
+        tool: &str,
+        arguments: Value,
+    ) -> Result<Value, String> {
         let args = match arguments {
             Value::Object(m) => Some(m),
             Value::Null => None,
@@ -270,12 +285,7 @@ impl McpHub {
                 async move { peer.call_tool(params).await.map_err(|e| e.to_string()) }
             })
             .await?;
-        let v = serde_json::to_value(&result).map_err(|e| e.to_string())?;
-        let text = result_text_max(&v, max_chars);
-        if v.get("isError").and_then(Value::as_bool).unwrap_or(false) {
-            return Err(format!("{server}.{tool} reported an error: {text}"));
-        }
-        Ok(text)
+        serde_json::to_value(&result).map_err(|e| e.to_string())
     }
 
     /// Close every connection (stops stdio server processes).

@@ -386,6 +386,11 @@ pub(crate) async fn web_fetch(tb: &ToolBox, args: &Value) -> Result<String, Stri
         || ctype.contains("json")
         || ctype.contains("xml");
     if !is_text {
+        if ctype.starts_with("image/") {
+            return Err(format!(
+                "{url} is an image (content type: {ctype}). Use the browser tool or an image input to inspect visual media."
+            ));
+        }
         return Err(format!("{url} is not a text page (content type: {ctype})"));
     }
     let bytes = resp.bytes().await.map_err(|e| e.to_string())?;

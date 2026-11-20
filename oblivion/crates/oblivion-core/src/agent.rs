@@ -556,7 +556,8 @@ impl Agent {
         if !self.session.messages.is_empty() && self.session.messages[0].role == Role::System {
             self.session.messages[0].content = Some(effective_system);
         }
-        let has_images = !images.is_empty();
+        let has_images =
+            !images.is_empty() || self.session.messages.iter().any(|m| !m.images.is_empty());
         self.session
             .messages
             .push(Message::user_with_images(user_text, images));
@@ -630,6 +631,16 @@ impl Agent {
                 ));
             }
             self.compact(false, on_event).await?;
+
+            if !offline_or_private && self.session.messages.iter().any(|m| !m.images.is_empty()) {
+                let vision_patterns = self
+                    .routing_rules
+                    .patterns_for(crate::routing::RequestClass::Vision);
+                turn_router = self
+                    .router
+                    .share()
+                    .for_patterns(vision_patterns, offline_or_private);
+            }
 
             let completion = {
                 let mut forward = |e: StreamEvent| match e {
@@ -862,9 +873,9 @@ impl Agent {
                     text.hash(&mut h);
                     page_hash = h.finish();
                 }
-                self.session
-                    .messages
-                    .push(Message::tool_result(&call.id, text));
+                let mut msg = Message::tool_result(&call.id, text);
+                msg.images = out.images.clone();
+                self.session.messages.push(msg);
                 self.save();
             }
             if stuck {
@@ -895,6 +906,7 @@ impl Agent {
                     "[older page view removed to save space; the newest page view is further down]"
                         .into(),
                 );
+                m.images.clear();
             }
         }
     }

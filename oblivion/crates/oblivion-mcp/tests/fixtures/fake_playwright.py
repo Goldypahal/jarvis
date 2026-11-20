@@ -26,12 +26,31 @@ await page.goto('{url}');
 ### Last call
 {call}"""
 
+PICTURE_PAGE = """### Ran Playwright code
+```js
+await page.goto('{url}');
+```
+
+### Page state
+- Page URL: {url}
+- Page Title: Visual Geometry Quiz
+- Page Snapshot:
+```yaml
+- generic [ref=e1]:
+  - img "geometry_diagram_q2.png" [ref=e2]
+  - button "Answer A" [ref=e3]
+  - button "Answer B" [ref=e4]
+```
+### Last call
+{call}"""
+
 def tool(name, props, req=()):
     return {"name": name, "description": name, "inputSchema": {"type": "object", "properties": {p: {"type": "string"} for p in props}, "required": list(req)}}
 
 TOOLS = [
     tool("browser_navigate", ["url"], ["url"]),
     tool("browser_snapshot", []),
+    tool("browser_take_screenshot", []),
     tool("browser_click", ["element", "target"], ["target"]),
     tool("browser_type", ["element", "target", "text", "submit"], ["target", "text"]),
     tool("browser_select_option", ["element", "target", "values"], ["target", "values"]),
@@ -59,11 +78,24 @@ for line in sys.stdin:
         name, args = params.get("name"), params.get("arguments") or {}
         if name == "browser_navigate":
             url = args["url"]
+        if name == "browser_take_screenshot":
+            reply(msg_id, {
+                "content": [
+                    {
+                        "type": "image",
+                        "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+                        "mimeType": "image/png"
+                    }
+                ],
+                "isError": False
+            })
+            continue
         if name == "browser_click" and args.get("target") == "e99":
             reply(msg_id, {"content": [{"type": "text", "text": "Ref e99 not found in the current page snapshot."}], "isError": True})
             continue
         call = json.dumps({"tool": name, "args": args}, sort_keys=True)
-        reply(msg_id, {"content": [{"type": "text", "text": PAGE.format(url=url, call=call)}], "isError": False})
+        template = PICTURE_PAGE if "picture" in url else PAGE
+        reply(msg_id, {"content": [{"type": "text", "text": template.format(url=url, call=call)}], "isError": False})
     elif method == "ping":
         reply(msg_id, {})
     else:

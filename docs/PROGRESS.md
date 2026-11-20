@@ -77,8 +77,8 @@ Current milestone: **Month 5 — vision and computer use** · Branch: `roadmap/m
 
 ## Month 5 — vision and computer use
 - [x] Image input in providers and all interfaces — 2026-11-20, e19ba89, cargo test: 196 passed; pytest: 85 passed; clippy: 0 warnings; node check: clean; browser subagent UI test verified (file upload, preview tray, image chips, light & dark themes)
-- [x] "Look at my screen" with preview before sending — 2026-11-20, 2bd0001, cargo test: 199 passed; pytest: 86 passed; clippy: 0 warnings; node check: clean; browser subagent UI test verified (look at screen button, preview tray inspection, cancel/remove chip, light & dark themes)
-- [ ] Browser agent screenshot fallback for picture-only pages
+- [x] "Look at my screen" with preview before sending — 2026-11-20, d95b0dd, cargo test: 199 passed; pytest: 86 passed; clippy: 0 warnings; node check: clean; browser subagent UI test verified (look at screen button, preview tray inspection, cancel/remove chip, light & dark themes)
+- [x] Browser agent screenshot fallback for picture-only pages — 2026-11-20, 56a3377, cargo test: 201 passed; pytest: 86 passed; clippy: 0 warnings; evals: 35/35 passed (100%); automatic screenshot fallback on insufficient page text, explicit screenshot action, multimodal ToolOutput attachment extraction & picture_quiz.html verified
 - [ ] Computer use behind a setting, per-app allow list, stop hotkey
 - [ ] 10 vision evals; milestone check
 

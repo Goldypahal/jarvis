@@ -160,6 +160,38 @@ async fn browser_tool_drives_a_playwright_style_server() {
         .unwrap();
     assert!(found.contains("[ref=e10]"), "{found}");
 
+    // Explicit screenshot action
+    let shot = browser
+        .execute("browser", &json!({"action":"screenshot"}))
+        .await
+        .unwrap();
+    assert!(shot.contains("browser screenshot captured"), "{shot}");
+    assert!(
+        shot.contains("[attached_image:data:image/png;base64,"),
+        "{shot}"
+    );
+
+    // Picture-only page automatic screenshot fallback
+    let pic_page = browser
+        .execute(
+            "browser",
+            &json!({"action":"open","url":"quiz.example/picture_quiz"}),
+        )
+        .await
+        .unwrap();
+    assert!(pic_page.contains("Visual Geometry Quiz"), "{pic_page}");
+    assert!(pic_page.contains("img \"geometry_diagram_q2.png\" [ref=e2]"));
+    assert!(pic_page.contains("Page text is insufficient (picture-only page detected)"));
+    assert!(pic_page.contains("[attached_image:data:image/png;base64,"));
+
+    // Verify ToolOutput parses attached images into ImageAttachment and cleans text
+    let tool_out = oblivion_tools::ToolOutput::ok(pic_page);
+    assert_eq!(tool_out.images.len(), 1);
+    assert_eq!(tool_out.images[0].mime_type, "image/png");
+    assert!(tool_out
+        .text
+        .contains("[screenshot attached: 1 image provided for vision]"));
+
     let err = browser
         .execute("browser", &json!({"action":"click","ref":"e99"}))
         .await

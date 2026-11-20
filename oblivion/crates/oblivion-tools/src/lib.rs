@@ -30,21 +30,84 @@ pub use web::{html_to_text, parse_duckduckgo, SearchBackend, SearchResult};
 pub struct ToolOutput {
     pub text: String,
     pub is_error: bool,
+    pub images: Vec<oblivion_providers::ImageAttachment>,
 }
 
 impl ToolOutput {
     pub fn ok(text: impl Into<String>) -> Self {
+        let (clean, images) = extract_attached_images(&text.into());
+        Self {
+            text: clean,
+            is_error: false,
+            images,
+        }
+    }
+    pub fn ok_with_images(
+        text: impl Into<String>,
+        images: Vec<oblivion_providers::ImageAttachment>,
+    ) -> Self {
         Self {
             text: text.into(),
             is_error: false,
+            images,
         }
     }
     pub fn err(text: impl Into<String>) -> Self {
         Self {
             text: format!("Error: {}", text.into()),
             is_error: true,
+            images: vec![],
         }
     }
+}
+
+/// Extract any `[attached_image:data:image/...;base64,...]` markers from tool output,
+/// producing a clean text body and a list of `ImageAttachment`s for multimodal vision reasoning.
+pub fn extract_attached_images(text: &str) -> (String, Vec<oblivion_providers::ImageAttachment>) {
+    let marker = "[attached_image:";
+    if !text.contains(marker) {
+        return (text.to_string(), vec![]);
+    }
+    let mut images = Vec::new();
+    let mut clean_lines = Vec::new();
+
+    for line in text.lines() {
+        if let Some(start) = line.find(marker) {
+            let rest = &line[start + marker.len()..];
+            if let Some(end) = rest.find(']') {
+                let data_url = &rest[..end];
+                if let Some(img) = oblivion_providers::ImageAttachment::from_data_url(data_url) {
+                    images.push(img);
+                }
+                let prefix = line[..start].trim_end();
+                let suffix = rest[end + 1..].trim_start();
+                let joined = match (!prefix.is_empty(), !suffix.is_empty()) {
+                    (true, true) => format!("{prefix} {suffix}"),
+                    (true, false) => prefix.to_string(),
+                    (false, true) => suffix.to_string(),
+                    (false, false) => String::new(),
+                };
+                if !joined.is_empty() {
+                    clean_lines.push(joined);
+                }
+                continue;
+            }
+        }
+        clean_lines.push(line.to_string());
+    }
+
+    let mut clean_text = clean_lines.join("\n").trim().to_string();
+    if !images.is_empty() {
+        if !clean_text.is_empty() {
+            clean_text.push_str("\n\n");
+        }
+        clean_text.push_str(&format!(
+            "[screenshot attached: {} image{} provided for vision]",
+            images.len(),
+            if images.len() == 1 { "" } else { "s" }
+        ));
+    }
+    (clean_text, images)
 }
 
 /// Whether a tool call may run without asking.
@@ -486,5 +549,20 @@ mod tests {
         );
         assert_eq!(strip_verbatim(r"\\?\Volume{abc}\x"), r"\\?\Volume{abc}\x");
         assert_eq!(strip_verbatim("/home/me"), "/home/me");
+    }
+
+    #[test]
+    fn extract_attached_images_and_tool_output() {
+        let raw = "Page loaded successfully.\n[attached_image:data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==]\nProceed with actions.";
+        let out = ToolOutput::ok(raw);
+        assert!(!out.is_error);
+        assert_eq!(out.images.len(), 1);
+        assert_eq!(out.images[0].mime_type, "image/png");
+        assert!(out.text.contains("Page loaded successfully."));
+        assert!(out.text.contains("Proceed with actions."));
+        assert!(out
+            .text
+            .contains("[screenshot attached: 1 image provided for vision]"));
+        assert!(!out.text.contains("iVBORw0KGgoAAAANSUhEUg"));
     }
 }

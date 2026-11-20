@@ -24,6 +24,7 @@ refs from the LATEST page view.
 - Radio buttons and checkboxes: `click` the option's ref. Drop-downs: `select` with the option text.
   Text boxes: `type` (leave `submit` false unless pressing Enter is the intended action).
 - Work out each answer carefully. If you are unsure, say so in your final summary instead of guessing silently.
+- Picture-only questions, diagrams, maps, and canvas: the browser tool automatically falls back to a screenshot when page text is not enough. You can also explicitly capture a screenshot at any time with `{"action":"screenshot"}`. Inspect the visual layout, read the problem from the screenshot, and click the option or type the answer indicated by the diagram.
 - "Next" moves on; read the new page before answering. Before the final "Submit", review: use `find`
   on the question labels to check every question has an answer.
 - Clicking Submit, Send, Pay, Delete, Place order and similar asks the user. That is expected: say what
