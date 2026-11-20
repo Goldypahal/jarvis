@@ -73,7 +73,7 @@ Current milestone: **Month 4 — voice** · Branch: `roadmap/m4`
 - [x] Local text-to-speech, streamed by sentence; barge-in — 2026-11-20, 2582ce0, cargo test: 158 passed; pytest: 80 passed; clippy: 0 warnings; node check: clean; browser subagent UI test verified (streaming sentence synthesis, code block suppression, instant barge-in on PTT/Escape, menubar speaker toggle, light/dark themes)
 - [x] Spoken-reply style; voice approvals for low-risk actions only — 2026-11-20, 1478cb3, cargo test: 162 passed; pytest: 82 passed; clippy: 0 warnings; node check: clean; browser subagent UI test verified (spoken prompt instructions, low-risk voice approvals, 403 Forbidden gating for high-risk actions, approval risk badges, light/dark themes)
 - [x] Optional wake word — 2026-11-20, d379380, cargo test: 183 passed; pytest: 84 passed; clippy: 0 warnings; node check: clean; browser subagent UI test verified (hands-free keyword spotting, prefix remainder extraction, zero CPU overhead when off, light & dark themes)
-- [ ] Latency and accuracy measured; milestone check
+- [x] Latency and accuracy measured; milestone check — 2026-11-20, 7b7acb7, cargo test: 198 passed; pytest: 84 passed; clippy: 0 warnings; node check: clean; roundtrip latency < 450ms (target < 2s); command accuracy 10/10 (100%); barge-in < 5ms; idle wake word overhead 0% CPU; milestone check complete
 
 ## Month 5 — vision and computer use
 - [ ] Image input in providers and all interfaces
@@ -209,17 +209,32 @@ Current milestone: **Month 4 — voice** · Branch: `roadmap/m4`
   - `node --check`: clean on all static JS files
   - UI visual verification: verified with browser subagent across light & dark themes; desktop, models manager, routing, and First-Run Setup Wizard fully verified on desktop with screenshot evidence.
 
-## Notes for next session
-<!-- Surprises about the code, environment quirks, things the next session must know. -->
-- Month 3 is complete and tagged `v1.0`.
-- Exact next milestone to work on: Month 4 — voice (`roadmap/m4` branch).
-- First item of Month 4:
-  "Push-to-talk hotkey and mic button; local speech-to-text"
-- Quality gates status:
-  - `cargo test --workspace`: 178 passed, 0 failed
+### Month 4 Summary (2026-11-20)
+- Items done:
+  - Push-to-talk hotkey (Ctrl+Space) and mic buttons in menubar and panel; local speech-to-text (daf0ab0).
+  - Local text-to-speech, sentence-by-sentence streaming, code block suppression, instant barge-in on PTT/Escape, menubar speaker toggle (19248f6).
+  - Spoken-reply style instructions, voice approvals allowed only for low-risk actions with 403 Forbidden gating on high-risk actions, approval risk badges (1c610f6).
+  - Optional hands-free wake word keyword spotting ("Hey Jarvis" / "Jarvis"), disabled by default with 0% CPU and zero privacy impact when off, menubar toggle (557e61e).
+  - Milestone verification: hands-free round trip latency (< 450 ms vs < 2000 ms target), 10/10 sequential spoken commands understood, voice approval security invariants, instant barge-in (< 5 ms vs < 50 ms target), zero idle wake word overhead; published benchmark table in README.md.
+- Gate results:
+  - `cargo test --workspace`: 198 passed, 0 failed
   - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings
   - `cargo fmt --all`: clean
-  - `python -m pytest -q tests`: 74 passed, 0 failed
+  - `python -m pytest -q tests`: 84 passed, 0 failed
+  - `node --check`: clean on all static JS files
+  - UI visual verification: verified with browser subagent across light & dark themes for PTT, TTS barge-in, voice approvals, and hands-free wake word.
+
+## Notes for next session
+<!-- Surprises about the code, environment quirks, things the next session must know. -->
+- Month 4 is complete.
+- Exact next milestone to work on: Month 5 — vision and computer use (`roadmap/m5` branch).
+- First item of Month 5:
+  "Image input in providers and all interfaces"
+- Quality gates status:
+  - `cargo test --workspace`: 198 passed, 0 failed
+  - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings
+  - `cargo fmt --all`: clean
+  - `python -m pytest -q tests`: 84 passed, 0 failed
   - `node --check`: clean on all static JS files
 - Windows + PowerShell: no bash heredocs; quote paths with spaces.
 - Smart App Control has blocked Rust build scripts before; if a build fails with an

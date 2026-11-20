@@ -567,6 +567,12 @@ impl SentenceSplitter {
         }
     }
 
+    /// Reset the splitter buffer and code block state immediately (e.g. on barge-in).
+    pub fn reset(&mut self) {
+        self.buffer.clear();
+        self.in_code_block = false;
+    }
+
     /// Helper to test if buffer currently ends with a sentence boundary.
     fn is_sentence_end(buf: &str) -> bool {
         let trimmed = buf.trim_end();
