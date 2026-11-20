@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -118,9 +119,16 @@ pub struct WebState {
     pub store: Arc<oblivion_store::Store>,
     pub ollama: Option<Arc<oblivion_core::OllamaClient>>,
     pub routing: Arc<std::sync::RwLock<oblivion_core::config::RoutingSettings>>,
+    pub config_path: Option<PathBuf>,
 }
 
 impl WebState {
+    pub fn config_file_path(&self) -> PathBuf {
+        self.config_path
+            .clone()
+            .unwrap_or_else(oblivion_core::config::default_config_path)
+    }
+
     pub fn ollama_client(&self) -> oblivion_core::OllamaClient {
         if let Some(c) = &self.ollama {
             (**c).clone()
@@ -254,6 +262,126 @@ async fn chat_handler(
         .into_response()
 }
 
+#[derive(Deserialize)]
+struct SetAutostartBody {
+    enabled: bool,
+}
+
+async fn get_autostart_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    if !st.authorized(&headers, &q) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        )
+            .into_response();
+    }
+    match crate::autostart::get_status() {
+        Ok(status) => (StatusCode::OK, Json(serde_json::to_value(status).unwrap())).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+
+async fn set_autostart_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Json(body): Json<SetAutostartBody>,
+) -> impl IntoResponse {
+    if !st.authorized(&headers, &q) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        )
+            .into_response();
+    }
+    match crate::autostart::set_enabled(body.enabled) {
+        Ok(status) => (StatusCode::OK, Json(serde_json::to_value(status).unwrap())).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+
+async fn get_wizard_status_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    if !st.authorized(&headers, &q) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        )
+            .into_response();
+    }
+    let p = st.config_file_path();
+    let status = crate::wizard::get_wizard_status(&p);
+    (StatusCode::OK, Json(serde_json::to_value(status).unwrap())).into_response()
+}
+
+async fn complete_wizard_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Json(req): Json<crate::wizard::WizardCompleteRequest>,
+) -> impl IntoResponse {
+    if !st.authorized(&headers, &q) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        )
+            .into_response();
+    }
+    let p = st.config_file_path();
+    if let Ok(mut r) = st.routing.write() {
+        r.offline = req.offline;
+    }
+    match crate::wizard::complete_wizard(&p, &req) {
+        Ok(status) => (StatusCode::OK, Json(serde_json::to_value(status).unwrap())).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+
+async fn test_wizard_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    if !st.authorized(&headers, &q) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        )
+            .into_response();
+    }
+    let p = st.config_file_path();
+    let status = crate::wizard::get_wizard_status(&p);
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "status": "ok",
+            "message": "Connection and environment verified",
+            "offline": status.offline,
+            "workspace": status.workspace
+        })),
+    )
+        .into_response()
+}
+
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
@@ -301,6 +429,31 @@ pub fn router(state: WebState) -> Router {
         .route(
             "/api/oblivion/system/agents-md/apply",
             post(apply_agents_md),
+        )
+        // Autostart
+        .route(
+            "/api/system/autostart",
+            get(get_autostart_handler).post(set_autostart_handler),
+        )
+        .route(
+            "/api/oblivion/system/autostart",
+            get(get_autostart_handler).post(set_autostart_handler),
+        )
+        // First-run Wizard
+        .route("/api/system/wizard/status", get(get_wizard_status_handler))
+        .route(
+            "/api/oblivion/system/wizard/status",
+            get(get_wizard_status_handler),
+        )
+        .route("/api/system/wizard/complete", post(complete_wizard_handler))
+        .route(
+            "/api/oblivion/system/wizard/complete",
+            post(complete_wizard_handler),
+        )
+        .route("/api/system/wizard/test", post(test_wizard_handler))
+        .route(
+            "/api/oblivion/system/wizard/test",
+            post(test_wizard_handler),
         )
         // Models & routing
         .route("/api/models", get(get_models))
@@ -1636,6 +1789,7 @@ mod live {
             routing: Arc::new(std::sync::RwLock::new(
                 oblivion_core::config::RoutingSettings::default(),
             )),
+            config_path: None,
         };
         tokio::spawn(pump(events, bus));
         tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
@@ -1847,6 +2001,7 @@ mod live {
             routing: Arc::new(std::sync::RwLock::new(
                 oblivion_core::config::RoutingSettings::default(),
             )),
+            config_path: None,
         };
         tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
         let base = format!("http://{addr}");
@@ -1967,6 +2122,7 @@ mod live {
             routing: Arc::new(std::sync::RwLock::new(
                 oblivion_core::config::RoutingSettings::default(),
             )),
+            config_path: None,
         };
 
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
@@ -2115,6 +2271,7 @@ mod live {
             routing: Arc::new(std::sync::RwLock::new(
                 oblivion_core::config::RoutingSettings::default(),
             )),
+            config_path: None,
         };
 
         let app = router(state);
@@ -2183,6 +2340,7 @@ mod live {
             routing: Arc::new(std::sync::RwLock::new(
                 oblivion_core::config::RoutingSettings::default(),
             )),
+            config_path: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -2284,6 +2442,7 @@ mod live {
             routing: Arc::new(std::sync::RwLock::new(
                 oblivion_core::config::RoutingSettings::default(),
             )),
+            config_path: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -2404,6 +2563,7 @@ mod live {
             routing: Arc::new(std::sync::RwLock::new(
                 oblivion_core::config::RoutingSettings::default(),
             )),
+            config_path: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -2499,6 +2659,7 @@ mod live {
             routing: Arc::new(std::sync::RwLock::new(
                 oblivion_core::config::RoutingSettings::default(),
             )),
+            config_path: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -2597,6 +2758,7 @@ mod live {
             routing: Arc::new(std::sync::RwLock::new(
                 oblivion_core::config::RoutingSettings::default(),
             )),
+            config_path: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -2695,5 +2857,117 @@ mod live {
         assert_eq!(chat_res.status(), StatusCode::OK);
         let chat_json: serde_json::Value = chat_res.json().await.unwrap();
         assert_eq!(chat_json["response"], "Message sent to agent");
+    }
+
+    #[tokio::test]
+    async fn web_autostart_and_wizard_endpoints_work() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg_path = dir.path().join("oblivion.toml");
+        let store = Arc::new(oblivion_store::Store::open(&dir.path().join("test.db")).unwrap());
+        let (url, _seen) = crate::testkit::fake_server(vec![]).await;
+        let (_worker, controls, _events) = crate::testkit::worker(&url, dir.path());
+
+        let bus = Arc::new(Bus::default());
+        let token = "test-token-wizard";
+        let state = WebState {
+            token: token.into(),
+            controls,
+            bus: bus.clone(),
+            store: store.clone(),
+            ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
+            config_path: Some(cfg_path.clone()),
+        };
+
+        let (listener, addr) = bind(0).await.unwrap();
+        let base = format!("http://{addr}");
+        tokio::spawn(async move {
+            axum::serve(listener, router(state)).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+
+        // 1. Autostart endpoint: unauth -> 401
+        let unauth = client
+            .get(format!("{base}/api/system/autostart"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unauth.status(), StatusCode::UNAUTHORIZED);
+
+        // 2. Autostart endpoint: auth -> 200 OK
+        let autostart_res = client
+            .get(format!("{base}/api/system/autostart"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(autostart_res.status(), StatusCode::OK);
+
+        // 3. Wizard status endpoint: unauth -> 401
+        let wizard_unauth = client
+            .get(format!("{base}/api/system/wizard/status"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(wizard_unauth.status(), StatusCode::UNAUTHORIZED);
+
+        // 4. Wizard status endpoint: auth -> completed: false
+        let wiz_status = client
+            .get(format!("{base}/api/system/wizard/status"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(wiz_status.status(), StatusCode::OK);
+        let s0: crate::wizard::WizardStatus = wiz_status.json().await.unwrap();
+        assert!(!s0.completed);
+        assert!(!s0.offline);
+
+        // 5. Complete wizard via POST /api/system/wizard/complete
+        let custom_ws = dir.path().join("my_new_workspace");
+        let complete_res = client
+            .post(format!("{base}/api/system/wizard/complete"))
+            .header("x-oblivion-token", token)
+            .json(&crate::wizard::WizardCompleteRequest {
+                workspace: Some(custom_ws.to_string_lossy().to_string()),
+                offline: true,
+                autostart: false,
+                api_keys: std::collections::HashMap::new(),
+            })
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(complete_res.status(), StatusCode::OK);
+        let s1: crate::wizard::WizardStatus = complete_res.json().await.unwrap();
+        assert!(s1.completed);
+        assert!(s1.offline);
+        assert_eq!(std::path::Path::new(&s1.workspace), custom_ws.as_path());
+        assert!(custom_ws.exists());
+
+        // 6. Test wizard test connection endpoint
+        let test_res = client
+            .post(format!("{base}/api/system/wizard/test"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(test_res.status(), StatusCode::OK);
+        let test_json: serde_json::Value = test_res.json().await.unwrap();
+        assert_eq!(test_json["status"], "ok");
+
+        // 7. Re-check wizard status via alias route /api/oblivion/system/wizard/status
+        let alias_res = client
+            .get(format!("{base}/api/oblivion/system/wizard/status"))
+            .header("x-jarvis-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(alias_res.status(), StatusCode::OK);
+        let s2: crate::wizard::WizardStatus = alias_res.json().await.unwrap();
+        assert!(s2.completed);
+        assert!(s2.offline);
     }
 }

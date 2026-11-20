@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Jarvis & Oblivion Windows Installer Specification (WiX Toolset)
+  Packages the standalone executive desktop and agent executable into a per-user MSI installer.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*"
+           Name="Jarvis - Executive Desktop &amp; Oblivion Agent"
+           Language="1033"
+           Version="1.0.0"
+           Manufacturer="Jarvis &amp; Oblivion Team"
+           UpgradeCode="{B7A4C674-6721-4E15-9988-5F5B36EC4A21}">
+
+    <Package InstallerVersion="200"
+             Compressed="yes"
+             InstallScope="perUser"
+             Description="Jarvis Executive Desktop &amp; Oblivion Agent Installer"
+             Comments="Personal AI Agent that runs on free model APIs and local models" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Jarvis is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Directory Structure (per-user in %LOCALAPPDATA%\Jarvis) -->
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="LocalAppDataFolder">
+        <Directory Id="INSTALLFOLDER" Name="Jarvis" />
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="ApplicationProgramsFolder" Name="Jarvis" />
+      </Directory>
+      <Directory Id="DesktopFolder" Name="Desktop" />
+    </Directory>
+
+    <!-- Components -->
+    <DirectoryRef Id="INSTALLFOLDER">
+      <!-- Main Standalone Executable -->
+      <Component Id="JarvisBinary" Guid="{C53B2F01-71E9-4A92-A7F1-3F79C6B13D50}">
+        <File Id="JarvisEXE"
+              Name="jarvis.exe"
+              Source="$(var.SourceDir)\jarvis.exe"
+              KeyPath="yes" />
+      </Component>
+
+      <!-- Optional Windows Startup Run Key -->
+      <Component Id="AutostartRegistry" Guid="{D4E3A120-65F2-4809-B81E-4731A85CE162}">
+        <RegistryValue Root="HKCU"
+                       Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                       Name="Jarvis"
+                       Value="&quot;[INSTALLFOLDER]jarvis.exe&quot; --web --no-open"
+                       Type="string"
+                       KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <!-- Start Menu Shortcut -->
+    <DirectoryRef Id="ApplicationProgramsFolder">
+      <Component Id="ApplicationShortcut" Guid="{E1F9A7B3-9D45-42CE-8302-86104F34A97B}">
+        <Shortcut Id="ApplicationStartMenuShortcut"
+                  Name="Jarvis"
+                  Description="Jarvis Executive Desktop &amp; Oblivion Agent"
+                  Target="[INSTALLFOLDER]jarvis.exe"
+                  Arguments="--web"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RemoveFolder Id="CleanUpShortCut" Directory="ApplicationProgramsFolder" On="uninstall" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\Jarvis\StartMenu"
+                       Name="installed"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <!-- Desktop Shortcut -->
+    <DirectoryRef Id="DesktopFolder">
+      <Component Id="DesktopShortcut" Guid="{F3D8C2B4-58E1-4693-9477-9E45B2D71A88}">
+        <Shortcut Id="ApplicationDesktopShortcut"
+                  Name="Jarvis"
+                  Description="Jarvis Executive Desktop &amp; Oblivion Agent"
+                  Target="[INSTALLFOLDER]jarvis.exe"
+                  Arguments="--web"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\Jarvis\Desktop"
+                       Name="installed"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <!-- Features -->
+    <Feature Id="MainApplication" Title="Jarvis Desktop" Level="1">
+      <ComponentRef Id="JarvisBinary" />
+      <ComponentRef Id="ApplicationShortcut" />
+      <ComponentRef Id="DesktopShortcut" />
+      <ComponentRef Id="AutostartRegistry" />
+    </Feature>
+
+  </Product>
+</Wix>

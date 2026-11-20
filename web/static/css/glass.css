@@ -1,0 +1,806 @@
+/* ==========================================================================
+   Jarvis OS: an iOS / macOS-style glass layer.
+
+   Loaded after style.css and oblivion.css, and scoped to body.os, so it only
+   changes looks; every id and class the scripts use stays the same.
+
+   Glass needs something behind it to blur, so each theme has its own original
+   wallpaper (layered gradients, no image files):
+     blue   = "Lagoon"   (light glass)
+     green  = "Meadow"   (light glass)
+     purple = "Dusk"     (light glass)
+     black  = "Midnight" (dark glass)
+   ========================================================================== */
+
+body.os {
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+
+    /* Wallpaper: Lagoon */
+    --wall-base: #0d3b8c;
+    --wall:
+        radial-gradient(42% 48% at 4% 96%, #22e1ff 0%, rgba(34, 225, 255, 0) 100%),
+        radial-gradient(40% 46% at 98% 4%, #9b6bff 0%, rgba(155, 107, 255, 0) 100%),
+        radial-gradient(34% 40% at 88% 92%, #ff6fae 0%, rgba(255, 111, 174, 0) 100%),
+        radial-gradient(38% 42% at 18% 8%, #4a9dff 0%, rgba(74, 157, 255, 0) 100%),
+        radial-gradient(70% 28% at 45% 62%, rgba(150, 225, 255, 0.55) 0%, rgba(150, 225, 255, 0) 100%),
+        radial-gradient(30% 30% at 60% 30%, rgba(80, 60, 220, 0.6) 0%, rgba(80, 60, 220, 0) 100%),
+        linear-gradient(165deg, #1650d6 0%, #0b2f8f 50%, #1a1070 100%);
+
+    /* Vibrant glass for widgets, menu bar and dock (white text on top) */
+    --vib-bg: rgba(255, 255, 255, 0.18);
+    --vib-bg-hover: rgba(255, 255, 255, 0.26);
+    --vib-border: rgba(255, 255, 255, 0.38);
+    --vib-text: #ffffff;
+    --vib-text-2: rgba(255, 255, 255, 0.72);
+    --vib-text-3: rgba(255, 255, 255, 0.5);
+    --vib-fill: rgba(255, 255, 255, 0.16);
+    --vib-fill-2: rgba(255, 255, 255, 0.28);
+
+    /* Window glass (macOS light) */
+    --win-bg: rgba(246, 246, 250, 0.72);
+    --win-bar: rgba(255, 255, 255, 0.38);
+    --win-border: rgba(255, 255, 255, 0.6);
+    --win-line: rgba(0, 0, 0, 0.08);
+    --win-text: #1d1d1f;
+
+    --accent: #0a84ff;
+    --blur: blur(30px) saturate(180%);
+    --blur-strong: blur(50px) saturate(190%);
+    --shadow-1: 0 1px 1px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.16);
+    --shadow-2: 0 2px 6px rgba(0, 0, 0, 0.12), 0 30px 80px rgba(0, 0, 0, 0.35);
+    --hi: inset 0 1px 0 rgba(255, 255, 255, 0.35);   /* top edge highlight */
+
+    --r-widget: 22px;
+    --r-window: 14px;
+    --r-control: 9px;
+
+    font-family: var(--font);
+    -webkit-font-smoothing: antialiased;
+}
+
+body.os[data-theme="green"] {
+    --wall-base: #0f4d3a;
+    --wall:
+        radial-gradient(42% 48% at 4% 96%, #ffd84d 0%, rgba(255, 216, 77, 0) 100%),
+        radial-gradient(40% 46% at 98% 4%, #2fe0b4 0%, rgba(47, 224, 180, 0) 100%),
+        radial-gradient(34% 40% at 88% 92%, #8ef07a 0%, rgba(142, 240, 122, 0) 100%),
+        radial-gradient(38% 42% at 18% 8%, #19b38a 0%, rgba(25, 179, 138, 0) 100%),
+        radial-gradient(70% 28% at 45% 62%, rgba(200, 255, 200, 0.45) 0%, rgba(200, 255, 200, 0) 100%),
+        linear-gradient(165deg, #1d8a62 0%, #0d5340 50%, #0a3d4d 100%);
+    --accent: #30b85e;
+}
+
+body.os[data-theme="purple"] {
+    --wall-base: #3b1d6e;
+    --wall:
+        radial-gradient(42% 48% at 4% 96%, #ff9a4d 0%, rgba(255, 154, 77, 0) 100%),
+        radial-gradient(40% 46% at 98% 4%, #c96bff 0%, rgba(201, 107, 255, 0) 100%),
+        radial-gradient(34% 40% at 88% 92%, #ff4f8f 0%, rgba(255, 79, 143, 0) 100%),
+        radial-gradient(38% 42% at 18% 8%, #7a5cff 0%, rgba(122, 92, 255, 0) 100%),
+        radial-gradient(70% 28% at 45% 62%, rgba(255, 190, 220, 0.4) 0%, rgba(255, 190, 220, 0) 100%),
+        linear-gradient(165deg, #7041d6 0%, #401f7a 50%, #6a1a52 100%);
+    --accent: #a15cf5;
+}
+
+body.os[data-theme="black"] {
+    --wall-base: #05060b;
+    --wall:
+        radial-gradient(42% 48% at 4% 96%, rgba(30, 90, 255, 0.7) 0%, rgba(30, 90, 255, 0) 100%),
+        radial-gradient(40% 46% at 98% 4%, rgba(150, 60, 255, 0.6) 0%, rgba(150, 60, 255, 0) 100%),
+        radial-gradient(34% 40% at 88% 92%, rgba(255, 50, 120, 0.4) 0%, rgba(255, 50, 120, 0) 100%),
+        radial-gradient(38% 42% at 18% 8%, rgba(20, 140, 220, 0.45) 0%, rgba(20, 140, 220, 0) 100%),
+        linear-gradient(165deg, #0b0d1a 0%, #05060b 55%, #100616 100%);
+
+    --vib-bg: rgba(40, 40, 46, 0.42);
+    --vib-bg-hover: rgba(60, 60, 68, 0.5);
+    --vib-border: rgba(255, 255, 255, 0.12);
+    --vib-fill: rgba(255, 255, 255, 0.1);
+    --vib-fill-2: rgba(255, 255, 255, 0.18);
+
+    --win-bg: rgba(30, 30, 34, 0.66);
+    --win-bar: rgba(50, 50, 56, 0.4);
+    --win-border: rgba(255, 255, 255, 0.12);
+    --win-line: rgba(255, 255, 255, 0.08);
+    --win-text: #f5f5f7;
+    --hi: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    --accent: #0a84ff;
+}
+
+/* ---------- wallpaper ----------
+   On the body itself: style.css gives html and body a solid background, which
+   would cover a separate layer behind the page. The first layer is a soft light
+   sweep, like a lit glass surface. */
+html:has(> body.os) { background: #0b2f8f; }
+html:has(> body.os[data-theme="black"]) { background: #05060b; }
+body.os {
+    background:
+        linear-gradient(115deg, rgba(255, 255, 255, 0) 30%, rgba(255, 255, 255, 0.08) 46%, rgba(255, 255, 255, 0) 60%),
+        var(--wall);
+    background-attachment: fixed;
+    background-color: var(--wall-base);
+    min-height: 100vh;
+}
+body.os .desktop-canvas,
+body.os .lock-screen { background: transparent; }
+
+/* ---------- type ---------- */
+body.os,
+body.os .bio-title, body.os .bio-link, body.os .widget-title, body.os .widget-title-row,
+body.os .sub-lbl, body.os .stat-unit, body.os .city-name, body.os .cond-text, body.os .menu-date,
+body.os .menu-clock, body.os .lock-date, body.os .lock-time, body.os .lock-role, body.os .lock-cta,
+body.os .lock-hint, body.os .split-frame-title, body.os .split-frame-badge, body.os .empty-widget-msg,
+body.os .widget-action-btn, body.os .enable-weather-btn, body.os .cap-item, body.os .cap-badge,
+body.os .engine-ver, body.os .engine-state, body.os .hw-spec-item, body.os .hw-recommendation-item,
+body.os .task-text, body.os .usage-target, body.os .usage-tokens, body.os .file-name, body.os .file-cat,
+body.os .weather-opt-in-text, body.os .temp-deg, body.os .icon-label, body.os .pane-badge,
+body.os .status-pill, body.os .msg-author {
+    font-family: var(--font);
+    letter-spacing: normal;
+    text-transform: none;
+}
+body.os code, body.os pre, body.os .workspace-path, body.os .model-badge, body.os .exec-terminal-log,
+body.os .session-id-pill, body.os .mem-time { font-family: var(--mono); }
+
+/* ==========================================================================
+   Lock screen (iOS)
+   ========================================================================== */
+body.os .lock-screen {
+    padding: 9vh 20px 18px;
+    justify-content: flex-start;
+    gap: 0;
+    background: transparent;
+    -webkit-backdrop-filter: blur(0px);
+    backdrop-filter: blur(0px);
+    transition: opacity 0.45s ease, transform 0.55s cubic-bezier(0.32, 0.72, 0, 1);
+}
+body.os .lock-screen::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: var(--wall);
+}
+body.os .lock-screen.hide {
+    transform: translateY(-6%);
+    visibility: hidden;
+    transition: opacity 0.45s ease, transform 0.55s cubic-bezier(0.32, 0.72, 0, 1), visibility 0s linear 0.55s;
+}
+body.os .lock-date {
+    font-size: 21px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.92);
+    text-shadow: 0 1px 12px rgba(0, 0, 0, 0.15);
+}
+body.os .lock-time {
+    font-family: var(--font-display);
+    font-size: clamp(96px, 15vw, 172px);
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -0.03em;
+    color: rgba(255, 255, 255, 0.9);
+    mix-blend-mode: overlay;
+    margin-top: 2px;
+}
+body.os .lock-center {
+    margin-top: auto;
+    margin-bottom: 26px;
+    padding: 14px 18px;
+    flex-direction: row;
+    gap: 12px;
+    min-width: min(360px, 90vw);
+    border-radius: 22px;
+    background: var(--vib-bg);
+    -webkit-backdrop-filter: var(--blur);
+    backdrop-filter: var(--blur);
+    box-shadow: var(--hi), var(--shadow-1);
+    border: 0.5px solid var(--vib-border);
+}
+body.os .lock-center .logo-wrapper { flex: none; }
+body.os .spinning-logo { width: 38px; height: 38px; animation: none; }
+body.os .lock-name { font-size: 15px; font-weight: 600; }
+body.os .lock-role { font-size: 13px; color: var(--vib-text-2); }
+body.os .lock-center { display: grid; grid-template-columns: 38px 1fr; grid-template-rows: auto auto; align-items: center; column-gap: 12px; row-gap: 0; }
+body.os .lock-center .logo-wrapper { grid-row: span 2; }
+body.os .lock-cta {
+    margin-bottom: 22px;
+    padding: 10px 20px;
+    font-size: 15px;
+    font-weight: 500;
+    border: 0.5px solid var(--vib-border);
+    background: var(--vib-bg);
+    -webkit-backdrop-filter: var(--blur);
+    backdrop-filter: var(--blur);
+    box-shadow: var(--hi);
+    animation: os-nudge 2.6s ease-in-out infinite;
+}
+@keyframes os-nudge { 50% { transform: translateY(-4px); } }
+/* The home indicator bar */
+body.os .lock-hint {
+    width: 134px;
+    height: 5px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.85);
+    font-size: 0;
+    color: transparent;
+}
+
+/* ==========================================================================
+   Menu bar (macOS)
+   ========================================================================== */
+body.os .menubar {
+    height: 30px;
+    padding: 0 12px;
+    background: rgba(255, 255, 255, 0.16);
+    -webkit-backdrop-filter: var(--blur);
+    backdrop-filter: var(--blur);
+    border-bottom: 0.5px solid rgba(255, 255, 255, 0.18);
+    box-shadow: none;
+    font-size: 13px;
+}
+body.os[data-theme="black"] .menubar { background: rgba(20, 20, 24, 0.45); }
+body.os .menubar-left, body.os .menubar-right { gap: 4px; }
+body.os .brand { gap: 8px; padding: 0 8px 0 2px; }
+body.os .brand-name { font-size: 13px; font-weight: 700; }
+body.os .brand-orb {
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    flex: none;
+    background: conic-gradient(from 210deg, #5ac8fa, #0a84ff, #bf5af2, #ff375f, #5ac8fa);
+    box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.55);
+}
+body.os .menu-item {
+    padding: 3px 9px;
+    border-radius: 5px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--vib-text);
+}
+body.os .menu-item:hover { background: rgba(255, 255, 255, 0.2); }
+body.os .menu-sep { display: none; }
+body.os .menu-offline-toggle,
+body.os .menu-oblivion {
+    height: 22px;
+    padding: 0 9px;
+    border-radius: 5px;
+    border: 0;
+    background: transparent;
+    color: var(--vib-text);
+    font: 500 13px var(--font);
+    box-shadow: none;
+}
+body.os .menu-offline-toggle:hover, body.os .menu-oblivion:hover,
+body.os .menu-oblivion.on { background: rgba(255, 255, 255, 0.2); }
+body.os .menu-date, body.os .menu-clock { font-size: 13px; font-weight: 500; padding: 0 3px; }
+body.os .menu-date { padding-left: 8px; }
+
+/* ==========================================================================
+   Desktop
+   ========================================================================== */
+body.os .desktop-canvas { padding: 46px 22px 110px 34px; gap: 24px; }
+body.os .desktop-main-area { gap: 26px; }
+
+/* Hero card */
+body.os .profile-header-card {
+    align-self: flex-start;
+    max-width: 640px;
+    padding: 16px 20px 16px 16px;
+    border-radius: var(--r-widget);
+    background: var(--vib-bg);
+    -webkit-backdrop-filter: var(--blur);
+    backdrop-filter: var(--blur);
+    border: 0.5px solid var(--vib-border);
+    box-shadow: var(--hi), var(--shadow-1);
+    gap: 16px;
+}
+body.os .profile-avatar-circle {
+    width: 64px;
+    height: 64px;
+    border: 0;
+    background: conic-gradient(from 210deg, #5ac8fa, #0a84ff, #bf5af2, #ff375f, #5ac8fa);
+    box-shadow: inset 0 0 0 4px rgba(255, 255, 255, 0.5), 0 8px 22px rgba(0, 0, 0, 0.25);
+}
+body.os .avatar-inner { font-size: 0; }
+body.os .bio-title { font-family: var(--font-display); font-size: 22px; font-weight: 700; letter-spacing: -0.01em; color: #fff; }
+body.os .bio-p { font-size: 14px; line-height: 1.45; color: var(--vib-text-2); }
+body.os .bio-link { font-size: 13px; font-weight: 600; text-decoration: none; color: #fff; opacity: 0.9; }
+body.os .bio-link:hover { opacity: 1; text-decoration: underline; }
+
+/* Desktop folders */
+body.os .desktop-icons-grid { grid-template-columns: repeat(auto-fill, 104px); gap: 18px 14px; }
+body.os .desktop-icon-item {
+    padding: 8px 4px 6px;
+    border-radius: 10px;
+    gap: 5px;
+    transition: background 0.15s;
+}
+body.os .desktop-icon-item:hover { transform: none; background: rgba(255, 255, 255, 0.14); }
+body.os .desktop-icon-item:active { background: rgba(255, 255, 255, 0.22); }
+body.os .icon-img-box {
+    width: 72px;
+    height: 60px;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+    font-size: 40px;   /* emoji added by "Add" still look right */
+    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.22));
+}
+body.os .icon-img-box svg { width: 72px; height: 60px; display: block; }
+body.os .icon-img-box.add-box {
+    width: 60px;
+    height: 60px;
+    margin: 0 6px;
+    border-radius: 16px;
+    border: 1.5px dashed rgba(255, 255, 255, 0.55);
+    background: rgba(255, 255, 255, 0.08);
+    font-size: 26px;
+    font-weight: 300;
+    filter: none;
+}
+body.os .icon-label {
+    font-size: 12px;
+    font-weight: 500;
+    max-width: 100px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+
+/* ---------- widgets (iOS / macOS) ---------- */
+body.os .desktop-right-widgets {
+    width: 316px;
+    gap: 14px;
+    padding: 2px 4px 8px 0;
+    max-height: calc(100vh - 150px);
+    scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent);
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent);
+}
+body.os .desktop-right-widgets::-webkit-scrollbar { display: none; }
+body.os .widget-box {
+    flex: none;
+    padding: 15px 16px;
+    gap: 9px;
+    border-radius: var(--r-widget);
+    background: var(--vib-bg);
+    -webkit-backdrop-filter: var(--blur);
+    backdrop-filter: var(--blur);
+    border: 0.5px solid var(--vib-border);
+    box-shadow: var(--hi), var(--shadow-1);
+    color: var(--vib-text);
+}
+body.os .widget-title,
+body.os .widget-title-row {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--vib-text-2);
+}
+body.os .widget-title-row { display: flex; justify-content: space-between; align-items: baseline; }
+body.os .sub-lbl { font-size: 12px; font-weight: 500; color: var(--vib-text-3); }
+body.os .stat-big {
+    font-family: var(--font-display);
+    font-size: 34px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: #fff;
+}
+body.os .stat-unit { font-size: 13px; color: var(--vib-text-2); }
+body.os .empty-widget-msg { font-size: 13px; font-style: normal; color: var(--vib-text-3); }
+body.os .temp-deg { font-family: var(--font-display); font-size: 30px; font-weight: 500; }
+body.os .city-name { font-size: 12px; font-weight: 600; color: var(--vib-text-2); }
+body.os .cond-text { font-size: 12px; color: var(--vib-text-2); }
+body.os .weather-opt-in-text { font-size: 13px; color: var(--vib-text-2); }
+
+body.os .widget-action-btn,
+body.os .enable-weather-btn {
+    height: 30px;
+    padding: 0 14px;
+    border-radius: 999px;
+    border: 0;
+    background: var(--vib-fill);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    transition: background 0.15s;
+}
+body.os .widget-action-btn:hover, body.os .enable-weather-btn:hover { background: var(--vib-fill-2); }
+
+body.os .tasks-progress-bar, body.os .exec-progress-bar {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--vib-fill);
+    border: 0;
+}
+body.os .tasks-progress-fill, body.os .exec-progress-fill { border-radius: 3px; background: #fff; }
+
+body.os .model-badge {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 6px;
+    border: 0;
+    background: var(--vib-fill);
+    color: #fff;
+    font-size: 11.5px;
+}
+body.os .cap-badge {
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 0;
+    font-size: 11px;
+    font-weight: 600;
+    background: rgba(52, 199, 89, 0.28);
+    color: #c8ffd6;
+}
+body.os .cap-item { font-size: 13px; color: var(--vib-text-2); }
+body.os .engine-ver { font-size: 17px; font-weight: 700; }
+body.os .hw-spec-item, body.os .hw-recommendation-item { font-size: 12.5px; color: var(--vib-text-2); }
+
+/* Wallpaper picker: circles preview each wallpaper */
+body.os .theme-circles-row { gap: 12px; }
+body.os .theme-circle {
+    width: 30px;
+    height: 30px;
+    border: 0;
+    box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.5), 0 2px 6px rgba(0, 0, 0, 0.2);
+    transition: transform 0.15s, box-shadow 0.15s;
+}
+body.os .theme-circle:hover { transform: scale(1.08); }
+body.os .theme-circle.active { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.95), 0 0 0 4px rgba(0, 0, 0, 0.18); }
+body.os .circle-blue { background: radial-gradient(circle at 25% 80%, #5ac8fa, transparent 60%), radial-gradient(circle at 80% 20%, #785cff, transparent 60%), #1b4fc4; }
+body.os .circle-green { background: radial-gradient(circle at 25% 80%, #ffd666, transparent 60%), radial-gradient(circle at 80% 20%, #30c8a0, transparent 60%), #1f7a5a; }
+body.os .circle-purple { background: radial-gradient(circle at 25% 80%, #ff965a, transparent 60%), radial-gradient(circle at 80% 20%, #be5aff, transparent 60%), #6a3fc8; }
+body.os .circle-black { background: radial-gradient(circle at 25% 80%, #1e46c8, transparent 60%), radial-gradient(circle at 80% 20%, #7832c8, transparent 60%), #05060b; }
+
+/* ==========================================================================
+   Dock (macOS)
+   ========================================================================== */
+body.os .desktop-bottom-dock {
+    bottom: 8px;
+    padding: 0;
+    background: none;
+    border: 0;
+    box-shadow: none;
+}
+body.os .dock-container {
+    padding: 0;
+    background: none;
+    border: 0;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+}
+body.os .dock-title { display: none; }
+body.os .dock-icons-row {
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    gap: 0;
+    height: 66px;
+    padding: 5px 6px;
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.24);
+    -webkit-backdrop-filter: blur(40px) saturate(200%);
+    backdrop-filter: blur(40px) saturate(200%);
+    /* hairline outside + bright rim inside, like the real dock */
+    box-shadow:
+        0 0 0 0.5px rgba(0, 0, 0, 0.14),
+        inset 0 0 0 0.5px rgba(255, 255, 255, 0.45),
+        inset 0 1px 0 rgba(255, 255, 255, 0.35),
+        0 14px 40px rgba(0, 0, 0, 0.22);
+    border: 0;
+    overflow: visible;
+}
+body.os[data-theme="black"] .dock-icons-row {
+    background: rgba(40, 40, 46, 0.42);
+    box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.5), inset 0 0 0 0.5px rgba(255, 255, 255, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 14px 40px rgba(0, 0, 0, 0.45);
+}
+
+body.os .dock-app-btn {
+    --s: 1;
+    position: relative;
+    width: calc(56px * var(--s));
+    height: calc(56px * var(--s));
+    margin: 0 2px;
+    padding: 0;
+    border: 0;
+    background: none;
+    box-shadow: none;
+    flex: none;
+    transition: width 0.12s cubic-bezier(0.25, 0.9, 0.3, 1), height 0.12s cubic-bezier(0.25, 0.9, 0.3, 1);
+}
+body.os .dock-app-btn:hover, body.os .dock-app-btn.active { background: none; transform: none; box-shadow: none; }
+body.os .dock-app-btn .app-icon {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: block;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    font-size: 0;           /* hide any emoji fallback */
+    filter: drop-shadow(0 1.5px 2px rgba(0, 0, 0, 0.22)) drop-shadow(0 4px 8px rgba(0, 0, 0, 0.12));
+    transition: filter 0.15s;
+}
+body.os .dock-app-btn .app-icon svg { display: block; width: 100%; height: 100%; }
+body.os .dock-app-btn:active .app-icon { filter: brightness(0.72) drop-shadow(0 1.5px 2px rgba(0, 0, 0, 0.22)); }
+
+/* Divider before the assistant */
+body.os .dock-divider {
+    width: 1px;
+    height: 46px;
+    margin: 0 7px 5px;
+    align-self: flex-end;
+    flex: none;
+    background: rgba(0, 0, 0, 0.18);
+    box-shadow: 1px 0 0 rgba(255, 255, 255, 0.28);
+}
+body.os[data-theme="black"] .dock-divider { background: rgba(255, 255, 255, 0.2); box-shadow: none; }
+
+/* Running indicator: a small dark dot under the icon (light dot on the dark dock) */
+body.os .dock-app-btn .app-icon::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: -4.5px;
+    width: 4px;
+    height: 4px;
+    margin-left: -2px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.62);
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+body.os[data-theme="black"] .dock-app-btn .app-icon::after { background: rgba(255, 255, 255, 0.8); }
+body.os .dock-app-btn.running .app-icon::after { opacity: 1; }
+
+/* Name bubble with a pointer, above the icon */
+body.os .dock-app-btn::before,
+body.os .dock-app-btn::after {
+    position: absolute;
+    left: 50%;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.1s;
+}
+body.os .dock-app-btn::before {
+    content: attr(data-label);
+    bottom: calc(100% + 14px);
+    transform: translateX(-50%);
+    padding: 4px 11px 5px;
+    border-radius: 7px;
+    white-space: nowrap;
+    font: 500 13px var(--font);
+    color: #1d1d1f;
+    background: rgba(240, 240, 242, 0.94);
+    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(20px);
+    box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.16), 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+body.os .dock-app-btn::after {
+    content: "";
+    bottom: calc(100% + 9px);
+    width: 10px;
+    height: 10px;
+    margin-left: -5px;
+    transform: rotate(45deg);
+    background: rgba(240, 240, 242, 0.94);
+    box-shadow: 0.5px 0.5px 0 rgba(0, 0, 0, 0.14);
+}
+body.os[data-theme="black"] .dock-app-btn::before { color: #f5f5f7; background: rgba(50, 50, 54, 0.94); box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.14), 0 6px 16px rgba(0, 0, 0, 0.45); }
+body.os[data-theme="black"] .dock-app-btn::after { background: rgba(50, 50, 54, 0.94); box-shadow: 0.5px 0.5px 0 rgba(255, 255, 255, 0.1); }
+body.os .dock-app-btn:hover::before, body.os .dock-app-btn:hover::after { opacity: 1; }
+
+/* Bounce when an app opens */
+body.os .dock-app-btn.bounce .app-icon { animation: os-bounce 0.7s cubic-bezier(0.3, 0.7, 0.4, 1); }
+@keyframes os-bounce { 25% { transform: translateY(-22px); } 50% { transform: translateY(0); } 70% { transform: translateY(-8px); } 85% { transform: translateY(0); } }
+
+body.os .ob-badge { top: -4px; right: -4px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); }
+
+/* ==========================================================================
+   Windows (macOS)
+   ========================================================================== */
+body.os .split-modal-overlay {
+    background: rgba(0, 0, 0, 0.08);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    padding: 40px 20px 96px;
+}
+body.os .split-modal-overlay.active .split-window-frame { animation: os-open 0.28s cubic-bezier(0.32, 0.72, 0, 1); }
+@keyframes os-open { from { opacity: 0; transform: scale(0.96) translateY(10px); } }
+
+body.os .split-window-frame {
+    border-radius: var(--r-window);
+    background: var(--win-bg);
+    -webkit-backdrop-filter: var(--blur-strong);
+    backdrop-filter: var(--blur-strong);
+    border: 0.5px solid var(--win-border);
+    box-shadow: var(--hi), var(--shadow-2);
+    overflow: hidden;
+}
+body.os .split-window-frame.maximized {
+    width: calc(100vw - 24px) !important;
+    max-width: none !important;
+    height: calc(100vh - 136px) !important;
+    max-height: none !important;
+}
+body.os .split-frame-header {
+    position: relative;
+    height: 44px;
+    padding: 0 14px;
+    background: var(--win-bar);
+    border-bottom: 0.5px solid var(--win-line);
+}
+body.os .split-frame-title {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: 50%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--win-text);
+    opacity: 0.85;
+}
+body.os .split-frame-badge {
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    background: rgba(10, 132, 255, 0.14);
+    color: var(--accent);
+}
+
+/* Traffic lights */
+body.os .traffic-lights { gap: 8px; position: relative; z-index: 1; }
+body.os .tl {
+    width: 12px;
+    height: 12px;
+    padding: 0;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.22);
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 8px 8px;
+}
+body.os .tl-close { background-color: #ff5f57; }
+body.os .tl-min { background-color: #febc2e; }
+body.os .tl-max { background-color: #28c840; }
+body.os .traffic-lights:hover .tl-close { background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><path d="M2 2l4 4M6 2L2 6" stroke="%234d0000" stroke-width="1.2" stroke-linecap="round"/></svg>'); }
+body.os .traffic-lights:hover .tl-min { background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><path d="M1.5 4h5" stroke="%235a3c00" stroke-width="1.2" stroke-linecap="round"/></svg>'); }
+body.os .traffic-lights:hover .tl-max { background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><path d="M2 5.5V2h3.5zM6 2.5V6H2.5z" fill="%23004d00"/></svg>'); }
+
+/* The workspace window is a dark "pro app" window in every theme */
+body.os #splitModal .split-window-frame {
+    --win-bg: rgba(24, 26, 34, 0.7);
+    --win-bar: rgba(40, 42, 52, 0.45);
+    --win-border: rgba(255, 255, 255, 0.14);
+    --win-line: rgba(255, 255, 255, 0.08);
+    --win-text: #f5f5f7;
+    --hi: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+body.os .split-left-chat { background: rgba(255, 255, 255, 0.03); border-right: 0.5px solid rgba(255, 255, 255, 0.08); }
+body.os .split-right-workspace { background: rgba(0, 0, 0, 0.12); }
+body.os .exec-card {
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 0.5px solid rgba(255, 255, 255, 0.1);
+}
+body.os .exec-terminal-log { border-radius: 10px; background: rgba(0, 0, 0, 0.35); border: 0.5px solid rgba(255, 255, 255, 0.08); }
+body.os .user-msg { background: var(--accent); color: #fff; font-weight: 500; border-radius: 18px 18px 5px 18px; }
+body.os .jarvis-msg { border-radius: 18px 18px 18px 5px; }
+body.os .split-chat-form button { background: var(--accent); color: #fff; border-radius: 999px; font-weight: 600; }
+
+/* Light windows (memory, sessions, files, models) keep their own text colours;
+   only their solid backgrounds become glass. */
+body.os .memory-window-frame,
+body.os .sessions-window-frame,
+body.os .files-window-frame,
+body.os .models-window-frame {
+    background: var(--win-bg);
+    border-color: var(--win-border);
+    color: var(--win-text);
+}
+body.os .memory-window-body, body.os .sessions-window-body,
+body.os .files-window-body, body.os .models-window-body { background: transparent; }
+
+/* Controls inside windows */
+body.os .split-window-frame input[type="text"],
+body.os .split-window-frame input[type="search"],
+body.os .split-window-frame input:not([type]),
+body.os .split-window-frame select,
+body.os .split-window-frame textarea {
+    border-radius: var(--r-control);
+    border: 0.5px solid var(--win-line);
+    background: rgba(255, 255, 255, 0.55);
+    color: var(--win-text);
+    font-family: var(--font);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
+    outline: none;
+    transition: box-shadow 0.15s;
+}
+body.os[data-theme="black"] .split-window-frame input,
+body.os[data-theme="black"] .split-window-frame select,
+body.os[data-theme="black"] .split-window-frame textarea,
+body.os #splitModal input,
+body.os #splitModal textarea { background: rgba(255, 255, 255, 0.07); color: #f5f5f7; border-color: rgba(255, 255, 255, 0.1); }
+body.os .split-window-frame input:focus,
+body.os .split-window-frame select:focus,
+body.os .split-window-frame textarea:focus { box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--accent) 35%, transparent); }
+
+body.os .mem-btn, body.os .mem-btn-sm, body.os .file-action-btn, body.os .quick-chip {
+    border-radius: 7px;
+    font-family: var(--font);
+    font-weight: 500;
+}
+body.os .mem-btn-primary { background: var(--accent); border-color: transparent; color: #fff; }
+
+/* Segmented controls (window tabs, filters) */
+body.os .models-nav-tabs, body.os .files-filter-pills, body.os .mem-pills-row {
+    padding: 2px;
+    gap: 0;
+    border-radius: 9px;
+    background: rgba(118, 118, 128, 0.14);
+}
+body.os .models-tab-btn, body.os .files-pill, body.os .mem-type-pill {
+    border: 0;
+    border-radius: 7px;
+    font-family: var(--font);
+    font-weight: 500;
+    background: transparent;
+    box-shadow: none;
+}
+body.os .models-tab-btn.active, body.os .files-pill.active, body.os .mem-type-pill.active {
+    background: rgba(255, 255, 255, 0.85);
+    color: #1d1d1f;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+}
+body.os[data-theme="black"] .models-tab-btn.active, body.os[data-theme="black"] .files-pill.active,
+body.os[data-theme="black"] .mem-type-pill.active { background: rgba(99, 99, 102, 0.75); color: #fff; }
+
+/* Cards inside windows */
+body.os .memory-card, body.os .session-card, body.os .file-card-item, body.os .model-card,
+body.os .routing-class-card, body.os .model-speed-test-card, body.os .models-rec-box, body.os .routing-offline-card {
+    border-radius: 12px;
+    box-shadow: 0 0 0 0.5px var(--win-line), 0 1px 3px rgba(0, 0, 0, 0.05);
+    border-color: transparent;
+}
+
+/* Scrollbars that appear only as thin overlays */
+body.os ::-webkit-scrollbar { width: 9px; height: 9px; }
+body.os ::-webkit-scrollbar-thumb { border-radius: 5px; border: 2px solid transparent; background: rgba(128, 128, 128, 0.45); background-clip: padding-box; }
+body.os ::-webkit-scrollbar-track { background: transparent; }
+
+/* ==========================================================================
+   Assistant panel: match the menu bar height and the window corners
+   ========================================================================== */
+body.os .ob-panel { top: 38px; bottom: 88px; border-radius: 24px; }
+@media (max-height: 700px) { body.os .ob-panel { bottom: 10px; } }
+
+/* ==========================================================================
+   Small screens and reduced motion
+   ========================================================================== */
+@media (max-width: 1100px) {
+    body.os .desktop-right-widgets { width: 280px; }
+}
+@media (max-width: 860px) {
+    body.os .desktop-canvas { flex-direction: column; padding: 44px 14px 110px; }
+    body.os .desktop-right-widgets { width: 100%; max-height: none; -webkit-mask-image: none; mask-image: none; }
+    body.os .dock-app-btn { width: calc(46px * var(--s)); height: calc(46px * var(--s)); margin: 0 1px; }
+    body.os .dock-icons-row { height: 56px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    body.os *, body.os *::before, body.os *::after { animation: none !important; transition: none !important; }
+}
+/* Older browsers without backdrop-filter: use more opaque surfaces */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    body.os { --vib-bg: rgba(30, 60, 140, 0.75); --win-bg: rgba(246, 246, 250, 0.97); }
+    body.os[data-theme="black"] { --vib-bg: rgba(30, 30, 34, 0.9); --win-bg: rgba(30, 30, 34, 0.97); }
+}

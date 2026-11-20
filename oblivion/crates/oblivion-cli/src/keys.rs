@@ -36,6 +36,26 @@ pub fn for_provider(p: &ProviderEntry) -> Option<String> {
     lookup(&p.name, p.api_key_env.as_deref()).map(|(k, _)| k)
 }
 
+pub fn save(provider: &str, key: &str) -> Result<()> {
+    if provider.trim().is_empty() || provider.contains(char::is_whitespace) {
+        bail!("invalid provider name: {provider}");
+    }
+    let key = key.trim();
+    if key.is_empty() {
+        bail!("no key entered; nothing saved");
+    }
+    if key.chars().any(char::is_whitespace) || key.len() > 200 {
+        bail!(
+            "that does not look like an API key ({} characters, contains spaces)",
+            key.chars().count()
+        );
+    }
+    keyring::Entry::new(SERVICE, provider)
+        .and_then(|e| e.set_password(key))
+        .context("could not save the key in the system key store")?;
+    Ok(())
+}
+
 pub fn set(provider: &str) -> Result<()> {
     if provider.trim().is_empty() || provider.contains(char::is_whitespace) {
         bail!("give the provider name from oblivion.toml, e.g. `oblivion --set-key groq`");
@@ -44,23 +64,10 @@ pub fn set(provider: &str) -> Result<()> {
         "Paste the API key for {provider} (input is hidden): "
     ))
     .context("could not read the key from the terminal")?;
-    let key = key.trim();
-    if key.is_empty() {
-        bail!("no key entered; nothing saved");
-    }
-    if key.chars().any(char::is_whitespace) || key.len() > 200 {
-        bail!(
-            "that does not look like an API key ({} characters, contains spaces). \
-             Nothing was saved. Run `oblivion --set-key {provider}` on its own line and paste only the key.",
-            key.chars().count()
-        );
-    }
-    keyring::Entry::new(SERVICE, provider)
-        .and_then(|e| e.set_password(key))
-        .context("could not save the key in the system key store")?;
+    save(provider, &key)?;
     println!(
         "Saved the {provider} key ({} characters) in the system key store.",
-        key.chars().count()
+        key.trim().chars().count()
     );
     if let Ok(v) = std::env::var(format!("{}_API_KEY", provider.to_ascii_uppercase())) {
         if !v.trim().is_empty() {

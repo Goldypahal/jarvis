@@ -1,6 +1,7 @@
 //! `oblivion` command-line interface (SRS FR-70/71).
 
 mod app;
+pub mod autostart;
 mod commands;
 mod keys;
 #[cfg(test)]
@@ -8,6 +9,7 @@ mod testkit;
 pub mod trace;
 mod tui;
 mod web;
+pub mod wizard;
 
 use std::io::{BufRead, IsTerminal, Write};
 use std::path::PathBuf;
@@ -83,6 +85,14 @@ struct Cli {
     /// Detect system hardware (RAM, GPU, VRAM) and print model recommendation, then exit.
     #[arg(long, short = 'H')]
     hardware: bool,
+
+    /// First-run onboarding wizard (pick workspace, set keys or offline mode, autostart).
+    #[arg(long)]
+    wizard: bool,
+
+    /// Manage Windows autostart on boot (on, off, or status).
+    #[arg(long, value_name = "ACTION")]
+    autostart: Option<String>,
 
     /// Force offline mode: send zero data to cloud models, use only local models (Ollama).
     #[arg(long)]
@@ -394,6 +404,39 @@ async fn run() -> Result<()> {
 
     if cli.init {
         return init_config(&config_path);
+    }
+    if cli.wizard {
+        return wizard::run_cli_wizard(&config_path);
+    }
+    if let Some(action) = &cli.autostart {
+        match action.to_ascii_lowercase().as_str() {
+            "on" | "enable" | "true" => {
+                let res = autostart::set_enabled(true)?;
+                println!(
+                    "Autostart enabled. Command: {}",
+                    res.command.unwrap_or_default()
+                );
+            }
+            "off" | "disable" | "false" => {
+                autostart::set_enabled(false)?;
+                println!("Autostart disabled.");
+            }
+            "status" => {
+                let st = autostart::get_status()?;
+                if st.enabled {
+                    println!(
+                        "Autostart is enabled (command: {}).",
+                        st.command.unwrap_or_default()
+                    );
+                } else {
+                    println!("Autostart is disabled.");
+                }
+            }
+            other => {
+                bail!("unknown autostart action '{other}'; use 'on', 'off', or 'status'");
+            }
+        }
+        return Ok(());
     }
     if cli.hardware {
         print_hardware();
@@ -765,6 +808,7 @@ async fn run() -> Result<()> {
                 port: cli.port,
                 open: !cli.no_open,
                 offline: cli.offline,
+                config_path: Some(config_path),
             };
             run_web(worker, controls, store.clone(), ev_rx, opts, &cfg).await
         } else {
@@ -941,6 +985,7 @@ struct WebOptions {
     port: u16,
     open: bool,
     offline: bool,
+    config_path: Option<PathBuf>,
 }
 
 /// `oblivion --web`: serve the page, then run the agent until Ctrl+C or /exit.
@@ -974,6 +1019,7 @@ async fn run_web(
         store,
         ollama,
         routing: Arc::new(std::sync::RwLock::new(routing_cfg)),
+        config_path: opts.config_path,
     };
     tokio::spawn(web::pump(events, bus));
     tokio::spawn(async move {

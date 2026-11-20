@@ -389,8 +389,18 @@ fn default_ollama_endpoint() -> String {
     "http://localhost:11434".to_string()
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct SetupSection {
+    #[serde(default)]
+    pub completed: bool,
+    #[serde(default)]
+    pub workspace: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
+    #[serde(default)]
+    pub setup: SetupSection,
     #[serde(default)]
     pub agent: AgentSettings,
     #[serde(default)]
@@ -492,6 +502,83 @@ pub fn enable_browser_in(text: &str, mode: &str) -> String {
     let mut joined = out.join("\n");
     joined.push('\n');
     joined
+}
+
+/// Updates or inserts `[setup]` and `offline` settings in config text.
+pub fn apply_setup_to_config_text(
+    text: &str,
+    completed: bool,
+    workspace: Option<&str>,
+    offline: Option<bool>,
+) -> String {
+    let mut out: Vec<String> = text.lines().map(|s| s.to_string()).collect();
+    let setup_idx = out.iter().position(|l| l.trim() == "[setup]");
+
+    if let Some(idx) = setup_idx {
+        let mut i = idx + 1;
+        let mut found_completed = false;
+        let mut found_workspace = false;
+        while i < out.len() && !out[i].trim().starts_with('[') {
+            let trimmed = out[i].trim();
+            if trimmed.starts_with("completed") {
+                out[i] = format!("completed = {completed}");
+                found_completed = true;
+            } else if trimmed.starts_with("workspace") {
+                if let Some(ws) = workspace {
+                    out[i] = format!("workspace = \"{}\"", ws.replace('\\', "/"));
+                    found_workspace = true;
+                }
+            }
+            i += 1;
+        }
+        if !found_completed {
+            out.insert(idx + 1, format!("completed = {completed}"));
+        }
+        if !found_workspace {
+            if let Some(ws) = workspace {
+                out.insert(
+                    idx + 1,
+                    format!("workspace = \"{}\"", ws.replace('\\', "/")),
+                );
+            }
+        }
+    } else {
+        out.push(String::new());
+        out.push("[setup]".to_string());
+        out.push(format!("completed = {completed}"));
+        if let Some(ws) = workspace {
+            out.push(format!("workspace = \"{}\"", ws.replace('\\', "/")));
+        }
+    }
+
+    if let Some(off) = offline {
+        let routing_idx = out.iter().position(|l| l.trim() == "[routing]");
+        if let Some(r_idx) = routing_idx {
+            let mut i = r_idx + 1;
+            let mut found_off = false;
+            while i < out.len() && !out[i].trim().starts_with('[') {
+                if out[i].trim().starts_with("offline") {
+                    out[i] = format!("offline = {off}");
+                    found_off = true;
+                    break;
+                }
+                i += 1;
+            }
+            if !found_off {
+                out.insert(r_idx + 1, format!("offline = {off}"));
+            }
+        } else {
+            out.push(String::new());
+            out.push("[routing]".to_string());
+            out.push(format!("offline = {off}"));
+        }
+    }
+
+    let mut res = out.join("\n");
+    if !res.ends_with('\n') {
+        res.push('\n');
+    }
+    res
 }
 
 fn default_browser_mode() -> String {
@@ -769,5 +856,24 @@ models = ["openai/gpt-oss-120b"]
             .unwrap()
             .validate()
             .is_err());
+    }
+
+    #[test]
+    fn setup_section_apply_and_parse() {
+        let base = "[agent]\nmax_steps = 50\n";
+        let updated =
+            apply_setup_to_config_text(base, true, Some("D:/Projects/Jarvis"), Some(true));
+        let cfg = Config::parse(&updated).unwrap();
+        assert!(cfg.setup.completed);
+        assert_eq!(cfg.setup.workspace.as_deref(), Some("D:/Projects/Jarvis"));
+        assert!(cfg.routing.offline);
+
+        // Update existing setup section
+        let reupdated =
+            apply_setup_to_config_text(&updated, false, Some("C:/Workspace"), Some(false));
+        let cfg2 = Config::parse(&reupdated).unwrap();
+        assert!(!cfg2.setup.completed);
+        assert_eq!(cfg2.setup.workspace.as_deref(), Some("C:/Workspace"));
+        assert!(!cfg2.routing.offline);
     }
 }

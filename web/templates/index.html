@@ -9,16 +9,38 @@
     <link rel="stylesheet" href="/static/fonts/fonts.css">
     <link rel="stylesheet" href="/static/css/style.css">
     <link rel="stylesheet" href="/static/css/oblivion.css">
+    <link rel="stylesheet" href="/static/css/glass.css">
 </head>
-<body data-theme="blue">
+<body class="os" data-theme="blue">
+
+    <!-- Icon sprite for desktop folders (static/css/glass.css) -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+        <defs>
+            <linearGradient id="os-shine" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".38"/><stop offset=".48" stop-color="#fff" stop-opacity=".06"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/></linearGradient><linearGradient id="ic-term" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6a6e78"/><stop offset="1" stop-color="#22242a"/></linearGradient><linearGradient id="ic-term-scr" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#161920"/><stop offset="1" stop-color="#262a33"/></linearGradient><linearGradient id="ic-files" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6fd6ff"/><stop offset="1" stop-color="#0a72f0"/></linearGradient><linearGradient id="ic-files-front" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#dcefff"/></linearGradient><linearGradient id="ic-web" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#dde6f1"/></linearGradient><linearGradient id="ic-web-globe" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4ccfff"/><stop offset="1" stop-color="#0a5ce6"/></linearGradient><linearGradient id="ic-skills" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffc04d"/><stop offset="1" stop-color="#ff6e00"/></linearGradient><linearGradient id="ic-mcp" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#cf8cff"/><stop offset="1" stop-color="#5b45f5"/></linearGradient><linearGradient id="ic-mem" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff86ab"/><stop offset="1" stop-color="#f0164a"/></linearGradient><linearGradient id="ic-sess" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe766"/><stop offset="1" stop-color="#ffa200"/></linearGradient><linearGradient id="ic-models" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4fdc80"/><stop offset="1" stop-color="#169a43"/></linearGradient><linearGradient id="ic-orb-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#252a4d"/><stop offset="1" stop-color="#090b1c"/></linearGradient><linearGradient id="ic-orb" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5ac8fa"/><stop offset=".35" stop-color="#0a84ff"/><stop offset=".65" stop-color="#bf5af2"/><stop offset="1" stop-color="#ff375f"/></linearGradient><radialGradient id="ic-orb-glow" cx=".35" cy=".3" r=".75"><stop offset="0" stop-color="#fff" stop-opacity=".25"/><stop offset=".6" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".25"/></radialGradient>
+            <linearGradient id="os-fold-back" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4fb0f5"/><stop offset="1" stop-color="#2386e6"/></linearGradient>
+            <linearGradient id="os-fold-front" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8fd3ff"/><stop offset="1" stop-color="#47a8f2"/></linearGradient>
+        </defs>
+        <symbol id="os-folder" viewBox="0 0 72 60">
+            <path d="M6 10a5 5 0 0 1 5-5h15.5a5 5 0 0 1 3.6 1.5L33.5 10H61a5 5 0 0 1 5 5v36a5 5 0 0 1-5 5H11a5 5 0 0 1-5-5z" fill="url(#os-fold-back)"/>
+            <path d="M4 20a5 5 0 0 1 5-5h54a5 5 0 0 1 5 5v31a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z" fill="url(#os-fold-front)"/>
+            <path d="M4.5 20a4.5 4.5 0 0 1 4.5-4.5h54a4.5 4.5 0 0 1 4.5 4.5" fill="none" stroke="#ffffff" stroke-opacity=".6" stroke-width="1"/>
+        </symbol>
+        <g fill="none" stroke="#1f6fc4" stroke-opacity=".75" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <symbol id="g-doc" viewBox="0 0 24 24"><path d="M7 3.5h6.5L18 8v12.5H7z M13 3.5V8.5h5 M9.5 12.5h6 M9.5 16h6" fill="none" stroke="#1f6fc4" stroke-opacity=".75" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+            <symbol id="g-photo" viewBox="0 0 24 24"><g fill="none" stroke="#1f6fc4" stroke-opacity=".75" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="M4 17.5l5-4.5 3.5 3 3-2.5 4.5 4"/></g></symbol>
+            <symbol id="g-share" viewBox="0 0 24 24"><g fill="none" stroke="#1f6fc4" stroke-opacity=".75" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="9" r="3"/><path d="M3.5 19c.6-3 2.8-5 5.5-5s4.9 2 5.5 5"/><circle cx="16.5" cy="8" r="2.4"/><path d="M15.5 13.2c2.6-.3 4.6 1.4 5 4.3"/></g></symbol>
+            <symbol id="g-note" viewBox="0 0 24 24"><g fill="none" stroke="#1f6fc4" stroke-opacity=".75" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3.5" width="14" height="17" rx="2"/><path d="M8.5 8h7M8.5 11.5h7M8.5 15h4"/></g></symbol>
+            <symbol id="g-case" viewBox="0 0 24 24"><g fill="none" stroke="#1f6fc4" stroke-opacity=".75" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="7.5" width="17" height="12" rx="2.5"/><path d="M9 7.5V5.5a1.5 1.5 0 0 1 1.5-1.5h3A1.5 1.5 0 0 1 15 5.5v2M3.5 12.5h17"/></g></symbol>
+        </g>
+    </svg>
 
     <!-- ==========================================================================
          1. iOS Lock Screen Loader
          ========================================================================== -->
     <div id="loader" class="lock-screen">
         <div class="lock-clock">
-            <div id="lock-date" class="lock-date">WEDNESDAY, AUG 12</div>
-            <div id="lock-time" class="lock-time">05:47 AM</div>
+            <div id="lock-date" class="lock-date"></div>
+            <div id="lock-time" class="lock-time"></div>
         </div>
 
         <div class="lock-center">
@@ -29,16 +51,16 @@
                     <circle cx="50" cy="50" r="10" fill="currentColor" />
                 </svg>
             </div>
-            <div class="lock-name">JARVIS EXECUTIVE OS</div>
-            <div class="lock-role">AUTONOMOUS AGENT DESKTOP</div>
+            <div class="lock-name">Jarvis</div>
+            <div class="lock-role">Your assistant is ready</div>
         </div>
 
         <div class="lock-cta" id="unlock-btn">
-            <span>PRESS OR CLICK TO UNLOCK DESKTOP</span>
+            <span>Click to unlock</span>
             <svg viewBox="0 0 24 24" width="14" height="14"><path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" stroke-width="2" fill="none"/></svg>
         </div>
 
-        <div class="lock-hint">JARVIS DESKTOP • TOUCH OR CLICK ANYWHERE</div>
+        <div class="lock-hint" aria-hidden="true"></div>
     </div>
 
     <!-- ==========================================================================
@@ -47,23 +69,17 @@
     <header id="menubar" class="menubar">
         <div class="menubar-left">
             <div class="brand">
-                <span class="apple-icon"></span>
+                <span class="brand-orb" aria-hidden="true"></span>
                 <span class="brand-name">Jarvis Core</span>
             </div>
             <div class="menu-nav hide-mobile">
                 <span class="menu-item">Edit</span>
-                <span class="menu-item">Help</span>
+                <span class="menu-item" id="menu-help-wizard" style="cursor:pointer;" title="Open First-Run Setup Wizard">Setup Wizard</span>
                 <span class="menu-item">Customization</span>
             </div>
         </div>
 
         <div class="menubar-right">
-            <div class="social-icons hide-mobile">
-                <span class="social-icon">📷</span>
-                <span class="social-icon">💼</span>
-                <span class="social-icon">𝕏</span>
-            </div>
-            <span class="menu-sep hide-mobile">|</span>
             <button class="menu-offline-toggle" id="menubar-offline-toggle" title="Offline Mode: force local models only (Ollama)">
                 <span class="offline-icon" id="menubar-offline-icon">🌐</span>
                 <span class="offline-label" id="menubar-offline-label">Cloud + Local</span>
@@ -79,12 +95,7 @@
     <!-- ==========================================================================
          3. Left Side Badge (W. Nominee Drawer Launcher)
          ========================================================================== -->
-    <aside id="left-badge" class="left-badge-tab">
-        <div class="badge-pill">
-            <span class="badge-w">W.</span>
-            <span class="badge-sub">JARVIS CORE</span>
-        </div>
-    </aside>
+
 
     <!-- ==========================================================================
          4. Main Desktop Canvas Layout
@@ -100,9 +111,9 @@
                     <div class="avatar-inner">🧠</div>
                 </div>
                 <div class="profile-bio-text">
-                    <h2 class="bio-title">JARVIS EXECUTIVE SYSTEM</h2>
+                    <h2 class="bio-title">Jarvis</h2>
                     <p class="bio-p">Jarvis executive desktop powered by the Oblivion Rust engine. Sandboxed tools, approval workflows, skills, MCP connectors, and live execution tracing.</p>
-                    <a href="#" id="bio-learn-more" class="bio-link">MORE ABOUT JARVIS →</a>
+                    <a href="#" id="bio-learn-more" class="bio-link">More about Jarvis →</a>
                 </div>
             </section>
 
@@ -111,38 +122,38 @@
                 
                 <!-- Icon 1: Research Papers -->
                 <div class="desktop-icon-item" data-action="open-research">
-                    <div class="icon-img-box">📄</div>
+                    <div class="icon-img-box"><svg viewBox="0 0 72 60" aria-hidden="true"><use href="#os-folder"/><use href="#g-doc" x="24" y="24" width="24" height="24"/></svg></div>
                     <span class="icon-label">Research Papers</span>
                 </div>
 
                 <!-- Icon 2: Pictures Uploaded & Generated -->
                 <div class="desktop-icon-item" data-action="open-pictures">
-                    <div class="icon-img-box">🎨</div>
+                    <div class="icon-img-box"><svg viewBox="0 0 72 60" aria-hidden="true"><use href="#os-folder"/><use href="#g-photo" x="24" y="24" width="24" height="24"/></svg></div>
                     <span class="icon-label">Pictures Uploaded & Generated</span>
                 </div>
 
                 <!-- Icon 3: Documents Shared -->
                 <div class="desktop-icon-item" data-action="open-docs">
-                    <div class="icon-img-box">📁</div>
+                    <div class="icon-img-box"><svg viewBox="0 0 72 60" aria-hidden="true"><use href="#os-folder"/><use href="#g-share" x="24" y="24" width="24" height="24"/></svg></div>
                     <span class="icon-label">Documents Shared</span>
                 </div>
 
                 <!-- Icon 4: Notebook -->
                 <div class="desktop-icon-item" data-action="open-notebook">
-                    <div class="icon-img-box">📓</div>
+                    <div class="icon-img-box"><svg viewBox="0 0 72 60" aria-hidden="true"><use href="#os-folder"/><use href="#g-note" x="24" y="24" width="24" height="24"/></svg></div>
                     <span class="icon-label">Notebook</span>
                 </div>
 
                 <!-- Icon 5: Case Studies -->
                 <div class="desktop-icon-item" data-action="open-casestudies">
-                    <div class="icon-img-box">📂</div>
+                    <div class="icon-img-box"><svg viewBox="0 0 72 60" aria-hidden="true"><use href="#os-folder"/><use href="#g-case" x="24" y="24" width="24" height="24"/></svg></div>
                     <span class="icon-label">Case Studies</span>
                 </div>
 
                 <!-- Icon 6: Customizable / Add New Icon -->
                 <div class="desktop-icon-item add-icon-item" id="add-custom-icon-btn">
                     <div class="icon-img-box add-box">+</div>
-                    <span class="icon-label">Add Custom Node</span>
+                    <span class="icon-label">New Folder</span>
                 </div>
 
             </section>
@@ -154,7 +165,7 @@
 
             <!-- Theme Picker Widget (4 Color Circles) -->
             <div class="widget-box theme-picker-widget">
-                <div class="widget-title">CHOOSE A THEME</div>
+                <div class="widget-title">Wallpaper</div>
                 <div class="theme-circles-row">
                     <button class="theme-circle circle-blue active" data-theme="blue" title="Ice Blue Theme"></button>
                     <button class="theme-circle circle-black" data-theme="black" title="Dark Charcoal Theme"></button>
@@ -215,13 +226,13 @@
             <!-- Real Widget 3: Files Created This Week (B7) -->
             <div class="widget-box files-widget" id="files-created-widget">
                 <div class="widget-title-row">
-                    <span>FILES CREATED THIS WEEK</span>
+                    <span>FILES CREATED</span>
                     <span class="sub-lbl" id="files-count-lbl">0 files</span>
                 </div>
                 <div class="files-widget-list" id="files-widget-list">
                     <div class="empty-widget-msg">No files created this week</div>
                 </div>
-                <button class="widget-action-btn" id="open-files-widget-btn">Browse Workspace Files →</button>
+                <button class="widget-action-btn" id="open-files-widget-btn">Browse files</button>
             </div>
 
             <!-- Real Widget 4: Long-Term Memory (B7) -->
@@ -233,7 +244,7 @@
                 <div class="memory-widget-breakdown" id="memory-widget-breakdown">
                     <div class="empty-widget-msg">No memories stored</div>
                 </div>
-                <button class="widget-action-btn" id="open-memory-widget-btn">View Memory Vault (Ctrl+M) →</button>
+                <button class="widget-action-btn" id="open-memory-widget-btn">Open memory</button>
             </div>
 
             <!-- Real Widget 5: Engine & Model Status (B7) -->
@@ -259,7 +270,7 @@
                     <div class="hw-spec-item" id="engine-gpu-spec"><span class="hw-icon">🎮</span> <span id="engine-gpu-text">-- GPU</span></div>
                     <div class="hw-recommendation-item" id="engine-rec-spec"><span class="hw-icon">⚡</span> <span id="engine-rec-text">Recommended: --</span></div>
                 </div>
-                <button class="widget-action-btn" id="open-models-widget-btn" style="margin-top: 6px;">Manage Local Models (Ctrl+L) →</button>
+                <button class="widget-action-btn" id="open-models-widget-btn" style="margin-top: 6px;">Manage models</button>
                 <div class="engine-capabilities-list">
                     <div class="cap-item"><span>Sandboxed Tools</span> <span class="cap-badge active">active</span></div>
                     <div class="cap-item"><span>Long-Term Memory</span> <span class="cap-badge active">active</span></div>
@@ -272,36 +283,34 @@
         <!-- Bottom Dock (Jarvis Handled Applications + Chat Icon) -->
         <nav class="desktop-bottom-dock">
             <div class="dock-container">
-                <span class="dock-title">TECH STACK / JARVIS CAPABILITIES</span>
                 <div class="dock-icons-row">
-                    <button class="dock-app-btn" title="Terminal &amp; Command Execution" data-action="terminal">
-                        <div class="app-icon py-icon">💻</div>
+                    <button class="dock-app-btn" data-action="terminal" data-label="Terminal" aria-label="Terminal">
+                        <div class="app-icon py-icon"><svg viewBox="0 0 100 100" aria-hidden="true"><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#ic-term)"/><rect x="14" y="19" width="72" height="60" rx="9" fill="url(#ic-term-scr)" stroke="#000" stroke-opacity=".45" stroke-width="1"/><path d="M26 39l11 9-11 9" fill="none" stroke="#fff" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M43 59h17" stroke="#7dffa8" stroke-width="5.5" stroke-linecap="round"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#os-shine)"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="none" stroke="#000" stroke-opacity=".12" stroke-width="1"/></svg></div>
                     </button>
-                    <button class="dock-app-btn" title="File System &amp; Workspace" data-action="files">
-                        <div class="app-icon rag-icon">📁</div>
+                    <button class="dock-app-btn" data-action="files" data-label="Files" aria-label="Files">
+                        <div class="app-icon rag-icon"><svg viewBox="0 0 100 100" aria-hidden="true"><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#ic-files)"/><path d="M22 31a5 5 0 0 1 5-5h14l6 6h26a5 5 0 0 1 5 5v31a5 5 0 0 1-5 5H27a5 5 0 0 1-5-5z" fill="#bfe3ff"/><path d="M19 42a5 5 0 0 1 5-5h52a5 5 0 0 1 5 5v27a5 5 0 0 1-5 5H24a5 5 0 0 1-5-5z" fill="url(#ic-files-front)"/><path d="M19.6 42a4.4 4.4 0 0 1 4.4-4.4h52a4.4 4.4 0 0 1 4.4 4.4" fill="none" stroke="#fff" stroke-width="1.4"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#os-shine)"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="none" stroke="#000" stroke-opacity=".12" stroke-width="1"/></svg></div>
                     </button>
-                    <button class="dock-app-btn" title="Web Search &amp; Fetch" data-action="web">
-                        <div class="app-icon task-icon">🌐</div>
+                    <button class="dock-app-btn" data-action="web" data-label="Web" aria-label="Web">
+                        <div class="app-icon task-icon"><svg viewBox="0 0 100 100" aria-hidden="true"><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#ic-web)"/><circle cx="50" cy="50" r="29" fill="url(#ic-web-globe)"/><g fill="none" stroke="#fff" stroke-width="3" stroke-opacity=".92" stroke-linecap="round"><ellipse cx="50" cy="50" rx="12.5" ry="29"/><path d="M21 50h58M26 36q24 8 48 0M26 64q24-8 48 0"/></g><circle cx="50" cy="50" r="29" fill="none" stroke="#0a3fb0" stroke-opacity=".35" stroke-width="1"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#os-shine)"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="none" stroke="#000" stroke-opacity=".12" stroke-width="1"/></svg></div>
                     </button>
-                    <button class="dock-app-btn" title="Oblivion Skills" data-action="skills">
-                        <div class="app-icon skill-icon">📘</div>
+                    <button class="dock-app-btn" data-action="skills" data-label="Skills" aria-label="Skills">
+                        <div class="app-icon skill-icon"><svg viewBox="0 0 100 100" aria-hidden="true"><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#ic-skills)"/><path d="M25 28a5 5 0 0 1 5-5h41v50H30a5 5 0 0 0-5 5z" fill="#fff"/><path d="M25 78a5 5 0 0 1 5-5h41v5H30" fill="#ffd9ad"/><path d="M71 23v55" stroke="#e86a00" stroke-opacity=".25" stroke-width="2"/><path d="M48 33l3.6 8.4 8.4 3.6-8.4 3.6L48 57l-3.6-8.4-8.4-3.6 8.4-3.6z" fill="#ff8a00"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#os-shine)"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="none" stroke="#000" stroke-opacity=".12" stroke-width="1"/></svg></div>
                     </button>
-                    <button class="dock-app-btn" title="Model Context Protocol (MCP)" data-action="mcp">
-                        <div class="app-icon mem-icon">🔌</div>
+                    <button class="dock-app-btn" data-action="mcp" data-label="Connectors" aria-label="Connectors">
+                        <div class="app-icon mem-icon"><svg viewBox="0 0 100 100" aria-hidden="true"><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#ic-mcp)"/><rect x="38" y="15" width="7" height="19" rx="3.5" fill="#fff"/><rect x="55" y="15" width="7" height="19" rx="3.5" fill="#fff"/><path d="M30 33h40v11a20 20 0 0 1-40 0z" fill="#fff"/><path d="M50 64v20" stroke="#fff" stroke-width="7" stroke-linecap="round"/><circle cx="50" cy="45" r="4" fill="#7a55ff"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#os-shine)"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="none" stroke="#000" stroke-opacity=".12" stroke-width="1"/></svg></div>
                     </button>
-                    <button class="dock-app-btn" id="open-memory-dock-btn" title="Memory &amp; Knowledge Base (Ctrl+M)" data-action="memory">
-                        <div class="app-icon memory-dock-icon">🧠</div>
+                    <button class="dock-app-btn" id="open-memory-dock-btn" data-action="memory" data-label="Memory" aria-label="Memory">
+                        <div class="app-icon memory-dock-icon"><svg viewBox="0 0 100 100" aria-hidden="true"><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#ic-mem)"/><path d="M46 17l7.5 20 20 7.5-20 7.5-7.5 20-7.5-20-20-7.5 20-7.5z" fill="#fff"/><path d="M71 58l3.8 9.2 9.2 3.8-9.2 3.8L71 84l-3.8-9.2-9.2-3.8 9.2-3.8z" fill="#fff" fill-opacity=".85"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#os-shine)"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="none" stroke="#000" stroke-opacity=".12" stroke-width="1"/></svg></div>
                     </button>
-                    <button class="dock-app-btn" id="open-sessions-dock-btn" title="Sessions Manager (Ctrl+S)" data-action="sessions">
-                        <div class="app-icon session-dock-icon">🗂️</div>
+                    <button class="dock-app-btn" id="open-sessions-dock-btn" data-action="sessions" data-label="Sessions" aria-label="Sessions">
+                        <div class="app-icon session-dock-icon"><svg viewBox="0 0 100 100" aria-hidden="true"><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#ic-sess)"/><rect x="30" y="20" width="40" height="10" rx="4" fill="#fff" fill-opacity=".5"/><rect x="24" y="28" width="52" height="10" rx="4" fill="#fff" fill-opacity=".75"/><rect x="17" y="37" width="66" height="44" rx="8" fill="#fff"/><path d="M28 52h44M28 63h28" stroke="#ffad00" stroke-width="5" stroke-linecap="round"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#os-shine)"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="none" stroke="#000" stroke-opacity=".12" stroke-width="1"/></svg></div>
                     </button>
-                    <button class="dock-app-btn" id="open-models-dock-btn" title="Model Manager (Ollama) (Ctrl+L)" data-action="models">
-                        <div class="app-icon model-dock-icon">🤖</div>
+                    <button class="dock-app-btn" id="open-models-dock-btn" data-action="models" data-label="Models" aria-label="Models">
+                        <div class="app-icon model-dock-icon"><svg viewBox="0 0 100 100" aria-hidden="true"><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#ic-models)"/><g stroke="#fff" stroke-width="4.5" stroke-linecap="round"><path d="M38 16v12M50 16v12M62 16v12M38 72v12M50 72v12M62 72v12M16 38h12M16 50h12M16 62h12M72 38h12M72 50h12M72 62h12"/></g><rect x="27" y="27" width="46" height="46" rx="9" fill="#fff"/><rect x="39" y="39" width="22" height="22" rx="5" fill="url(#ic-models)"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#os-shine)"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="none" stroke="#000" stroke-opacity=".12" stroke-width="1"/></svg></div>
                     </button>
-                    
-                    <!-- Chat Icon (Oblivion Assistant) -->
-                    <button class="dock-app-btn chat-dock-btn active" id="open-chat-dock-btn" title="Oblivion assistant (Ctrl+J)">
-                        <div class="app-icon chat-icon">💬</div>
+                    <span class="dock-divider" aria-hidden="true"></span>
+                    <button class="dock-app-btn chat-dock-btn active" id="open-chat-dock-btn" data-label="Oblivion" aria-label="Oblivion">
+                        <div class="app-icon chat-icon"><svg viewBox="0 0 100 100" aria-hidden="true"><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#ic-orb-bg)"/><circle cx="50" cy="50" r="31" fill="url(#ic-orb)"/><circle cx="50" cy="50" r="31" fill="url(#ic-orb-glow)"/><ellipse cx="40" cy="36" rx="14" ry="8" fill="#fff" fill-opacity=".45" transform="rotate(-25 40 36)"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#os-shine)"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="none" stroke="#000" stroke-opacity=".12" stroke-width="1"/></svg></div>
                         <span class="ob-badge" id="ob-dock-badge" hidden></span>
                     </button>
                 </div>
@@ -323,8 +332,8 @@
                     <button class="tl tl-min"></button>
                     <button class="tl tl-max"></button>
                 </div>
-                <div class="split-frame-title">JARVIS EXECUTIVE WORKSPACE (30% CHAT / 70% EXECUTION SPLIT)</div>
-                <div class="split-frame-badge" id="ob-active-session-badge" title="Click to view sessions (Ctrl+S)" style="cursor: pointer;">ACTIVE SESSION</div>
+                <div class="split-frame-title">Workspace</div>
+                <div class="split-frame-badge" id="ob-active-session-badge" title="Click to view sessions (Ctrl+S)" style="cursor: pointer;">Active session</div>
             </div>
 
             <!-- Window Body: 30 / 70 Split Layout -->
@@ -401,7 +410,7 @@
                     <button class="tl tl-min" title="Minimize"></button>
                     <button class="tl tl-max" title="Maximize"></button>
                 </div>
-                <div class="split-frame-title">🧠 JARVIS LONG-TERM MEMORY &amp; KNOWLEDGE</div>
+                <div class="split-frame-title">Memory</div>
                 <div class="memory-header-actions">
                     <span id="memory-count-badge" class="split-frame-badge">0 memories</span>
                     <button id="memory-export-json-btn" class="mem-btn-sm" title="Export as JSON">JSON</button>
@@ -492,7 +501,7 @@
                     <button class="tl tl-min" title="Minimize"></button>
                     <button class="tl tl-max" title="Maximize"></button>
                 </div>
-                <div class="split-frame-title">🗂️ JARVIS SESSIONS &amp; WORKSPACES (B10)</div>
+                <div class="split-frame-title">Sessions</div>
                 <div class="sessions-header-actions">
                     <span id="sessions-count-badge" class="split-frame-badge">0 sessions</span>
                 </div>
@@ -555,7 +564,7 @@
                     <button class="tl tl-min" title="Minimize"></button>
                     <button class="tl tl-max" title="Maximize"></button>
                 </div>
-                <div class="split-frame-title" id="files-modal-title">📁 JARVIS FILES &amp; ARTIFACTS</div>
+                <div class="split-frame-title" id="files-modal-title">Files</div>
                 <div class="files-header-actions">
                     <span id="files-modal-count-badge" class="split-frame-badge">0 files</span>
                 </div>
@@ -605,7 +614,7 @@
                     <button class="tl tl-min" title="Minimize"></button>
                     <button class="tl tl-max" title="Maximize"></button>
                 </div>
-                <div class="split-frame-title">🤖 LOCAL MODEL MANAGER (OLLAMA)</div>
+                <div class="split-frame-title">Models</div>
                 <div class="models-header-actions">
                     <span id="models-status-badge" class="split-frame-badge">checking status...</span>
                     <span id="models-count-badge" class="split-frame-badge">0 models</span>
@@ -760,6 +769,94 @@
     </div>
 
     <!-- ==========================================================================
+         5f. First-Run Onboarding Wizard Modal (#wizardModal) (Q5)
+         ========================================================================== -->
+    <div id="wizardModal" class="split-modal-overlay">
+        <div class="split-window-frame wizard-window-frame">
+            <div class="split-frame-header">
+                <div class="traffic-lights">
+                    <button class="tl tl-close" id="close-wizard-modal-btn" title="Close"></button>
+                    <button class="tl tl-min" title="Minimize"></button>
+                    <button class="tl tl-max" title="Maximize"></button>
+                </div>
+                <div class="split-frame-title">First-Run Setup Wizard</div>
+                <div class="wizard-header-badge">
+                    <span id="wizard-step-badge" class="split-frame-badge">Step 1 of 3</span>
+                </div>
+            </div>
+
+            <div class="wizard-window-body">
+                <!-- Step 1: Workspace Selection -->
+                <div class="wizard-step-pane active" id="wizard-step-1">
+                    <div class="wizard-step-icon">📁</div>
+                    <h3>Welcome to Jarvis &amp; Oblivion</h3>
+                    <p class="wizard-step-desc">Pick the default workspace folder where Jarvis should read, create, and manage your projects and files.</p>
+                    <div class="wizard-field-group">
+                        <label for="wizard-workspace-input" style="font-size: 0.85rem; color: rgba(255,255,255,0.7);">Default Workspace Path:</label>
+                        <input type="text" id="wizard-workspace-input" class="wizard-text-input" placeholder="e.g. D:\Projects\MyWorkspace">
+                    </div>
+                    <div class="wizard-button-row">
+                        <div></div>
+                        <button id="wizard-next-1-btn" class="mem-btn-primary" style="padding: 8px 18px; border-radius: 8px; cursor: pointer;">Next: Privacy &amp; Models →</button>
+                    </div>
+                </div>
+
+                <!-- Step 2: Privacy & Intelligence Mode -->
+                <div class="wizard-step-pane" id="wizard-step-2" style="display:none;">
+                    <div class="wizard-step-icon">🛡️</div>
+                    <h3>Privacy &amp; Intelligence Mode</h3>
+                    <p class="wizard-step-desc">Choose how Jarvis routes your tasks. You can switch between offline and cloud anytime.</p>
+                    <div class="wizard-options-container">
+                        <label class="wizard-mode-card" id="card-mode-hybrid">
+                            <input type="radio" name="wizard-privacy-mode" value="hybrid" checked>
+                            <div class="card-content">
+                                <strong>🌐 Hybrid Mode (Recommended)</strong>
+                                <span>Uses local models for private requests and free cloud APIs for complex logic or coding tasks.</span>
+                            </div>
+                        </label>
+                        <label class="wizard-mode-card" id="card-mode-local">
+                            <input type="radio" name="wizard-privacy-mode" value="local">
+                            <div class="card-content">
+                                <strong>🔒 100% Offline (Local Models Only)</strong>
+                                <span>Zero data ever leaves this computer. Requires Ollama running locally.</span>
+                            </div>
+                        </label>
+                    </div>
+                    <div id="wizard-cloud-keys-section" class="wizard-field-group" style="margin-top: 10px;">
+                        <label for="wizard-groq-key" style="font-size: 0.85rem; color: rgba(255,255,255,0.7);">Optional Groq API Key (Fast free cloud tier):</label>
+                        <input type="password" id="wizard-groq-key" class="wizard-text-input" placeholder="gsk_...">
+                    </div>
+                    <div class="wizard-button-row">
+                        <button id="wizard-prev-2-btn" class="mem-btn-secondary" style="padding: 8px 18px; border-radius: 8px; cursor: pointer;">← Back</button>
+                        <button id="wizard-next-2-btn" class="mem-btn-primary" style="padding: 8px 18px; border-radius: 8px; cursor: pointer;">Next: System &amp; Test →</button>
+                    </div>
+                </div>
+
+                <!-- Step 3: Windows Startup & Verification -->
+                <div class="wizard-step-pane" id="wizard-step-3" style="display:none;">
+                    <div class="wizard-step-icon">⚡</div>
+                    <h3>Windows Startup &amp; Verification</h3>
+                    <p class="wizard-step-desc">Configure system integration and verify that everything is running properly.</p>
+                    <div class="wizard-field-group">
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.9rem;">
+                            <input type="checkbox" id="wizard-autostart-toggle" checked>
+                            <span>Launch Jarvis web background service automatically when Windows starts</span>
+                        </label>
+                    </div>
+                    <div class="wizard-test-container">
+                        <button id="wizard-test-btn" class="mem-btn-secondary" style="padding: 8px 14px; border-radius: 8px; cursor: pointer;">🧪 Test Connection</button>
+                        <span id="wizard-test-result" class="wizard-test-status"></span>
+                    </div>
+                    <div class="wizard-button-row">
+                        <button id="wizard-prev-3-btn" class="mem-btn-secondary" style="padding: 8px 18px; border-radius: 8px; cursor: pointer;">← Back</button>
+                        <button id="wizard-finish-btn" class="mem-btn-primary" style="padding: 8px 20px; border-radius: 8px; cursor: pointer;">Finish Setup &amp; Launch Desktop 🎉</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================================================
          6. Oblivion panel (slides in from the right; see static/js/oblivion.js)
          ========================================================================== -->
     <aside id="ob-panel" class="ob-panel" aria-label="Oblivion assistant" aria-hidden="true">
@@ -801,9 +898,11 @@
 
     <script src="/static/js/app.js"></script>
     <script src="/static/js/oblivion.js"></script>
+    <script src="/static/js/os.js"></script>
     <script src="/static/js/memory.js"></script>
     <script src="/static/js/sessions.js"></script>
     <script src="/static/js/files.js"></script>
     <script src="/static/js/models.js"></script>
+    <script src="/static/js/wizard.js"></script>
 </body>
 </html>
