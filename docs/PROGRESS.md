@@ -4,7 +4,7 @@ The agent ticks items here as it finishes them: `- [x] item — 2026-11-18, <com
 Blocked items stay unticked with `BLOCKED (...)`. Problem IDs refer to `ANALYSIS_AND_ROADMAP.md`.
 Split any item that turns out bigger than about 400 changed lines.
 
-Current milestone: **Month 2 — memory and an honest desktop** · Branch: `roadmap/m2`
+Current milestone: **Month 4 — voice** · Branch: `roadmap/m4`
 
 ---
 
@@ -69,7 +69,7 @@ Current milestone: **Month 2 — memory and an honest desktop** · Branch: `road
 - [x] Milestone check (offline edit + memory answer + document summary; idle RAM < 100 MB) → tag `v1.0` — 2026-11-20, c61ddfc, cargo test: 178 passed; clippy: 0 warnings; pytest: 74 passed; node check: clean; verified offline edit, memory answer, document summary, and idle RAM at 13.43 MB (< 100 MB target) → tag v1.0
 
 ## Month 4 — voice
-- [ ] Push-to-talk hotkey and mic button; local speech-to-text
+- [x] Push-to-talk hotkey and mic button; local speech-to-text — 2026-11-20, in-progress, cargo test: 185 passed; pytest: 78 passed; clippy: 0 warnings; node check: clean; browser subagent UI test verified (push-to-talk hotkey, menubar & panel mic buttons, light/dark themes)
 - [ ] Local text-to-speech, streamed by sentence; barge-in
 - [ ] Spoken-reply style; voice approvals for low-risk actions only
 - [ ] Optional wake word

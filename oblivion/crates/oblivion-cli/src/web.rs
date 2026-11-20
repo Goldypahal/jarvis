@@ -18,6 +18,7 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
+use base64::Engine;
 use futures_util::stream::{self, Stream, StreamExt};
 use oblivion_core::Decision;
 use serde::{Deserialize, Serialize};
@@ -120,6 +121,7 @@ pub struct WebState {
     pub ollama: Option<Arc<oblivion_core::OllamaClient>>,
     pub routing: Arc<std::sync::RwLock<oblivion_core::config::RoutingSettings>>,
     pub config_path: Option<PathBuf>,
+    pub voice_transcriber: Option<Arc<dyn oblivion_core::VoiceTranscriber>>,
 }
 
 impl WebState {
@@ -135,6 +137,62 @@ impl WebState {
         } else {
             oblivion_core::OllamaClient::new("http://localhost:11434")
         }
+    }
+
+    pub fn voice_service(&self) -> oblivion_core::VoiceService {
+        if let Some(t) = &self.voice_transcriber {
+            let offline = self.routing.read().unwrap().offline;
+            return oblivion_core::VoiceService::new(
+                t.clone(),
+                None,
+                "auto",
+                "Ctrl+Space",
+                "en",
+                offline,
+            );
+        }
+
+        let cfg = oblivion_core::Config::load(&self.config_file_path()).unwrap_or_default();
+        let voice_cfg = cfg.voice;
+        let offline = self.routing.read().unwrap().offline;
+
+        let local = Arc::new(oblivion_core::LocalWhisperTranscriber::new(
+            voice_cfg.whisper_path.map(PathBuf::from),
+            None,
+        ));
+
+        let cloud: Option<Arc<dyn oblivion_core::VoiceTranscriber>> = if !offline {
+            if let Ok(groq_key) = std::env::var("GROQ_API_KEY") {
+                if !groq_key.trim().is_empty() {
+                    Some(Arc::new(oblivion_core::CloudWhisperTranscriber::groq(
+                        groq_key,
+                    )))
+                } else {
+                    None
+                }
+            } else if let Ok(openai_key) = std::env::var("OPENAI_API_KEY") {
+                if !openai_key.trim().is_empty() {
+                    Some(Arc::new(oblivion_core::CloudWhisperTranscriber::openai(
+                        openai_key,
+                    )))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        oblivion_core::VoiceService::new(
+            local,
+            cloud,
+            voice_cfg.stt_engine,
+            voice_cfg.hotkey,
+            voice_cfg.language,
+            offline,
+        )
     }
 
     fn authorized(&self, headers: &HeaderMap, query: &HashMap<String, String>) -> bool {
@@ -515,6 +573,14 @@ pub fn router(state: WebState) -> Router {
         .route(
             "/api/oblivion/sessions/{id}/workspace",
             post(update_session_workspace),
+        )
+        // Voice & STT
+        .route("/api/voice/status", get(get_voice_status))
+        .route("/api/oblivion/voice/status", get(get_voice_status))
+        .route("/api/voice/transcribe", post(post_voice_transcribe))
+        .route(
+            "/api/oblivion/voice/transcribe",
+            post(post_voice_transcribe),
         )
         .with_state(state)
 }
@@ -1682,6 +1748,127 @@ pub async fn pump(mut rx: UnboundedReceiver<UiEvent>, bus: Arc<Bus>) {
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct VoiceTranscribeRequest {
+    #[serde(default)]
+    pub audio_base64: Option<String>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub format: Option<String>,
+    #[serde(default)]
+    pub language: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VoiceTranscribeResponse {
+    pub text: String,
+    pub language: Option<String>,
+    pub duration_ms: u64,
+    pub engine: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VoiceErrorResponse {
+    pub error: String,
+}
+
+async fn get_voice_status(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<oblivion_core::VoiceStatus>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let service = st.voice_service();
+    Ok(Json(service.status()))
+}
+
+async fn post_voice_transcribe(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    body: axum::body::Bytes,
+) -> Result<Json<VoiceTranscribeResponse>, (StatusCode, Json<VoiceErrorResponse>)> {
+    if !st.authorized(&headers, &q) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(VoiceErrorResponse {
+                error: "unauthorized: invalid or missing token".into(),
+            }),
+        ));
+    }
+
+    if body.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(VoiceErrorResponse {
+                error: "Empty audio payload".into(),
+            }),
+        ));
+    }
+
+    let (wav_bytes, requested_language) = if body.first() == Some(&b'{') {
+        let req: VoiceTranscribeRequest = serde_json::from_slice(&body).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(VoiceErrorResponse {
+                    error: format!("Invalid JSON request: {}", e),
+                }),
+            )
+        })?;
+
+        let decoded = if let Some(b64) = req.audio_base64 {
+            base64::engine::general_purpose::STANDARD
+                .decode(b64.trim())
+                .map_err(|e| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(VoiceErrorResponse {
+                            error: format!("Invalid base64 audio data: {}", e),
+                        }),
+                    )
+                })?
+        } else {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(VoiceErrorResponse {
+                    error: "Missing 'audio_base64' field in JSON request".into(),
+                }),
+            ));
+        };
+        (decoded, req.language)
+    } else {
+        (body.to_vec(), None)
+    };
+
+    let audio = oblivion_core::AudioBuffer::from_wav_bytes(&wav_bytes).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(VoiceErrorResponse {
+                error: format!("Failed to parse WAV audio buffer: {}", e),
+            }),
+        )
+    })?;
+
+    let service = st.voice_service();
+    let result = service.transcribe(&audio).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(VoiceErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    Ok(Json(VoiceTranscribeResponse {
+        text: result.text,
+        language: requested_language.or(result.language),
+        duration_ms: result.duration_ms,
+        engine: result.engine,
+    }))
+}
+
 /// Bind 127.0.0.1:port, or any free port if that one is taken.
 pub async fn bind(port: u16) -> std::io::Result<(tokio::net::TcpListener, SocketAddr)> {
     let listener = match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
@@ -1790,6 +1977,7 @@ mod live {
                 oblivion_core::config::RoutingSettings::default(),
             )),
             config_path: None,
+            voice_transcriber: None,
         };
         tokio::spawn(pump(events, bus));
         tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
@@ -2002,6 +2190,7 @@ mod live {
                 oblivion_core::config::RoutingSettings::default(),
             )),
             config_path: None,
+            voice_transcriber: None,
         };
         tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
         let base = format!("http://{addr}");
@@ -2123,6 +2312,7 @@ mod live {
                 oblivion_core::config::RoutingSettings::default(),
             )),
             config_path: None,
+            voice_transcriber: None,
         };
 
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
@@ -2272,6 +2462,7 @@ mod live {
                 oblivion_core::config::RoutingSettings::default(),
             )),
             config_path: None,
+            voice_transcriber: None,
         };
 
         let app = router(state);
@@ -2341,6 +2532,7 @@ mod live {
                 oblivion_core::config::RoutingSettings::default(),
             )),
             config_path: None,
+            voice_transcriber: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -2443,6 +2635,7 @@ mod live {
                 oblivion_core::config::RoutingSettings::default(),
             )),
             config_path: None,
+            voice_transcriber: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -2564,6 +2757,7 @@ mod live {
                 oblivion_core::config::RoutingSettings::default(),
             )),
             config_path: None,
+            voice_transcriber: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -2660,6 +2854,7 @@ mod live {
                 oblivion_core::config::RoutingSettings::default(),
             )),
             config_path: None,
+            voice_transcriber: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -2759,6 +2954,7 @@ mod live {
                 oblivion_core::config::RoutingSettings::default(),
             )),
             config_path: None,
+            voice_transcriber: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -2879,6 +3075,7 @@ mod live {
                 oblivion_core::config::RoutingSettings::default(),
             )),
             config_path: Some(cfg_path.clone()),
+            voice_transcriber: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -2969,5 +3166,109 @@ mod live {
         let s2: crate::wizard::WizardStatus = alias_res.json().await.unwrap();
         assert!(s2.completed);
         assert!(s2.offline);
+    }
+
+    fn make_test_wav(sample_rate: u32, duration_ms: u64) -> Vec<u8> {
+        let num_samples = ((sample_rate as u64 * duration_ms) / 1000) as usize;
+        let samples = vec![1000i16; num_samples];
+        let audio = oblivion_core::AudioBuffer::new_pcm16_mono(sample_rate, &samples);
+        audio.to_wav_bytes()
+    }
+
+    #[tokio::test]
+    async fn test_voice_status_and_transcribe_api() {
+        let dir = tempfile::tempdir().unwrap();
+        let store =
+            Arc::new(oblivion_store::Store::open(&dir.path().join("test_voice.db")).unwrap());
+        let (url, _seen) = crate::testkit::fake_server(vec![]).await;
+        let (_worker, controls, _events) = crate::testkit::worker(&url, dir.path());
+
+        let bus = Arc::new(Bus::default());
+        let token = "test-token-voice-endpoints";
+        let state = WebState {
+            token: token.into(),
+            controls,
+            bus: bus.clone(),
+            store: store.clone(),
+            ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
+            config_path: None,
+            voice_transcriber: Some(Arc::new(oblivion_core::MockTranscriber::new(
+                "mock-voice-engine",
+                "create a new workspace file",
+            ))),
+        };
+
+        let (listener, addr) = bind(0).await.unwrap();
+        let base = format!("http://{addr}");
+        tokio::spawn(async move {
+            axum::serve(listener, router(state)).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+
+        // 1. Voice status - unauthorized without token
+        let res = client
+            .get(format!("{base}/api/voice/status"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+        // 2. Voice status - authorized via header
+        let res = client
+            .get(format!("{base}/api/voice/status"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let status: oblivion_core::VoiceStatus = res.json().await.unwrap();
+        assert!(status.enabled);
+        assert_eq!(status.hotkey, "Ctrl+Space");
+        assert!(status.local_whisper_available);
+
+        // 3. Voice transcribe - raw WAV audio
+        let wav_bytes = make_test_wav(16000, 300);
+        let res = client
+            .post(format!("{base}/api/oblivion/voice/transcribe"))
+            .header("x-jarvis-token", token)
+            .header("content-type", "audio/wav")
+            .body(wav_bytes.clone())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let tr: VoiceTranscribeResponse = res.json().await.unwrap();
+        assert_eq!(tr.text, "create a new workspace file");
+        assert_eq!(tr.engine, "mock-voice-engine");
+        assert_eq!(tr.duration_ms, 300);
+
+        // 4. Voice transcribe - JSON base64 payload
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&wav_bytes);
+        let res = client
+            .post(format!("{base}/api/voice/transcribe?t={token}"))
+            .json(&serde_json::json!({
+                "audio_base64": b64,
+                "language": "en"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let tr2: VoiceTranscribeResponse = res.json().await.unwrap();
+        assert_eq!(tr2.text, "create a new workspace file");
+
+        // 5. Voice transcribe - invalid audio returns 400 Bad Request
+        let res = client
+            .post(format!("{base}/api/voice/transcribe"))
+            .header("x-oblivion-token", token)
+            .body(vec![1, 2, 3, 4])
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     }
 }

@@ -1,0 +1,129 @@
+"""Tests for voice status and transcription proxy routes in web/oblivion_bridge.py."""
+
+import json
+import os
+import sys
+import pytest
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+WEB_DIR = os.path.abspath(os.path.join(HERE, "..", "web"))
+if WEB_DIR not in sys.path:
+    sys.path.insert(0, WEB_DIR)
+
+from app import app
+
+
+class FakeVoiceBridge:
+    def __init__(self):
+        self.running_state = True
+        self.last_method = None
+        self.last_path = None
+        self.last_body = None
+
+    def running(self):
+        return self.running_state
+
+    def status(self):
+        return {"running": True, "port": 5000, "error": None}
+
+    def start(self):
+        return {"running": True, "port": 5000, "error": None}
+
+    def request(self, method, path, body=None, params=None, headers=None):
+        self.last_method = method
+        self.last_path = path
+        self.last_body = body
+        if path == "/api/voice/status":
+            return (
+                200,
+                json.dumps({
+                    "enabled": True,
+                    "stt_engine": "auto",
+                    "hotkey": "Ctrl+Space",
+                    "language": "en",
+                    "local_whisper_available": True,
+                    "cloud_whisper_available": False,
+                    "web_speech_available": True,
+                }),
+                "application/json",
+            )
+        elif path == "/api/voice/transcribe":
+            return (
+                200,
+                json.dumps({
+                    "text": "open terminal and run cargo check",
+                    "language": "en",
+                    "duration_ms": 450,
+                    "engine": "local-whisper",
+                }),
+                "application/json",
+            )
+        return 404, "Not found", "text/plain"
+
+
+@pytest.fixture
+def client_with_fake_bridge():
+    app.config["TESTING"] = True
+    old_token = app.config.get("JARVIS_TOKEN")
+    old_bridge = app.config.get("OBLIVION_BRIDGE")
+
+    token = "test-voice-token-xyz"
+    app.config["JARVIS_TOKEN"] = token
+    fake = FakeVoiceBridge()
+    app.config["OBLIVION_BRIDGE"] = fake
+    try:
+        with app.test_client() as c:
+            yield c, fake
+    finally:
+        if old_token is not None:
+            app.config["JARVIS_TOKEN"] = old_token
+        if old_bridge is not None:
+            app.config["OBLIVION_BRIDGE"] = old_bridge
+
+
+@pytest.fixture
+def auth_headers():
+    return {
+        "X-Jarvis-Token": "test-voice-token-xyz",
+        "Host": f"localhost:{app.config.get('JARVIS_PORT', 5000)}",
+    }
+
+
+def test_voice_status_requires_auth(client_with_fake_bridge):
+    client, _ = client_with_fake_bridge
+    res = client.get("/api/voice/status")
+    assert res.status_code == 403
+
+
+def test_voice_status_authorized(client_with_fake_bridge, auth_headers):
+    client, fake = client_with_fake_bridge
+    res = client.get("/api/voice/status", headers=auth_headers)
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["enabled"] is True
+    assert data["hotkey"] == "Ctrl+Space"
+    assert data["local_whisper_available"] is True
+    assert fake.last_method == "GET"
+    assert fake.last_path == "/api/voice/status"
+
+
+def test_voice_transcribe_requires_auth(client_with_fake_bridge):
+    client, _ = client_with_fake_bridge
+    res = client.post("/api/voice/transcribe", json={"audio_base64": "abc"})
+    assert res.status_code == 403
+
+
+def test_voice_transcribe_authorized(client_with_fake_bridge, auth_headers):
+    client, fake = client_with_fake_bridge
+    payload = {"audio_base64": "dGVzdC1hdWRpby1ieXRlcw==", "language": "en"}
+    res = client.post(
+        "/api/oblivion/voice/transcribe",
+        headers=auth_headers,
+        json=payload,
+    )
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["text"] == "open terminal and run cargo check"
+    assert data["engine"] == "local-whisper"
+    assert fake.last_method == "POST"
+    assert fake.last_path == "/api/voice/transcribe"
