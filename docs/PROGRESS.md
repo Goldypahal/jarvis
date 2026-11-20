@@ -64,7 +64,7 @@ Current milestone: **Month 2 — memory and an honest desktop** · Branch: `road
 - [x] Request classes (private, simple, hard, vision, long context) and visible routing rules; "Offline" switch — 2026-11-19, dc808df, cargo test: 154 passed; clippy: 0 warnings; pytest: 74 passed; node check: clean; request classification, router locality filtering, offline mode toggle in CLI/REST/UI, bidirectional sync & browser subagent UI test verified
 - [x] Small-model mode: shorter prompt, fewer tools, stricter output checks (B13); eval pass rate per model recorded — 2026-11-19, e1dac8e, cargo test: 168 passed; pytest: 74 passed; clippy: 0 warnings; small model detection, concise prompt (~200 tokens), core tool filtering, robust markdown/JSON repair, and eval pass rates tracking matrix
 - [x] Serve the desktop from Oblivion (axum): move templates/static into the binary; Flask optional — 2026-11-19, 99dd026, cargo test: 170 passed; clippy: 0 warnings; pytest: 74 passed; node check: clean; rust-embed bundling of templates & static assets, /classic route, status/chat API parity, browser subagent live desktop UI verified across light/dark themes
-- [ ] Installer (MSI or Tauri tray app), first-run wizard, auto-start option. Code signing: BLOCKED (needs user) for a certificate
+- [x] Installer (MSI or Tauri tray app), first-run wizard, auto-start option. Code signing: BLOCKED (needs user) for a certificate — 2026-11-20, de9b6b4, cargo test: 175 passed; clippy: 0 warnings; pytest: 74 passed; node check: clean; autostart manager (CLI & REST), first-run wizard (CLI, REST, UI modal), WiX installer spec & packaging pipeline script; code signing BLOCKED (needs user) for certificate
 - [ ] Measure cold start, idle RAM, eval pass rate per model; table in README
 - [ ] Milestone check (offline edit + memory answer + document summary; idle RAM < 100 MB) → tag `v1.0`
 
@@ -194,21 +194,22 @@ Current milestone: **Month 2 — memory and an honest desktop** · Branch: `road
 ## Notes for next session
 <!-- Surprises about the code, environment quirks, things the next session must know. -->
 - Month 3 is in progress on branch `roadmap/m3`.
-- Items 1-5 of Month 3 complete:
+- Items 1-6 of Month 3 complete:
   - Hardware detection & recommendations (4e656e0).
   - Local Model Manager with streaming pull, deletion & speed test benchmarks (3c668e2).
   - Request classes (private, simple, hard, vision, long context), visible routing rules & Offline mode switch (dc808df).
   - Small-model mode: shorter prompt (~200 tokens), core tool filtering, robust markdown/JSON argument repair, and eval pass rates tracking matrix (e1dac8e).
-  - Serve the desktop from Oblivion (axum): rust-embed bundling templates & static assets, /classic route, API aliases, browser subagent live desktop UI verified across light/dark themes.
+  - Serve the desktop from Oblivion (axum): rust-embed bundling templates & static assets, /classic route, API aliases, browser subagent live desktop UI verified across light/dark themes (99dd026).
+  - Installer & first-run wizard: autostart manager, setup wizard (CLI, REST, Desktop UI), WiX installer spec and packaging script; code signing marked BLOCKED (needs user) for certificate (de9b6b4).
 - Exact next item to work on:
-  "Installer (MSI or Tauri tray app), first-run wizard, auto-start option. Code signing: BLOCKED (needs user) for a certificate"
+  "Measure cold start, idle RAM, eval pass rate per model; table in README"
 - Quality gates status:
-  - `cargo test --workspace`: 170 passed, 0 failed
+  - `cargo test --workspace`: 175 passed, 0 failed
   - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings
   - `cargo fmt --all`: clean
   - `python -m pytest -q tests`: 74 passed, 0 failed
   - `node --check`: clean on all static JS files
-  - UI visual verification: verified with browser subagent across light & dark themes; desktop and embedded static assets fully rendered on axum server with screenshot evidence.
+  - UI visual verification: verified with browser subagent across light & dark themes; First-Run Setup Wizard fully verified on desktop with screenshot evidence.
 - Windows + PowerShell: no bash heredocs; quote paths with spaces.
 - Smart App Control has blocked Rust build scripts before; if a build fails with an
   "Application Control policy" error, mark the item BLOCKED (needs user) instead of retrying.
