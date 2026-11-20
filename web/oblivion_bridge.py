@@ -770,6 +770,17 @@ def register(app, bridge=None, allowed_port=None, token=None):
         )
         return Response(text, status=code, mimetype=ct)
 
+    @app.route("/api/oblivion/voice/tts/speak", methods=["POST"])
+    @app.route("/api/voice/tts/speak", methods=["POST"])
+    def oblivion_voice_tts_speak():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        body = request.get_json(silent=True) or {}
+        code, text, ct = b.request("POST", "/api/voice/tts/speak", body=body)
+        return Response(text, status=code, mimetype=ct)
+
     return bridge
 
 

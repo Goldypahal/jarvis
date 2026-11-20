@@ -498,15 +498,301 @@ impl VoiceTranscriber for CloudWhisperTranscriber {
     }
 }
 
+/// Streaming sentence tokenizer that splits incoming text tokens into full sentences
+/// suitable for low-latency text-to-speech synthesis while skipping code blocks.
+#[derive(Debug, Clone, Default)]
+pub struct SentenceSplitter {
+    buffer: String,
+    in_code_block: bool,
+}
+
+impl SentenceSplitter {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Feed a newly arrived text chunk and extract any completed sentences.
+    pub fn feed(&mut self, chunk: &str) -> Vec<String> {
+        let mut sentences = Vec::new();
+        for ch in chunk.chars() {
+            self.buffer.push(ch);
+
+            // Check for code block toggling
+            if self.buffer.ends_with("```") {
+                self.in_code_block = !self.in_code_block;
+                if self.in_code_block {
+                    // Code block started: trim trailing ``` from speech buffer
+                    if let Some(idx) = self.buffer.rfind("```") {
+                        let text_before = self.buffer[..idx].trim().to_string();
+                        if !text_before.is_empty() {
+                            sentences.push(text_before);
+                        }
+                    }
+                    self.buffer.clear();
+                } else {
+                    // Code block ended: discard whatever was in the code block
+                    self.buffer.clear();
+                }
+                continue;
+            }
+
+            if self.in_code_block {
+                continue;
+            }
+
+            // Check if buffer ends with a sentence delimiter
+            if Self::is_sentence_end(&self.buffer) {
+                let trimmed = self.buffer.trim().to_string();
+                if !trimmed.is_empty() {
+                    sentences.push(trimmed);
+                }
+                self.buffer.clear();
+            }
+        }
+        sentences
+    }
+
+    /// Flush any remaining text in the buffer when the stream completes.
+    pub fn flush(&mut self) -> Option<String> {
+        if self.in_code_block {
+            self.buffer.clear();
+            return None;
+        }
+        let trimmed = self.buffer.trim().to_string();
+        self.buffer.clear();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    }
+
+    /// Helper to test if buffer currently ends with a sentence boundary.
+    fn is_sentence_end(buf: &str) -> bool {
+        let trimmed = buf.trim_end();
+        if trimmed.is_empty() {
+            return false;
+        }
+        let last_char = trimmed.chars().last().unwrap();
+        if last_char != '.' && last_char != '!' && last_char != '?' && last_char != '\n' {
+            return false;
+        }
+
+        // Avoid splitting on common abbreviations or decimal numbers
+        if last_char == '.' {
+            // Check for known abbreviations
+            for abbr in &["e.g.", "i.e.", "Dr.", "Mr.", "Mrs.", "vs.", "etc."] {
+                if trimmed.ends_with(abbr) {
+                    return false;
+                }
+            }
+            // Check if preceded by a digit (e.g. 3.14)
+            let mut rev = trimmed.chars().rev().skip(1);
+            if let Some(prev) = rev.next() {
+                if prev.is_ascii_digit() {
+                    return false;
+                }
+            }
+        }
+
+        // A sentence delimiter must be followed by whitespace or be at end of newline
+        buf.ends_with(". ")
+            || buf.ends_with("! ")
+            || buf.ends_with("? ")
+            || buf.ends_with(".\n")
+            || buf.ends_with("!\n")
+            || buf.ends_with("?\n")
+            || buf.ends_with("\n\n")
+    }
+}
+
+/// Abstract text-to-speech synthesizer interface.
+pub trait VoiceSynthesizer: Send + Sync {
+    /// Human-readable identifier of the synthesizer engine.
+    fn engine_name(&self) -> &str;
+
+    /// Returns true if this synthesizer is available on the system.
+    fn is_available(&self) -> bool;
+
+    /// Synthesize speech audio from text.
+    fn synthesize<'a>(
+        &'a self,
+        text: &'a str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<AudioBuffer>> + Send + 'a>>;
+}
+
+/// Deterministic mock synthesizer for testing.
+pub struct MockSynthesizer {
+    name: String,
+    sample_rate: u32,
+    available: bool,
+}
+
+impl MockSynthesizer {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            sample_rate: 16000,
+            available: true,
+        }
+    }
+
+    pub fn with_available(mut self, available: bool) -> Self {
+        self.available = available;
+        self
+    }
+}
+
+impl VoiceSynthesizer for MockSynthesizer {
+    fn engine_name(&self) -> &str {
+        &self.name
+    }
+
+    fn is_available(&self) -> bool {
+        self.available
+    }
+
+    fn synthesize<'a>(
+        &'a self,
+        text: &'a str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<AudioBuffer>> + Send + 'a>> {
+        let sample_rate = self.sample_rate;
+        let is_avail = self.available;
+        let engine_name = self.name.clone();
+        let word_count = text.split_whitespace().count().max(1);
+
+        Box::pin(async move {
+            if !is_avail {
+                bail!("Synthesizer '{}' is marked unavailable", engine_name);
+            }
+            let duration_ms = (word_count as u64 * 50).max(100);
+            let num_samples = ((sample_rate as u64 * duration_ms) / 1000) as usize;
+            let mut samples = Vec::with_capacity(num_samples);
+            for i in 0..num_samples {
+                let t = i as f64 / sample_rate as f64;
+                let val = (t * 440.0 * 2.0 * std::f64::consts::PI).sin();
+                samples.push((val * 8000.0) as i16);
+            }
+            Ok(AudioBuffer::new_pcm16_mono(sample_rate, &samples))
+        })
+    }
+}
+
+/// Local Piper TTS runner.
+pub struct LocalPiperSynthesizer {
+    binary_path: Option<PathBuf>,
+    model_path: Option<PathBuf>,
+}
+
+impl LocalPiperSynthesizer {
+    pub fn new(binary_path: Option<PathBuf>, model_path: Option<PathBuf>) -> Self {
+        Self {
+            binary_path,
+            model_path,
+        }
+    }
+
+    pub fn detect_binary() -> Option<PathBuf> {
+        if let Ok(env_path) = std::env::var("PIPER_PATH") {
+            let p = PathBuf::from(env_path);
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+        let candidates = if cfg!(windows) {
+            vec!["piper.exe", "piper"]
+        } else {
+            vec!["piper"]
+        };
+        if let Ok(path_var) = std::env::var("PATH") {
+            for dir in std::env::split_paths(&path_var) {
+                for cand in &candidates {
+                    let full = dir.join(cand);
+                    if full.is_file() {
+                        return Some(full);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    pub fn resolved_binary(&self) -> Option<PathBuf> {
+        self.binary_path.clone().or_else(Self::detect_binary)
+    }
+}
+
+impl VoiceSynthesizer for LocalPiperSynthesizer {
+    fn engine_name(&self) -> &str {
+        "local-piper"
+    }
+
+    fn is_available(&self) -> bool {
+        self.resolved_binary().is_some()
+    }
+
+    fn synthesize<'a>(
+        &'a self,
+        text: &'a str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<AudioBuffer>> + Send + 'a>> {
+        let bin = self.resolved_binary();
+        let model = self.model_path.clone();
+        let text_owned = text.to_string();
+
+        Box::pin(async move {
+            let bin_path =
+                bin.context("Local Piper binary not found. Set PIPER_PATH or install piper.")?;
+            let temp_dir = std::env::temp_dir();
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis();
+            let wav_path = temp_dir.join(format!("oblivion_tts_{}.wav", timestamp));
+
+            let mut cmd = tokio::process::Command::new(&bin_path);
+            if let Some(m) = &model {
+                cmd.arg("--model").arg(m);
+            }
+            cmd.arg("--output_file").arg(&wav_path);
+            cmd.stdin(std::process::Stdio::piped());
+
+            let mut child = cmd
+                .spawn()
+                .with_context(|| format!("Failed to spawn Piper binary at {:?}", bin_path))?;
+            if let Some(mut stdin) = child.stdin.take() {
+                use tokio::io::AsyncWriteExt;
+                let _ = stdin.write_all(text_owned.as_bytes()).await;
+            }
+
+            let output = child.wait_with_output().await?;
+            if !output.status.success() {
+                let err_msg = String::from_utf8_lossy(&output.stderr);
+                bail!(
+                    "Piper TTS failed with exit code {:?}: {}",
+                    output.status.code(),
+                    err_msg
+                );
+            }
+
+            let wav_bytes = tokio::fs::read(&wav_path).await?;
+            let _ = tokio::fs::remove_file(&wav_path).await;
+
+            AudioBuffer::from_wav_bytes(&wav_bytes)
+        })
+    }
+}
+
 /// Status summary for the voice subsystem.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct VoiceStatus {
     pub enabled: bool,
     pub stt_engine: String,
+    pub tts_engine: String,
     pub hotkey: String,
     pub language: String,
     pub local_whisper_available: bool,
     pub cloud_whisper_available: bool,
+    pub local_piper_available: bool,
     pub web_speech_available: bool,
 }
 
@@ -514,6 +800,7 @@ pub struct VoiceStatus {
 pub struct VoiceService {
     local_transcriber: Arc<dyn VoiceTranscriber>,
     cloud_transcriber: Option<Arc<dyn VoiceTranscriber>>,
+    synthesizer: Option<Arc<dyn VoiceSynthesizer>>,
     engine_preference: String,
     hotkey: String,
     language: String,
@@ -524,6 +811,7 @@ impl VoiceService {
     pub fn new(
         local: Arc<dyn VoiceTranscriber>,
         cloud: Option<Arc<dyn VoiceTranscriber>>,
+        synthesizer: Option<Arc<dyn VoiceSynthesizer>>,
         engine_preference: impl Into<String>,
         hotkey: impl Into<String>,
         language: impl Into<String>,
@@ -532,6 +820,7 @@ impl VoiceService {
         Self {
             local_transcriber: local,
             cloud_transcriber: cloud,
+            synthesizer,
             engine_preference: engine_preference.into(),
             hotkey: hotkey.into(),
             language: language.into(),
@@ -548,16 +837,35 @@ impl VoiceService {
                 .as_ref()
                 .map(|c| c.is_available())
                 .unwrap_or(false);
+        let piper_avail = self
+            .synthesizer
+            .as_ref()
+            .map(|s| s.is_available())
+            .unwrap_or(false);
 
         VoiceStatus {
             enabled: true,
             stt_engine: self.engine_preference.clone(),
+            tts_engine: "auto".to_string(),
             hotkey: self.hotkey.clone(),
             language: self.language.clone(),
             local_whisper_available: local_avail,
             cloud_whisper_available: cloud_avail,
+            local_piper_available: piper_avail,
             web_speech_available: true, // Supported in modern desktop browsers
         }
+    }
+
+    /// Synthesize speech audio from text using configured synthesizer.
+    pub async fn synthesize(&self, text: &str) -> Result<AudioBuffer> {
+        if let Some(synth) = &self.synthesizer {
+            if synth.is_available() {
+                return synth.synthesize(text).await;
+            }
+        }
+        bail!(
+            "No local text-to-speech synthesizer is available. Use browser Web Speech Synthesis or install Piper TTS."
+        );
     }
 
     /// Transcribe an audio buffer using the configured preference and fallback logic.
@@ -680,10 +988,12 @@ mod tests {
     async fn test_voice_service_auto_and_status() {
         let local_mock = Arc::new(MockTranscriber::new("local-whisper", "Turn on lights"));
         let cloud_mock = Arc::new(MockTranscriber::new("cloud-whisper", "Turn off lights"));
+        let synth_mock = Arc::new(MockSynthesizer::new("mock-piper"));
 
         let service = VoiceService::new(
             local_mock,
             Some(cloud_mock),
+            Some(synth_mock),
             "auto",
             "Ctrl+Space",
             "en",
@@ -696,6 +1006,7 @@ mod tests {
         assert_eq!(status.hotkey, "Ctrl+Space");
         assert!(status.local_whisper_available);
         assert!(status.cloud_whisper_available);
+        assert!(status.local_piper_available);
 
         let audio = AudioBuffer::new_pcm16_mono(16000, &[100i16; 800]);
         let res = service
@@ -705,6 +1016,11 @@ mod tests {
         // In auto mode with local available, it uses local
         assert_eq!(res.text, "Turn on lights");
         assert_eq!(res.engine, "local-whisper");
+
+        // Test synthesis
+        let spoken = service.synthesize("Turn on lights").await.unwrap();
+        assert_eq!(spoken.sample_rate, 16000);
+        assert!(spoken.duration_ms() >= 100);
     }
 
     #[tokio::test]
@@ -716,6 +1032,7 @@ mod tests {
         let service = VoiceService::new(
             local_unavailable,
             Some(cloud_mock),
+            None,
             "cloud",
             "Ctrl+Space",
             "en",
@@ -735,5 +1052,37 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("Offline mode is enabled"));
+    }
+
+    #[test]
+    fn test_sentence_splitter_streaming_and_code_omission() {
+        let mut splitter = SentenceSplitter::new();
+
+        // 1. Streaming sentence chunks
+        let s1 = splitter.feed("Hello world! ");
+        assert_eq!(s1, vec!["Hello world!"]);
+
+        let s2 = splitter.feed("This is a ");
+        assert!(s2.is_empty(), "Sentence is not finished yet");
+
+        let s3 = splitter.feed("test. Here is another one? ");
+        assert_eq!(s3, vec!["This is a test.", "Here is another one?"]);
+
+        // 2. Abbreviations and numbers should not split prematurely
+        let s4 = splitter.feed("Dr. Smith bought 3.14 units e.g. apples. ");
+        assert_eq!(s4, vec!["Dr. Smith bought 3.14 units e.g. apples."]);
+
+        // 3. Code blocks should be completely omitted from speech output
+        let s5 =
+            splitter.feed("Check out this code:\n```python\nprint('hello world')\n```\nAll done! ");
+        assert_eq!(s5, vec!["Check out this code:", "All done!"]);
+
+        // 4. Flush remaining buffer
+        splitter.feed("Trailing sentence without period");
+        let flushed = splitter.flush();
+        assert_eq!(
+            flushed,
+            Some("Trailing sentence without period".to_string())
+        );
     }
 }

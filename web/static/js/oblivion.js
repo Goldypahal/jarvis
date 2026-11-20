@@ -315,6 +315,9 @@
     function handle(e) {
         switch (e.type) {
             case "user": {
+                if (window.JarvisVoice && typeof window.JarvisVoice.bargeIn === 'function') {
+                    window.JarvisVoice.bargeIn();
+                }
                 endBot(); helpers = null; add(el("div", "ob-user", esc(e.text)));
                 endSplitBot();
                 if (splitChat) {
@@ -326,6 +329,9 @@
             }
             case "text": {
                 onText(e.text);
+                if (window.JarvisVoice && typeof window.JarvisVoice.onTextChunk === 'function') {
+                    window.JarvisVoice.onTextChunk(e.text);
+                }
                 if (splitChat) {
                     if (!splitBot) {
                         splitBot = el("div", "msg-bubble jarvis-msg", `<div class="msg-author">Oblivion AI</div><div class="msg-text"></div>`);
@@ -422,6 +428,9 @@
             }
             case "sub": sub(e); break;
             case "turn_end": {
+                if (window.JarvisVoice && typeof window.JarvisVoice.onTurnEnd === 'function') {
+                    window.JarvisVoice.onTurnEnd();
+                }
                 endBot();
                 endSplitBot();
                 tools.forEach((c) => finishTool(c, false, "–"));

@@ -1021,6 +1021,7 @@ async fn run_web(
         routing: Arc::new(std::sync::RwLock::new(routing_cfg)),
         config_path: opts.config_path,
         voice_transcriber: None,
+        voice_synthesizer: None,
     };
     tokio::spawn(web::pump(events, bus));
     tokio::spawn(async move {

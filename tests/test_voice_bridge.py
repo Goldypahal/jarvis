@@ -58,6 +58,17 @@ class FakeVoiceBridge:
                 }),
                 "application/json",
             )
+        elif path == "/api/voice/tts/speak":
+            return (
+                200,
+                json.dumps({
+                    "text": "Hello world from Jarvis",
+                    "duration_ms": 120,
+                    "audio_base64": "UklGRgAAAAA=",
+                    "format": "audio/wav",
+                }),
+                "application/json",
+            )
         return 404, "Not found", "text/plain"
 
 
@@ -127,3 +138,26 @@ def test_voice_transcribe_authorized(client_with_fake_bridge, auth_headers):
     assert data["engine"] == "local-whisper"
     assert fake.last_method == "POST"
     assert fake.last_path == "/api/voice/transcribe"
+
+
+def test_voice_tts_speak_requires_auth(client_with_fake_bridge):
+    client, _ = client_with_fake_bridge
+    res = client.post("/api/voice/tts/speak", json={"text": "hello"})
+    assert res.status_code == 403
+
+
+def test_voice_tts_speak_authorized(client_with_fake_bridge, auth_headers):
+    client, fake = client_with_fake_bridge
+    payload = {"text": "Hello world from Jarvis"}
+    res = client.post(
+        "/api/oblivion/voice/tts/speak",
+        headers=auth_headers,
+        json=payload,
+    )
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["text"] == "Hello world from Jarvis"
+    assert data["format"] == "audio/wav"
+    assert data["audio_base64"] == "UklGRgAAAAA="
+    assert fake.last_method == "POST"
+    assert fake.last_path == "/api/voice/tts/speak"

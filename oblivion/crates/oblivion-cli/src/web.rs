@@ -122,6 +122,7 @@ pub struct WebState {
     pub routing: Arc<std::sync::RwLock<oblivion_core::config::RoutingSettings>>,
     pub config_path: Option<PathBuf>,
     pub voice_transcriber: Option<Arc<dyn oblivion_core::VoiceTranscriber>>,
+    pub voice_synthesizer: Option<Arc<dyn oblivion_core::VoiceSynthesizer>>,
 }
 
 impl WebState {
@@ -145,6 +146,7 @@ impl WebState {
             return oblivion_core::VoiceService::new(
                 t.clone(),
                 None,
+                self.voice_synthesizer.clone(),
                 "auto",
                 "Ctrl+Space",
                 "en",
@@ -185,9 +187,16 @@ impl WebState {
             None
         };
 
+        let synth = self.voice_synthesizer.clone().or_else(|| {
+            Some(Arc::new(oblivion_core::LocalPiperSynthesizer::new(
+                None, None,
+            )))
+        });
+
         oblivion_core::VoiceService::new(
             local,
             cloud,
+            synth,
             voice_cfg.stt_engine,
             voice_cfg.hotkey,
             voice_cfg.language,
@@ -582,6 +591,9 @@ pub fn router(state: WebState) -> Router {
             "/api/oblivion/voice/transcribe",
             post(post_voice_transcribe),
         )
+        // Voice TTS
+        .route("/api/voice/tts/speak", post(post_voice_tts_speak))
+        .route("/api/oblivion/voice/tts/speak", post(post_voice_tts_speak))
         .with_state(state)
 }
 
@@ -1869,6 +1881,64 @@ async fn post_voice_transcribe(
     }))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct VoiceSpeakRequest {
+    pub text: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VoiceSpeakResponse {
+    pub text: String,
+    pub duration_ms: u64,
+    pub audio_base64: String,
+    pub format: String,
+}
+
+async fn post_voice_tts_speak(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Json(req): Json<VoiceSpeakRequest>,
+) -> Result<Json<VoiceSpeakResponse>, (StatusCode, Json<VoiceErrorResponse>)> {
+    if !st.authorized(&headers, &q) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(VoiceErrorResponse {
+                error: "unauthorized: invalid or missing token".into(),
+            }),
+        ));
+    }
+
+    if req.text.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(VoiceErrorResponse {
+                error: "Empty text to synthesize".into(),
+            }),
+        ));
+    }
+
+    let service = st.voice_service();
+    let audio = service.synthesize(&req.text).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(VoiceErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    let wav_bytes = audio.to_wav_bytes();
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&wav_bytes);
+
+    Ok(Json(VoiceSpeakResponse {
+        text: req.text,
+        duration_ms: audio.duration_ms(),
+        audio_base64: b64,
+        format: "audio/wav".to_string(),
+    }))
+}
+
 /// Bind 127.0.0.1:port, or any free port if that one is taken.
 pub async fn bind(port: u16) -> std::io::Result<(tokio::net::TcpListener, SocketAddr)> {
     let listener = match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
@@ -1978,6 +2048,7 @@ mod live {
             )),
             config_path: None,
             voice_transcriber: None,
+            voice_synthesizer: None,
         };
         tokio::spawn(pump(events, bus));
         tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
@@ -2191,6 +2262,7 @@ mod live {
             )),
             config_path: None,
             voice_transcriber: None,
+            voice_synthesizer: None,
         };
         tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
         let base = format!("http://{addr}");
@@ -2313,6 +2385,7 @@ mod live {
             )),
             config_path: None,
             voice_transcriber: None,
+            voice_synthesizer: None,
         };
 
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
@@ -2463,6 +2536,7 @@ mod live {
             )),
             config_path: None,
             voice_transcriber: None,
+            voice_synthesizer: None,
         };
 
         let app = router(state);
@@ -2533,6 +2607,7 @@ mod live {
             )),
             config_path: None,
             voice_transcriber: None,
+            voice_synthesizer: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -2636,6 +2711,7 @@ mod live {
             )),
             config_path: None,
             voice_transcriber: None,
+            voice_synthesizer: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -2758,6 +2834,7 @@ mod live {
             )),
             config_path: None,
             voice_transcriber: None,
+            voice_synthesizer: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -2855,6 +2932,7 @@ mod live {
             )),
             config_path: None,
             voice_transcriber: None,
+            voice_synthesizer: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -2955,6 +3033,7 @@ mod live {
             )),
             config_path: None,
             voice_transcriber: None,
+            voice_synthesizer: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -3076,6 +3155,7 @@ mod live {
             )),
             config_path: Some(cfg_path.clone()),
             voice_transcriber: None,
+            voice_synthesizer: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -3199,6 +3279,7 @@ mod live {
                 "mock-voice-engine",
                 "create a new workspace file",
             ))),
+            voice_synthesizer: Some(Arc::new(oblivion_core::MockSynthesizer::new("mock-piper"))),
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -3270,5 +3351,29 @@ mod live {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+        // 6. Voice TTS speak - unauthorized without token
+        let res = client
+            .post(format!("{base}/api/voice/tts/speak"))
+            .json(&serde_json::json!({ "text": "Hello world" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+        // 7. Voice TTS speak - authorized synthesis
+        let res = client
+            .post(format!("{base}/api/voice/tts/speak"))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({ "text": "Hello world from Jarvis" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let speak_resp: VoiceSpeakResponse = res.json().await.unwrap();
+        assert_eq!(speak_resp.text, "Hello world from Jarvis");
+        assert!(speak_resp.duration_ms >= 100);
+        assert_eq!(speak_resp.format, "audio/wav");
+        assert!(!speak_resp.audio_base64.is_empty());
     }
 }
