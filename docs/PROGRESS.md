@@ -80,7 +80,7 @@ Current milestone: **Month 5 — vision and computer use** · Branch: `roadmap/m
 - [x] "Look at my screen" with preview before sending — 2026-11-20, d95b0dd, cargo test: 199 passed; pytest: 86 passed; clippy: 0 warnings; node check: clean; browser subagent UI test verified (look at screen button, preview tray inspection, cancel/remove chip, light & dark themes)
 - [x] Browser agent screenshot fallback for picture-only pages — 2026-11-20, 56a3377, cargo test: 201 passed; pytest: 86 passed; clippy: 0 warnings; evals: 35/35 passed (100%); automatic screenshot fallback on insufficient page text, explicit screenshot action, multimodal ToolOutput attachment extraction & picture_quiz.html verified
 - [x] Computer use behind a setting, per-app allow list, stop hotkey — 2026-11-21, ed8c762, cargo test: 205 passed; pytest: 87 passed; clippy: 0 warnings; node check: clean; browser subagent UI test verified (emergency stop button, stopped-active badge, app allow list, stop hotkey Escape, /computer and /stop commands)
-- [x] 10 vision evals; milestone check — 2026-11-21, 77f2185, cargo test: 210 passed; pytest: 88 passed; clippy: 0 warnings; 10 vision eval tasks (36-45); milestone check complete (picture quiz fallback, desktop setting change with Risk::Ask approval, emergency stop, per-app allow list)
+- [x] 10 vision evals; milestone check — 2026-11-21, c5e0037, cargo test: 210 passed; pytest: 88 passed; clippy: 0 warnings; 10 vision eval tasks (36-45); milestone check complete (picture quiz fallback, desktop setting change with Risk::Ask approval, emergency stop, per-app allow list)
 
 ## Month 6 — automations and connectors → v1.5
 - [ ] Scheduler (one-off and repeating) in the tray process; runs as fresh sessions with traces
