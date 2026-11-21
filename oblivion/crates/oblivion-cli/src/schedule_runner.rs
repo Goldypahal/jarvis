@@ -6,9 +6,9 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use chrono::Utc;
 use oblivion_core::agent::{Agent, AgentEvent};
-use oblivion_core::schedule::{next_run_after, UnattendedApprover};
+use oblivion_core::schedule::next_run_after;
 use oblivion_core::session::Session;
-use oblivion_store::{ScheduledTask, Store};
+use oblivion_store::{NewNotification, ScheduledTask, Store, UnattendedQueueApprover};
 
 use crate::trace::{TraceEntry, Tracer};
 
@@ -53,8 +53,13 @@ pub async fn execute_scheduled_task(
     session.id = session_id.clone();
     agent.session = session;
 
-    // Set unattended approver so low-risk runs and risky actions do not execute blindly
-    agent.set_approver(Box::new(UnattendedApprover));
+    // Set unattended queue approver so low-risk runs and risky actions do not execute blindly,
+    // persisting pending approvals and notifying the user
+    agent.set_approver(Box::new(UnattendedQueueApprover::new(
+        store.clone(),
+        session_id.clone(),
+        Some(task.id.clone()),
+    )));
 
     // 2. Start trace
     let tracer = Tracer::start(traces_dir, &task.prompt, &workspace).map(Arc::new);
@@ -109,6 +114,18 @@ pub async fn execute_scheduled_task(
                     None,
                 );
             }
+            let _ = store.add_notification(&NewNotification {
+                id: None,
+                title: format!("Task finished: {}", task.name),
+                body: format!(
+                    "Completed in {} steps ({} tool calls)",
+                    summary.steps, summary.tool_calls
+                ),
+                kind: "run_finished".to_string(),
+                task_id: Some(task.id.clone()),
+                session_id: Some(session_id.clone()),
+                approval_id: None,
+            });
             (
                 "done".to_string(),
                 None,
@@ -123,6 +140,15 @@ pub async fn execute_scheduled_task(
             if let Some(t) = &tracer {
                 t.finish(0, 0, 0, 0, "error", Some(&err_msg));
             }
+            let _ = store.add_notification(&NewNotification {
+                id: None,
+                title: format!("Task failed: {}", task.name),
+                body: format!("Error: {}", err_msg),
+                kind: "run_failed".to_string(),
+                task_id: Some(task.id.clone()),
+                session_id: Some(session_id.clone()),
+                approval_id: None,
+            });
             ("error".to_string(), Some(err_msg), 0, 0, 0, 0)
         }
     };
@@ -223,6 +249,7 @@ impl ScheduleRunner {
 mod tests {
     use super::*;
     use crate::testkit::{fake_server, sse, target};
+    use oblivion_core::schedule::UnattendedApprover;
     use oblivion_core::ApprovalMode;
     use oblivion_providers::Router;
     use oblivion_store::NewScheduledTask;

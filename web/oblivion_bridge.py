@@ -894,6 +894,94 @@ def register(app, bridge=None, allowed_port=None, token=None):
         code, text, ct = b.request("POST", path, body=body)
         return Response(text, status=code, mimetype=ct)
 
+    # ---------- pending approvals ----------
+
+    @app.route("/api/oblivion/approvals", methods=["GET"])
+    @app.route("/api/approvals", methods=["GET"])
+    def oblivion_approvals():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        path = "/api/approvals"
+        qs = request.query_string.decode("utf-8") if request.query_string else ""
+        if qs:
+            path = f"{path}?{qs}"
+        code, text, ct = b.request("GET", path)
+        return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/approvals/<appr_id>", methods=["GET"])
+    @app.route("/api/approvals/<appr_id>", methods=["GET"])
+    def oblivion_approval_item(appr_id):
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        path = f"/api/approvals/{appr_id}"
+        code, text, ct = b.request("GET", path)
+        return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/approvals/<appr_id>/resolve", methods=["POST"])
+    @app.route("/api/approvals/<appr_id>/resolve", methods=["POST"])
+    def oblivion_approval_resolve(appr_id):
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        path = f"/api/approvals/{appr_id}/resolve"
+        body = request.get_json(silent=True) or {}
+        code, text, ct = b.request("POST", path, body=body)
+        return Response(text, status=code, mimetype=ct)
+
+    # ---------- notifications ----------
+
+    @app.route("/api/oblivion/notifications", methods=["GET"])
+    @app.route("/api/notifications", methods=["GET"])
+    def oblivion_notifications():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        path = "/api/notifications"
+        qs = request.query_string.decode("utf-8") if request.query_string else ""
+        if qs:
+            path = f"{path}?{qs}"
+        code, text, ct = b.request("GET", path)
+        return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/notifications/<notif_id>", methods=["GET"])
+    @app.route("/api/notifications/<notif_id>", methods=["GET"])
+    def oblivion_notification_item(notif_id):
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        path = f"/api/notifications/{notif_id}"
+        code, text, ct = b.request("GET", path)
+        return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/notifications/<notif_id>/read", methods=["POST"])
+    @app.route("/api/notifications/<notif_id>/read", methods=["POST"])
+    def oblivion_notification_read(notif_id):
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        path = f"/api/notifications/{notif_id}/read"
+        code, text, ct = b.request("POST", path)
+        return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/notifications/read-all", methods=["POST"])
+    @app.route("/api/notifications/read-all", methods=["POST"])
+    def oblivion_notifications_read_all():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        path = "/api/notifications/read-all"
+        code, text, ct = b.request("POST", path)
+        return Response(text, status=code, mimetype=ct)
+
     return bridge
 
 

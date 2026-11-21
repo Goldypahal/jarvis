@@ -2,12 +2,16 @@
 //! `~/.oblivion/oblivion.db`, holding saved sessions, per-day usage of
 //! every model so free-tier daily limits survive restarts, and long-term memory.
 
+pub mod approval;
 pub mod embedding;
 pub mod memory;
 pub mod migrations;
 pub mod schedule;
 pub mod tools;
 
+pub use approval::{
+    NewNotification, NewPendingApproval, Notification, PendingApproval, UnattendedQueueApprover,
+};
 pub use embedding::{EmbedFuture, Embedder, MockEmbedder, OllamaEmbedder};
 pub use memory::{Memory, MemoryFilter, NewMemory};
 pub use schedule::{NewScheduledTask, ScheduledTask, UpdateScheduledTask};
@@ -864,6 +868,59 @@ impl Store {
         let conn = self.conn.lock().unwrap();
         schedule::db_record_task_run(&conn, id, session_id, outcome, error, next_run)
     }
+
+    // ---------- pending approvals ----------
+
+    pub fn add_pending_approval(&self, approval: &NewPendingApproval) -> Result<PendingApproval> {
+        let conn = self.conn.lock().unwrap();
+        approval::db_add_approval(&conn, approval)
+    }
+
+    pub fn get_pending_approval(&self, id: &str) -> Result<Option<PendingApproval>> {
+        let conn = self.conn.lock().unwrap();
+        approval::db_get_approval(&conn, id)
+    }
+
+    pub fn list_pending_approvals(&self, status: Option<&str>) -> Result<Vec<PendingApproval>> {
+        let conn = self.conn.lock().unwrap();
+        approval::db_list_approvals(&conn, status)
+    }
+
+    pub fn resolve_pending_approval(&self, id: &str, status: &str) -> Result<PendingApproval> {
+        let conn = self.conn.lock().unwrap();
+        approval::db_resolve_approval(&conn, id, status)
+    }
+
+    // ---------- notifications ----------
+
+    pub fn add_notification(&self, notification: &NewNotification) -> Result<Notification> {
+        let conn = self.conn.lock().unwrap();
+        approval::db_add_notification(&conn, notification)
+    }
+
+    pub fn get_notification(&self, id: &str) -> Result<Option<Notification>> {
+        let conn = self.conn.lock().unwrap();
+        approval::db_get_notification(&conn, id)
+    }
+
+    pub fn list_notifications(
+        &self,
+        unread_only: bool,
+        limit: Option<usize>,
+    ) -> Result<Vec<Notification>> {
+        let conn = self.conn.lock().unwrap();
+        approval::db_list_notifications(&conn, unread_only, limit)
+    }
+
+    pub fn mark_notification_read(&self, id: &str) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        approval::db_mark_notification_read(&conn, id)
+    }
+
+    pub fn mark_all_notifications_read(&self) -> Result<usize> {
+        let conn = self.conn.lock().unwrap();
+        approval::db_mark_all_notifications_read(&conn)
+    }
 }
 
 fn vector_to_bytes(v: &[f32]) -> Vec<u8> {
@@ -1693,5 +1750,126 @@ mod tests {
         let deleted = st.delete_scheduled_task(&t2.id).unwrap();
         assert!(deleted);
         assert!(st.get_scheduled_task(&t2.id).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_store_pending_approvals_and_notifications_lifecycle() {
+        let st = Store::in_memory().unwrap();
+
+        // 1. Pending Approvals
+        let app1 = st
+            .add_pending_approval(&NewPendingApproval {
+                id: None,
+                task_id: Some("task-brief".to_string()),
+                session_id: "sched-session-1".to_string(),
+                tool_name: "shell".to_string(),
+                summary: "git pull origin main".to_string(),
+                risk: Some("ask".to_string()),
+            })
+            .unwrap();
+
+        assert_eq!(app1.tool_name, "shell");
+        assert_eq!(app1.status, "pending");
+        assert!(app1.resolved_at.is_none());
+
+        let retrieved = st.get_pending_approval(&app1.id).unwrap().unwrap();
+        assert_eq!(retrieved.id, app1.id);
+        assert_eq!(retrieved.summary, "git pull origin main");
+
+        let pending_list = st.list_pending_approvals(Some("pending")).unwrap();
+        assert_eq!(pending_list.len(), 1);
+        assert_eq!(pending_list[0].id, app1.id);
+
+        let resolved = st.resolve_pending_approval(&app1.id, "approved").unwrap();
+        assert_eq!(resolved.status, "approved");
+        assert!(resolved.resolved_at.is_some());
+
+        let pending_after = st.list_pending_approvals(Some("pending")).unwrap();
+        assert_eq!(pending_after.len(), 0);
+
+        let approved_after = st.list_pending_approvals(Some("approved")).unwrap();
+        assert_eq!(approved_after.len(), 1);
+
+        // 2. Notifications
+        let notif1 = st
+            .add_notification(&NewNotification {
+                id: None,
+                title: "Approval required".to_string(),
+                body: "Shell command requested".to_string(),
+                kind: "approval_needed".to_string(),
+                task_id: Some("task-brief".to_string()),
+                session_id: Some("sched-session-1".to_string()),
+                approval_id: Some(app1.id.clone()),
+            })
+            .unwrap();
+
+        let notif2 = st
+            .add_notification(&NewNotification {
+                id: None,
+                title: "Run finished".to_string(),
+                body: "Task completed successfully".to_string(),
+                kind: "run_finished".to_string(),
+                task_id: Some("task-brief".to_string()),
+                session_id: Some("sched-session-1".to_string()),
+                approval_id: None,
+            })
+            .unwrap();
+
+        let unread = st.list_notifications(true, None).unwrap();
+        assert_eq!(unread.len(), 2);
+
+        let marked = st.mark_notification_read(&notif1.id).unwrap();
+        assert!(marked);
+
+        let unread_remaining = st.list_notifications(true, None).unwrap();
+        assert_eq!(unread_remaining.len(), 1);
+        assert_eq!(unread_remaining[0].id, notif2.id);
+
+        let all_marked = st.mark_all_notifications_read().unwrap();
+        assert_eq!(all_marked, 1);
+
+        let unread_empty = st.list_notifications(true, None).unwrap();
+        assert_eq!(unread_empty.len(), 0);
+
+        let all_notifs = st.list_notifications(false, Some(10)).unwrap();
+        assert_eq!(all_notifs.len(), 2);
+    }
+
+    #[test]
+    fn test_unattended_queue_approver_behavior() {
+        use oblivion_core::agent::Approver;
+
+        let st = Arc::new(Store::in_memory().unwrap());
+        let approver = UnattendedQueueApprover::new(
+            st.clone(),
+            "sched-sess-99",
+            Some("task-watcher".to_string()),
+        );
+
+        // Low-risk action should be allowed immediately
+        let dec1 = approver.approve("recall", "recall relevant facts");
+        assert_eq!(dec1, oblivion_core::agent::Decision::Yes);
+
+        let pending_before = st.list_pending_approvals(None).unwrap();
+        assert_eq!(pending_before.len(), 0);
+
+        // Risky action should be declined and persisted into pending approvals + notifications
+        let dec2 = approver.approve("shell", "rm -rf build/");
+        assert_eq!(dec2, oblivion_core::agent::Decision::No);
+
+        let pending_after = st.list_pending_approvals(Some("pending")).unwrap();
+        assert_eq!(pending_after.len(), 1);
+        assert_eq!(pending_after[0].tool_name, "shell");
+        assert_eq!(pending_after[0].summary, "rm -rf build/");
+        assert_eq!(pending_after[0].session_id, "sched-sess-99");
+        assert_eq!(pending_after[0].task_id.as_deref(), Some("task-watcher"));
+
+        let notifs = st.list_notifications(true, None).unwrap();
+        assert_eq!(notifs.len(), 1);
+        assert_eq!(notifs[0].kind, "approval_needed");
+        assert_eq!(
+            notifs[0].approval_id.as_deref(),
+            Some(pending_after[0].id.as_str())
+        );
     }
 }

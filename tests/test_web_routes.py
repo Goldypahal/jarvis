@@ -459,5 +459,83 @@ def test_oblivion_schedules_routes(client, auth_headers, monkeypatch):
     assert r_del.get_json()["deleted"] is True
 
 
+def test_oblivion_approvals_and_notifications_routes(client, auth_headers, monkeypatch):
+    """Approvals and notifications routes require auth and forward correctly."""
+    calls = []
+
+    class FakeQueueBridge:
+        def request(self, method, path, body=None, headers=None):
+            calls.append((method, path, body))
+            if path == "/api/approvals" and method == "GET":
+                return 200, '[{"id": "appr-1", "tool_name": "shell", "status": "pending"}]', "application/json"
+            elif path == "/api/approvals?status=pending" and method == "GET":
+                return 200, '[{"id": "appr-1", "tool_name": "shell", "status": "pending"}]', "application/json"
+            elif path == "/api/approvals/appr-1" and method == "GET":
+                return 200, '{"id": "appr-1", "tool_name": "shell", "status": "pending"}', "application/json"
+            elif path == "/api/approvals/appr-1/resolve" and method == "POST":
+                return 200, '{"id": "appr-1", "status": "approved", "resolved_at": "now"}', "application/json"
+            elif path == "/api/notifications" and method == "GET":
+                return 200, '[{"id": "notif-1", "title": "Approval needed", "read": false}]', "application/json"
+            elif path == "/api/notifications?unread=true" and method == "GET":
+                return 200, '[{"id": "notif-1", "title": "Approval needed", "read": false}]', "application/json"
+            elif path == "/api/notifications/notif-1" and method == "GET":
+                return 200, '{"id": "notif-1", "title": "Approval needed", "read": false}', "application/json"
+            elif path == "/api/notifications/notif-1/read" and method == "POST":
+                return 200, '{"read": true, "id": "notif-1"}', "application/json"
+            elif path == "/api/notifications/read-all" and method == "POST":
+                return 200, '{"marked": 1}', "application/json"
+            return 404, "Not found", "text/plain"
+
+    monkeypatch.setitem(app.config, "OBLIVION_BRIDGE", FakeQueueBridge())
+
+    # Unauthorized requests fail with 403
+    assert client.get("/api/oblivion/approvals").status_code == 403
+    assert client.get("/api/oblivion/approvals/appr-1").status_code == 403
+    assert client.post("/api/oblivion/approvals/appr-1/resolve").status_code == 403
+    assert client.get("/api/oblivion/notifications").status_code == 403
+    assert client.get("/api/oblivion/notifications/notif-1").status_code == 403
+    assert client.post("/api/oblivion/notifications/notif-1/read").status_code == 403
+    assert client.post("/api/oblivion/notifications/read-all").status_code == 403
+
+    # Approvals list
+    r_apprs = client.get("/api/oblivion/approvals?status=pending", headers=auth_headers)
+    assert r_apprs.status_code == 200
+    assert len(r_apprs.get_json()) == 1
+
+    # Single approval
+    r_single_appr = client.get("/api/oblivion/approvals/appr-1", headers=auth_headers)
+    assert r_single_appr.status_code == 200
+    assert r_single_appr.get_json()["id"] == "appr-1"
+
+    # Resolve approval
+    r_resolve = client.post(
+        "/api/oblivion/approvals/appr-1/resolve",
+        headers=auth_headers,
+        json={"decision": "approved"},
+    )
+    assert r_resolve.status_code == 200
+    assert r_resolve.get_json()["status"] == "approved"
+
+    # Notifications list
+    r_notifs = client.get("/api/oblivion/notifications?unread=true", headers=auth_headers)
+    assert r_notifs.status_code == 200
+    assert len(r_notifs.get_json()) == 1
+
+    # Single notification
+    r_single_notif = client.get("/api/oblivion/notifications/notif-1", headers=auth_headers)
+    assert r_single_notif.status_code == 200
+    assert r_single_notif.get_json()["id"] == "notif-1"
+
+    # Mark single read
+    r_read = client.post("/api/oblivion/notifications/notif-1/read", headers=auth_headers)
+    assert r_read.status_code == 200
+    assert r_read.get_json()["read"] is True
+
+    # Mark all read
+    r_read_all = client.post("/api/oblivion/notifications/read-all", headers=auth_headers)
+    assert r_read_all.status_code == 200
+    assert r_read_all.get_json()["marked"] == 1
+
+
 def false_or_true(val):
     return val

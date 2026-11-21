@@ -666,6 +666,46 @@ pub fn router(state: WebState) -> Router {
             "/api/oblivion/schedules/{id}/run",
             post(run_schedule_handler),
         )
+        // Approvals queue
+        .route("/api/approvals", get(list_approvals_handler))
+        .route("/api/oblivion/approvals", get(list_approvals_handler))
+        .route("/api/approvals/{id}", get(get_approval_handler))
+        .route("/api/oblivion/approvals/{id}", get(get_approval_handler))
+        .route(
+            "/api/approvals/{id}/resolve",
+            post(resolve_approval_handler),
+        )
+        .route(
+            "/api/oblivion/approvals/{id}/resolve",
+            post(resolve_approval_handler),
+        )
+        // Notifications store
+        .route("/api/notifications", get(list_notifications_handler))
+        .route(
+            "/api/oblivion/notifications",
+            get(list_notifications_handler),
+        )
+        .route("/api/notifications/{id}", get(get_notification_handler))
+        .route(
+            "/api/oblivion/notifications/{id}",
+            get(get_notification_handler),
+        )
+        .route(
+            "/api/notifications/{id}/read",
+            post(mark_notification_read_handler),
+        )
+        .route(
+            "/api/oblivion/notifications/{id}/read",
+            post(mark_notification_read_handler),
+        )
+        .route(
+            "/api/notifications/read-all",
+            post(mark_all_notifications_read_handler),
+        )
+        .route(
+            "/api/oblivion/notifications/read-all",
+            post(mark_all_notifications_read_handler),
+        )
         .with_state(state)
 }
 
@@ -2473,6 +2513,166 @@ async fn run_schedule_handler(
             StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({"error": "Scheduler runner is not active"})),
         ))
+    }
+}
+
+// =========================================================================
+// Pending Approvals & Notifications
+// =========================================================================
+
+async fn list_approvals_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q_map): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<oblivion_store::PendingApproval>>, StatusCode> {
+    if !st.authorized(&headers, &q_map) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let status_filter = q_map.get("status").map(|s| s.as_str());
+    match st.store.list_pending_approvals(status_filter) {
+        Ok(list) => Ok(Json(list)),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+async fn get_approval_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Path(id): Path<String>,
+) -> Result<Json<oblivion_store::PendingApproval>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    match st.store.get_pending_approval(&id) {
+        Ok(Some(appr)) => Ok(Json(appr)),
+        Ok(None) => Err(StatusCode::NOT_FOUND),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+#[derive(Deserialize, Default)]
+struct ResolveApprovalBody {
+    #[serde(default)]
+    decision: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+}
+
+async fn resolve_approval_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Path(id): Path<String>,
+    Json(body): Json<ResolveApprovalBody>,
+) -> Result<Json<oblivion_store::PendingApproval>, (StatusCode, Json<serde_json::Value>)> {
+    if !st.authorized(&headers, &q) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        ));
+    }
+    let chosen = body
+        .decision
+        .or(body.status)
+        .unwrap_or_else(|| "approved".to_string());
+    match st.store.resolve_pending_approval(&id, &chosen) {
+        Ok(appr) => Ok(Json(appr)),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("not found") {
+                Err((
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({"error": msg})),
+                ))
+            } else {
+                Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": msg})),
+                ))
+            }
+        }
+    }
+}
+
+async fn list_notifications_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q_map): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<oblivion_store::Notification>>, StatusCode> {
+    if !st.authorized(&headers, &q_map) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let unread_only = q_map
+        .get("unread")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+    let limit = q_map.get("limit").and_then(|l| l.parse::<usize>().ok());
+
+    match st.store.list_notifications(unread_only, limit) {
+        Ok(list) => Ok(Json(list)),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+async fn get_notification_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Path(id): Path<String>,
+) -> Result<Json<oblivion_store::Notification>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    match st.store.get_notification(&id) {
+        Ok(Some(notif)) => Ok(Json(notif)),
+        Ok(None) => Err(StatusCode::NOT_FOUND),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+async fn mark_notification_read_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if !st.authorized(&headers, &q) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        ));
+    }
+    match st.store.mark_notification_read(&id) {
+        Ok(true) => Ok(Json(serde_json::json!({"read": true, "id": id}))),
+        Ok(false) => Err((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "Notification not found"})),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )),
+    }
+}
+
+async fn mark_all_notifications_read_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if !st.authorized(&headers, &q) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        ));
+    }
+    match st.store.mark_all_notifications_read() {
+        Ok(count) => Ok(Json(serde_json::json!({"marked": count}))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )),
     }
 }
 
@@ -4373,5 +4573,194 @@ mod live {
             .await
             .unwrap();
         assert_eq!(not_found.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn web_approvals_and_notifications_endpoints_crud() {
+        let dir = tempfile::tempdir().unwrap();
+        let store =
+            Arc::new(oblivion_store::Store::open(&dir.path().join("test_appr.db")).unwrap());
+        let (url, _seen) = crate::testkit::fake_server(vec![]).await;
+        let (_worker, controls, _events) = crate::testkit::worker(&url, dir.path());
+
+        let bus = Arc::new(Bus::default());
+        let token = "secret-token-xyz";
+        let state = WebState {
+            token: token.into(),
+            controls,
+            bus,
+            store: store.clone(),
+            ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
+            config_path: None,
+            voice_transcriber: None,
+            voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
+        };
+
+        let app = router(state);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+        let base = format!("http://{}", addr);
+        let token = "secret-token-xyz";
+
+        // 1. Unauthorized checks
+        let unauth = client
+            .get(format!("{base}/api/approvals"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unauth.status(), StatusCode::UNAUTHORIZED);
+
+        let unauth_notif = client
+            .get(format!("{base}/api/notifications"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unauth_notif.status(), StatusCode::UNAUTHORIZED);
+
+        // 2. Add pending approval and notification to store
+        let created_appr = store
+            .add_pending_approval(&oblivion_store::NewPendingApproval {
+                id: None,
+                task_id: Some("task-123".to_string()),
+                session_id: "sched-123".to_string(),
+                tool_name: "shell".to_string(),
+                summary: "rm -rf test/".to_string(),
+                risk: Some("ask".to_string()),
+            })
+            .unwrap();
+
+        let created_notif = store
+            .add_notification(&oblivion_store::NewNotification {
+                id: None,
+                title: "Approval required".to_string(),
+                body: "Shell command requested".to_string(),
+                kind: "approval_needed".to_string(),
+                task_id: Some("task-123".to_string()),
+                session_id: Some("sched-123".to_string()),
+                approval_id: Some(created_appr.id.clone()),
+            })
+            .unwrap();
+
+        // 3. List approvals
+        let res = client
+            .get(format!("{base}/api/approvals"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let list: Vec<oblivion_store::PendingApproval> = res.json().await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, created_appr.id);
+        assert_eq!(list[0].status, "pending");
+
+        // 4. Get approval by id
+        let res = client
+            .get(format!("{base}/api/approvals/{}", created_appr.id))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let single: oblivion_store::PendingApproval = res.json().await.unwrap();
+        assert_eq!(single.id, created_appr.id);
+
+        // 5. Resolve approval -> approved
+        let res = client
+            .post(format!("{base}/api/approvals/{}/resolve", created_appr.id))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({"decision": "approved"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let resolved: oblivion_store::PendingApproval = res.json().await.unwrap();
+        assert_eq!(resolved.status, "approved");
+        assert!(resolved.resolved_at.is_some());
+
+        // 6. Check filter by status
+        let res = client
+            .get(format!("{base}/api/approvals?status=pending"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let pending_list: Vec<oblivion_store::PendingApproval> = res.json().await.unwrap();
+        assert_eq!(pending_list.len(), 0);
+
+        let res = client
+            .get(format!("{base}/api/approvals?status=approved"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let approved_list: Vec<oblivion_store::PendingApproval> = res.json().await.unwrap();
+        assert_eq!(approved_list.len(), 1);
+
+        // 7. List notifications (unread)
+        let res = client
+            .get(format!("{base}/api/notifications?unread=true"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let notifs: Vec<oblivion_store::Notification> = res.json().await.unwrap();
+        assert_eq!(notifs.len(), 1);
+        assert_eq!(notifs[0].id, created_notif.id);
+
+        // 8. Get notification by ID
+        let res = client
+            .get(format!("{base}/api/notifications/{}", created_notif.id))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let single_notif: oblivion_store::Notification = res.json().await.unwrap();
+        assert_eq!(single_notif.id, created_notif.id);
+
+        // 9. Mark notification read
+        let res = client
+            .post(format!(
+                "{base}/api/notifications/{}/read",
+                created_notif.id
+            ))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let res = client
+            .get(format!("{base}/api/notifications?unread=true"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let unread_after: Vec<oblivion_store::Notification> = res.json().await.unwrap();
+        assert_eq!(unread_after.len(), 0);
+
+        // 10. Mark all read
+        let res = client
+            .post(format!("{base}/api/notifications/read-all"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
     }
 }

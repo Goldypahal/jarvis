@@ -85,7 +85,8 @@ Current milestone: **Month 6 — automations and connectors → v1.5** · Branch
 ## Month 6 — automations and connectors → v1.5
 - [x] Scheduler core: SQLite schema v5, cron/one-off schedule evaluation, fresh session execution with traces — 2026-11-22, 8e80a6f, cargo test: 175 passed; pytest: 88 passed; clippy: 0 warnings; SQLite schema v5 migration, cron & relative intervals parser, unattended approver, fresh session & trace execution tested
 - [x] Scheduler runner & UI: background ticker in tray/web, /schedule command, REST API, desktop schedule window — 2026-11-22, 66d4d32, cargo test: 178 passed; pytest: 89 passed; clippy: 0 warnings; node check: clean; browser UI verified; background ticker, /schedule command, REST endpoints, Flask bridge, and desktop schedules window complete
-- [ ] Notifications and approval queue for unattended runs; risky actions always wait
+- [x] Approval queue & notification store: SQLite schema, unattended queue approver with persistent pending approvals, REST API and unit tests — 2026-11-22, bed7d5b, cargo test: 211 passed; pytest: 90 passed; clippy: 0 warnings; SQLite schema v6 migration, unattended queue approver, pending approvals & notifications CRUD, REST API and Flask bridge proxies verified
+- [ ] Desktop notification banner & approval queue UI: toasts, pending badge, approval modal with one-click approve/deny, browser verified
 - [ ] Connector setup screen for MCP servers; keys in Credential Manager
 - [ ] Starter automations (morning brief, repo watcher, weekly report)
 - [ ] Milestone check → tag `v1.5`
