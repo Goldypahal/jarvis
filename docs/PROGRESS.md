@@ -4,7 +4,7 @@ The agent ticks items here as it finishes them: `- [x] item — 2026-11-18, <com
 Blocked items stay unticked with `BLOCKED (...)`. Problem IDs refer to `ANALYSIS_AND_ROADMAP.md`.
 Split any item that turns out bigger than about 400 changed lines.
 
-Current milestone: **Month 5 — vision and computer use** · Branch: `roadmap/m5`
+Current milestone: **Month 6 — automations and connectors → v1.5** · Branch: `roadmap/m6`
 
 ---
 
