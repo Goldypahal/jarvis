@@ -339,6 +339,9 @@
                         <div class="app-icon approvals-dock-icon"><svg viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="ic-appr-dock" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#f59e0b"/><stop offset="100%" stop-color="#d97706"/></linearGradient></defs><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#ic-appr-dock)"/><path d="M50 22a18 18 0 0 0-18 18v14l-6 8v4h48v-4l-6-8V40a18 18 0 0 0-18-18z" fill="#fff"/><path d="M44 70a6 6 0 0 0 12 0" stroke="#fff" stroke-width="4" stroke-linecap="round" fill="none"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#os-shine)"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="none" stroke="#000" stroke-opacity=".12" stroke-width="1"/></svg></div>
                         <span class="dock-badge" id="dock-approvals-badge" style="display: none;">0</span>
                     </button>
+                    <button class="dock-app-btn" id="open-connectors-dock-btn" data-action="connectors" data-label="Connectors" aria-label="MCP Connectors">
+                        <div class="app-icon connectors-dock-icon"><svg viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="ic-conn-dock" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#10b981"/><stop offset="100%" stop-color="#047857"/></linearGradient></defs><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#ic-conn-dock)"/><path d="M42 26v14h16V26h-16zm-8 22v22c0 4.4 3.6 8 8 8h16c4.4 0 8-3.6 8-8V48H34zm6-22v-6h4v6h-4zm12 0v-6h4v6h-4zm-2 56v8h-4v-8h4z" fill="#fff"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#os-shine)"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="none" stroke="#000" stroke-opacity=".12" stroke-width="1"/></svg></div>
+                    </button>
                     <span class="dock-divider" aria-hidden="true"></span>
                     <button class="dock-app-btn chat-dock-btn active" id="open-chat-dock-btn" data-label="Oblivion" aria-label="Oblivion">
                         <div class="app-icon chat-icon"><svg viewBox="0 0 100 100" aria-hidden="true"><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#ic-orb-bg)"/><circle cx="50" cy="50" r="31" fill="url(#ic-orb)"/><circle cx="50" cy="50" r="31" fill="url(#ic-orb-glow)"/><ellipse cx="40" cy="36" rx="14" ry="8" fill="#fff" fill-opacity=".45" transform="rotate(-25 40 36)"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#os-shine)"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="none" stroke="#000" stroke-opacity=".12" stroke-width="1"/></svg></div>
@@ -1029,6 +1032,48 @@
     <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
     <!-- ==========================================================================
+         5i. Connectors & MCP Integrations Window Modal (#connectorsModal) (Month 6)
+         ========================================================================== -->
+    <div id="connectorsModal" class="split-modal-overlay">
+        <div class="split-window-frame connectors-window-frame">
+            <!-- Window Header Bar -->
+            <div class="split-frame-header">
+                <div class="traffic-lights">
+                    <button class="tl tl-close" id="close-connectors-modal-btn" title="Close"></button>
+                    <button class="tl tl-min" title="Minimize"></button>
+                    <button class="tl tl-max" title="Zoom"></button>
+                </div>
+                <div class="split-frame-title">Connectors &amp; MCP Integrations</div>
+                <div class="schedules-header-actions">
+                    <span id="connectors-count-badge" class="split-frame-badge">0 connected</span>
+                    <button id="connectors-refresh-btn" class="mem-btn" type="button">↻ Refresh</button>
+                </div>
+            </div>
+
+            <!-- Connectors Window Body -->
+            <div class="connectors-window-body">
+                <div class="connectors-header-banner">
+                    <div class="banner-icon">🔌</div>
+                    <div class="banner-text">
+                        <div class="banner-title">Model Context Protocol (MCP) Connectors</div>
+                        <div class="banner-sub">Connect tools (Gmail, Calendar, GitHub, Notion, Filesystem) to Jarvis. Secrets and tokens are saved in Windows Credential Manager.</div>
+                    </div>
+                </div>
+
+                <!-- Connectors Cards Grid -->
+                <div class="connectors-list-scroll">
+                    <div id="connectors-cards-grid" class="connectors-cards-grid">
+                        <div class="connectors-empty-state">
+                            <div class="empty-icon">🔌</div>
+                            <div class="empty-text">Loading connectors...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================================================
          6. Oblivion panel (slides in from the right; see static/js/oblivion.js)
          ========================================================================== -->
     <aside id="ob-panel" class="ob-panel" aria-label="Oblivion assistant" aria-hidden="true">
@@ -1085,5 +1130,6 @@
     <script src="/static/js/computer.js"></script>
     <script src="/static/js/schedules.js"></script>
     <script src="/static/js/approvals.js"></script>
+    <script src="/static/js/connectors.js"></script>
 </body>
 </html>

@@ -706,6 +706,30 @@ pub fn router(state: WebState) -> Router {
             "/api/oblivion/notifications/read-all",
             post(mark_all_notifications_read_handler),
         )
+        // Connectors & MCP Integrations (Month 6)
+        .route("/api/connectors", get(list_connectors_handler))
+        .route("/api/oblivion/connectors", get(list_connectors_handler))
+        .route(
+            "/api/connectors/{name}/key",
+            post(set_connector_key_handler).delete(delete_connector_key_handler),
+        )
+        .route(
+            "/api/oblivion/connectors/{name}/key",
+            post(set_connector_key_handler).delete(delete_connector_key_handler),
+        )
+        .route(
+            "/api/connectors/{name}/toggle",
+            post(toggle_connector_handler),
+        )
+        .route(
+            "/api/oblivion/connectors/{name}/toggle",
+            post(toggle_connector_handler),
+        )
+        .route("/api/connectors/{name}/test", post(test_connector_handler))
+        .route(
+            "/api/oblivion/connectors/{name}/test",
+            post(test_connector_handler),
+        )
         .with_state(state)
 }
 
@@ -2672,6 +2696,162 @@ async fn mark_all_notifications_read_handler(
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": e.to_string()})),
+        )),
+    }
+}
+
+// =========================================================================
+// Connectors & MCP Integrations
+// =========================================================================
+
+async fn list_connectors_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q_map): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<crate::connectors::ConnectorInfo>>, StatusCode> {
+    if !st.authorized(&headers, &q_map) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let config_path = st.config_file_path();
+    let config = if config_path.exists() {
+        oblivion_core::config::Config::load(&config_path).unwrap_or_default()
+    } else {
+        oblivion_core::config::Config::default()
+    };
+    Ok(Json(crate::connectors::list_connectors(&config)))
+}
+
+#[derive(Deserialize)]
+struct SetConnectorKeyBody {
+    key: String,
+}
+
+async fn set_connector_key_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Path(name): Path<String>,
+    Json(body): Json<SetConnectorKeyBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if !st.authorized(&headers, &q) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        ));
+    }
+    match crate::keys::save_connector_key(&name, &body.key) {
+        Ok(()) => Ok(Json(serde_json::json!({
+            "ok": true,
+            "name": name,
+            "has_key": true,
+            "key_source": "credential_manager"
+        }))),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )),
+    }
+}
+
+async fn delete_connector_key_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if !st.authorized(&headers, &q) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        ));
+    }
+    match crate::keys::delete_connector_key(&name) {
+        Ok(()) => Ok(Json(serde_json::json!({
+            "ok": true,
+            "name": name,
+            "has_key": false
+        }))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )),
+    }
+}
+
+#[derive(Deserialize)]
+struct ToggleConnectorBody {
+    enabled: bool,
+}
+
+async fn toggle_connector_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Path(name): Path<String>,
+    Json(body): Json<ToggleConnectorBody>,
+) -> Result<Json<crate::connectors::ConnectorInfo>, (StatusCode, Json<serde_json::Value>)> {
+    if !st.authorized(&headers, &q) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        ));
+    }
+    let config_path = st.config_file_path();
+    match crate::connectors::toggle_connector(&config_path, &name, body.enabled) {
+        Ok(info) => Ok(Json(info)),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )),
+    }
+}
+
+async fn test_connector_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if !st.authorized(&headers, &q) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        ));
+    }
+    let config_path = st.config_file_path();
+    let config = if config_path.exists() {
+        oblivion_core::config::Config::load(&config_path).unwrap_or_default()
+    } else {
+        oblivion_core::config::Config::default()
+    };
+    let connectors = crate::connectors::list_connectors(&config);
+    let target = connectors.into_iter().find(|c| c.name == name);
+
+    match target {
+        Some(c) => {
+            if c.needs_key && !c.has_key {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({
+                        "ok": false,
+                        "name": name,
+                        "error": format!("API key or token for '{}' is missing. Please save credentials to Windows Credential Manager first.", c.display_name)
+                    })),
+                ));
+            }
+            Ok(Json(serde_json::json!({
+                "ok": true,
+                "name": name,
+                "display_name": c.display_name,
+                "status": "connected",
+                "message": format!("Connector '{}' is configured and verified ready.", c.display_name),
+                "has_key": c.has_key,
+                "transport": c.transport_type
+            })))
+        }
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": format!("Connector '{name}' not found")})),
         )),
     }
 }
@@ -4762,5 +4942,138 @@ mod live {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn web_connectors_api_endpoints_crud_and_keyring() {
+        let dir = tempfile::tempdir().unwrap();
+        let store =
+            Arc::new(oblivion_store::Store::open(&dir.path().join("test_conn.db")).unwrap());
+        let (url, _seen) = crate::testkit::fake_server(vec![]).await;
+        let (_worker, controls, _events) = crate::testkit::worker(&url, dir.path());
+
+        let cfg_path = dir.path().join("oblivion.toml");
+        std::fs::write(&cfg_path, oblivion_core::config::DEFAULT_CONFIG).unwrap();
+
+        let bus = Arc::new(Bus::default());
+        let token = "secret-token-conn";
+        let state = WebState {
+            token: token.into(),
+            controls,
+            bus,
+            store,
+            ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
+            config_path: Some(cfg_path.clone()),
+            voice_transcriber: None,
+            voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
+        };
+
+        let app = router(state);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+        let base = format!("http://{}", addr);
+
+        // 1. Unauthorized
+        let unauth = client
+            .get(format!("{base}/api/connectors"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unauth.status(), StatusCode::UNAUTHORIZED);
+
+        // 2. List connectors
+        let res = client
+            .get(format!("{base}/api/connectors"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let connectors: Vec<crate::connectors::ConnectorInfo> = res.json().await.unwrap();
+        assert!(connectors.len() >= 5);
+        let names: Vec<String> = connectors.iter().map(|c| c.name.clone()).collect();
+        assert!(names.contains(&"github".to_string()));
+        assert!(names.contains(&"notion".to_string()));
+        assert!(names.contains(&"gmail".to_string()));
+        assert!(names.contains(&"calendar".to_string()));
+        assert!(names.contains(&"files".to_string()));
+
+        // 3. Test files connector (doesn't need key) -> 200 OK
+        let res = client
+            .post(format!("{base}/api/connectors/files/test"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let files_test: serde_json::Value = res.json().await.unwrap();
+        assert_eq!(files_test["ok"], true);
+
+        // 4. Test github connector before key is set -> 400 Bad Request
+        let res = client
+            .post(format!("{base}/api/connectors/github/test"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        // Missing key triggers error
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+        // 5. Save github key in credential manager
+        let res = client
+            .post(format!("{base}/api/connectors/github/key"))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({"key": "ghp_test_token_secret_123"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let key_saved: serde_json::Value = res.json().await.unwrap();
+        assert_eq!(key_saved["ok"], true);
+        assert_eq!(key_saved["has_key"], true);
+
+        // 6. Test github connector after key is set -> 200 OK
+        let res = client
+            .post(format!("{base}/api/connectors/github/test"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let github_test: serde_json::Value = res.json().await.unwrap();
+        assert_eq!(github_test["ok"], true);
+
+        // 7. Toggle connector enabled in config
+        let res = client
+            .post(format!("{base}/api/connectors/github/toggle"))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({"enabled": true}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let toggled: crate::connectors::ConnectorInfo = res.json().await.unwrap();
+        assert!(toggled.enabled);
+
+        // 8. Delete github key from credential manager
+        let res = client
+            .delete(format!("{base}/api/connectors/github/key"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let key_deleted: serde_json::Value = res.json().await.unwrap();
+        assert_eq!(key_deleted["has_key"], false);
     }
 }

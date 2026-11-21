@@ -3,6 +3,7 @@
 mod app;
 pub mod autostart;
 mod commands;
+pub mod connectors;
 mod keys;
 pub mod schedule_runner;
 pub mod screen;

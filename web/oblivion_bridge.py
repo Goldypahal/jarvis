@@ -982,6 +982,57 @@ def register(app, bridge=None, allowed_port=None, token=None):
         code, text, ct = b.request("POST", path)
         return Response(text, status=code, mimetype=ct)
 
+    # ---------- connectors / MCP ----------
+
+    @app.route("/api/oblivion/connectors", methods=["GET"])
+    @app.route("/api/connectors", methods=["GET"])
+    def oblivion_connectors():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        path = "/api/connectors"
+        code, text, ct = b.request("GET", path)
+        return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/connectors/<name>/key", methods=["POST", "DELETE"])
+    @app.route("/api/connectors/<name>/key", methods=["POST", "DELETE"])
+    def oblivion_connector_key(name):
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        path = f"/api/connectors/{name}/key"
+        if request.method == "POST":
+            body = request.get_json(silent=True) or {}
+            code, text, ct = b.request("POST", path, body=body)
+        else:
+            code, text, ct = b.request("DELETE", path)
+        return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/connectors/<name>/toggle", methods=["POST"])
+    @app.route("/api/connectors/<name>/toggle", methods=["POST"])
+    def oblivion_connector_toggle(name):
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        path = f"/api/connectors/{name}/toggle"
+        body = request.get_json(silent=True) or {}
+        code, text, ct = b.request("POST", path, body=body)
+        return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/connectors/<name>/test", methods=["POST"])
+    @app.route("/api/connectors/<name>/test", methods=["POST"])
+    def oblivion_connector_test(name):
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        path = f"/api/connectors/{name}/test"
+        code, text, ct = b.request("POST", path)
+        return Response(text, status=code, mimetype=ct)
+
     return bridge
 
 

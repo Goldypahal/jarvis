@@ -537,5 +537,67 @@ def test_oblivion_approvals_and_notifications_routes(client, auth_headers, monke
     assert r_read_all.get_json()["marked"] == 1
 
 
+def test_oblivion_connectors_routes(client, auth_headers, monkeypatch):
+    """Connectors and credential routes require auth and forward correctly."""
+    calls = []
+
+    class FakeConnectorsBridge:
+        def request(self, method, path, body=None, headers=None):
+            calls.append((method, path, body))
+            if path == "/api/connectors" and method == "GET":
+                return 200, '[{"name": "github", "enabled": false, "has_key": false}]', "application/json"
+            elif path == "/api/connectors/github/key" and method == "POST":
+                return 200, '{"ok": true, "name": "github", "has_key": true}', "application/json"
+            elif path == "/api/connectors/github/key" and method == "DELETE":
+                return 200, '{"ok": true, "name": "github", "has_key": false}', "application/json"
+            elif path == "/api/connectors/github/toggle" and method == "POST":
+                return 200, '{"name": "github", "enabled": true}', "application/json"
+            elif path == "/api/connectors/github/test" and method == "POST":
+                return 200, '{"ok": true, "name": "github", "status": "connected"}', "application/json"
+            return 404, "Not found", "text/plain"
+
+    monkeypatch.setitem(app.config, "OBLIVION_BRIDGE", FakeConnectorsBridge())
+
+    # Unauthorized requests fail with 403
+    assert client.get("/api/oblivion/connectors").status_code == 403
+    assert client.post("/api/oblivion/connectors/github/key").status_code == 403
+    assert client.delete("/api/oblivion/connectors/github/key").status_code == 403
+    assert client.post("/api/oblivion/connectors/github/toggle").status_code == 403
+    assert client.post("/api/oblivion/connectors/github/test").status_code == 403
+
+    # List connectors
+    r_list = client.get("/api/oblivion/connectors", headers=auth_headers)
+    assert r_list.status_code == 200
+    assert len(r_list.get_json()) == 1
+
+    # Save key
+    r_key = client.post(
+        "/api/oblivion/connectors/github/key",
+        headers=auth_headers,
+        json={"key": "ghp_mock_token"},
+    )
+    assert r_key.status_code == 200
+    assert r_key.get_json()["has_key"] is True
+
+    # Test connector
+    r_test = client.post("/api/oblivion/connectors/github/test", headers=auth_headers)
+    assert r_test.status_code == 200
+    assert r_test.get_json()["status"] == "connected"
+
+    # Toggle connector
+    r_toggle = client.post(
+        "/api/oblivion/connectors/github/toggle",
+        headers=auth_headers,
+        json={"enabled": True},
+    )
+    assert r_toggle.status_code == 200
+    assert r_toggle.get_json()["enabled"] is True
+
+    # Delete key
+    r_del = client.delete("/api/oblivion/connectors/github/key", headers=auth_headers)
+    assert r_del.status_code == 200
+    assert r_del.get_json()["has_key"] is False
+
+
 def false_or_true(val):
     return val

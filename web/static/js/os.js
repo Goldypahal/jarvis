@@ -25,6 +25,9 @@
         web: "splitModal",
         skills: "splitModal",
         mcp: "splitModal",
+        schedules: "schedulesModal",
+        approvals: "approvalsModal",
+        connectors: "connectorsModal",
     };
 
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -101,7 +104,7 @@
                 bounce(b);
             }, true);
         });
-        const watched = ["memoryModal", "sessionsModal", "modelsModal", "filesModal", "splitModal", "ob-panel"]
+        const watched = ["memoryModal", "sessionsModal", "modelsModal", "filesModal", "splitModal", "ob-panel", "schedulesModal", "approvalsModal", "connectorsModal"]
             .map($)
             .filter(Boolean);
         const obs = new MutationObserver(refreshDots);
