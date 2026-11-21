@@ -152,6 +152,73 @@ pub async fn execute_scheduled_task(
     })
 }
 
+pub type AgentFactory = Arc<dyn Fn(&Path) -> Result<Agent> + Send + Sync>;
+
+pub struct ScheduleRunner {
+    pub store: Arc<Store>,
+    pub traces_dir: PathBuf,
+    pub factory: AgentFactory,
+}
+
+impl ScheduleRunner {
+    pub fn new(store: Arc<Store>, traces_dir: PathBuf, factory: AgentFactory) -> Self {
+        Self {
+            store,
+            traces_dir,
+            factory,
+        }
+    }
+
+    /// Run a specific scheduled task by ID immediately.
+    pub async fn run_task(&self, task_id: &str) -> Result<ScheduledRunResult> {
+        let task = self
+            .store
+            .get_scheduled_task(task_id)
+            .context("fetching task from store")?
+            .ok_or_else(|| anyhow::anyhow!("Scheduled task not found: {task_id}"))?;
+        let workspace = task
+            .workspace
+            .as_deref()
+            .map(Path::new)
+            .unwrap_or(Path::new("."));
+        let mut agent =
+            (self.factory)(workspace).context("instantiating fresh agent for scheduled task")?;
+        execute_scheduled_task(&self.store, &task, &mut agent, &self.traces_dir).await
+    }
+
+    /// Check for any due tasks and run them.
+    pub async fn tick(&self) -> Result<Vec<ScheduledRunResult>> {
+        let now = Utc::now();
+        let due_tasks = self
+            .store
+            .due_scheduled_tasks(now)
+            .context("fetching due scheduled tasks")?;
+        let mut results = Vec::new();
+        for task in due_tasks {
+            match self.run_task(&task.id).await {
+                Ok(res) => results.push(res),
+                Err(e) => {
+                    eprintln!("Scheduled task {} failed to run: {:#}", task.id, e);
+                }
+            }
+        }
+        Ok(results)
+    }
+
+    /// Starts a background ticker loop checking for due tasks at `interval_secs`.
+    pub fn start_ticker(self: Arc<Self>, interval_secs: u64) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+            loop {
+                interval.tick().await;
+                if let Err(e) = self.tick().await {
+                    eprintln!("Scheduler tick failed: {:#}", e);
+                }
+            }
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,5 +289,91 @@ mod tests {
         );
         assert!(updated.last_run.is_some());
         assert!(updated.next_run.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_schedule_runner_tick_and_manual_run() {
+        let store = Arc::new(Store::in_memory().unwrap());
+        let past = Utc::now() - chrono::Duration::minutes(5);
+        let future = Utc::now() + chrono::Duration::hours(5);
+
+        // Due task
+        let due_task = store
+            .add_scheduled_task(&NewScheduledTask::new("Due task", "Say hello", "every 1h"))
+            .unwrap();
+        store
+            .update_scheduled_task(
+                &due_task.id,
+                &oblivion_store::UpdateScheduledTask {
+                    next_run: Some(Some(past)),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        // Future task
+        let future_task = store
+            .add_scheduled_task(&NewScheduledTask::new(
+                "Future task",
+                "Say later",
+                "every 10m",
+            ))
+            .unwrap();
+        store
+            .update_scheduled_task(
+                &future_task.id,
+                &oblivion_store::UpdateScheduledTask {
+                    next_run: Some(Some(future)),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let sse_body = sse(&[
+            r#"{"choices":[{"delta":{"role":"assistant","content":"Done work."}}]}"#,
+            r#"{"choices":[{"delta":{}}],"usage":{"prompt_tokens":10,"completion_tokens":5}}"#,
+        ]);
+        let (url, _seen) = fake_server(vec![(200, sse_body.clone()), (200, sse_body)]).await;
+        let url_clone = url.clone();
+
+        let tmp = tempfile::tempdir().unwrap();
+        let traces_dir = tmp.path().join("traces");
+        std::fs::create_dir_all(&traces_dir).unwrap();
+        let tmp_root = tmp.path().to_path_buf();
+
+        let factory: AgentFactory = Arc::new(move |_ws| {
+            let t = target("mock", &url_clone);
+            let router = Router::new(vec![t]);
+            let tools = ToolBox::new(
+                tmp_root.clone(),
+                Shell::platform_default(),
+                tmp_root.join("snaps"),
+            );
+            Ok(Agent::new(
+                router,
+                tools,
+                Box::new(UnattendedApprover),
+                ApprovalMode::Ask,
+                5,
+                "System prompt".into(),
+            ))
+        });
+
+        let runner = ScheduleRunner::new(store.clone(), traces_dir, factory);
+
+        // 1. Tick should run only the due task
+        let tick_res = runner.tick().await.unwrap();
+        assert_eq!(tick_res.len(), 1);
+        assert_eq!(tick_res[0].task_id, due_task.id);
+        assert_eq!(tick_res[0].outcome, "done");
+
+        // After tick, due_task is no longer due because next_run is updated into the future
+        let second_tick = runner.tick().await.unwrap();
+        assert_eq!(second_tick.len(), 0);
+
+        // 2. Manual run of the future task works immediately
+        let manual_res = runner.run_task(&future_task.id).await.unwrap();
+        assert_eq!(manual_res.task_id, future_task.id);
+        assert_eq!(manual_res.outcome, "done");
     }
 }

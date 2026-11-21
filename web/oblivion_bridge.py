@@ -845,6 +845,55 @@ def register(app, bridge=None, allowed_port=None, token=None):
         code, text, ct = b.request("POST", "/api/computer/reset", body={})
         return Response(text, status=code, mimetype=ct)
 
+    # ---------- schedules / automations ----------
+
+    @app.route("/api/oblivion/schedules", methods=["GET", "POST"])
+    @app.route("/api/schedules", methods=["GET", "POST"])
+    def oblivion_schedules():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        path = "/api/schedules"
+        qs = request.query_string.decode("utf-8") if request.query_string else ""
+        if qs:
+            path = f"{path}?{qs}"
+        if request.method == "POST":
+            body = request.get_json(silent=True) or {}
+            code, text, ct = b.request("POST", path, body=body)
+        else:
+            code, text, ct = b.request("GET", path)
+        return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/schedules/<task_id>", methods=["GET", "PUT", "PATCH", "DELETE"])
+    @app.route("/api/schedules/<task_id>", methods=["GET", "PUT", "PATCH", "DELETE"])
+    def oblivion_schedule_item(task_id):
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        path = f"/api/schedules/{task_id}"
+        if request.method in ("PUT", "PATCH"):
+            body = request.get_json(silent=True) or {}
+            code, text, ct = b.request(request.method, path, body=body)
+        elif request.method == "DELETE":
+            code, text, ct = b.request("DELETE", path)
+        else:
+            code, text, ct = b.request("GET", path)
+        return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/schedules/<task_id>/run", methods=["POST"])
+    @app.route("/api/schedules/<task_id>/run", methods=["POST"])
+    def oblivion_schedule_run(task_id):
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        path = f"/api/schedules/{task_id}/run"
+        body = request.get_json(silent=True) or {}
+        code, text, ct = b.request("POST", path, body=body)
+        return Response(text, status=code, mimetype=ct)
+
     return bridge
 
 

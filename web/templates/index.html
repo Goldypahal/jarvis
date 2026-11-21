@@ -326,6 +326,9 @@
                     <button class="dock-app-btn" id="open-models-dock-btn" data-action="models" data-label="Models" aria-label="Models">
                         <div class="app-icon model-dock-icon"><svg viewBox="0 0 100 100" aria-hidden="true"><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#ic-models)"/><g stroke="#fff" stroke-width="4.5" stroke-linecap="round"><path d="M38 16v12M50 16v12M62 16v12M38 72v12M50 72v12M62 72v12M16 38h12M16 50h12M16 62h12M72 38h12M72 50h12M72 62h12"/></g><rect x="27" y="27" width="46" height="46" rx="9" fill="#fff"/><rect x="39" y="39" width="22" height="22" rx="5" fill="url(#ic-models)"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#os-shine)"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="none" stroke="#000" stroke-opacity=".12" stroke-width="1"/></svg></div>
                     </button>
+                    <button class="dock-app-btn" id="open-schedules-dock-btn" data-action="schedules" data-label="Schedules" aria-label="Schedules">
+                        <div class="app-icon schedule-dock-icon"><svg viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="ic-sched-dock" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#1d4ed8"/></linearGradient></defs><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#ic-sched-dock)"/><rect x="24" y="24" width="52" height="52" rx="10" fill="#fff" fill-opacity=".15"/><circle cx="50" cy="50" r="23" fill="none" stroke="#fff" stroke-width="5"/><path d="M50 35v15l10 6" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#os-shine)"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="none" stroke="#000" stroke-opacity=".12" stroke-width="1"/></svg></div>
+                    </button>
                     <span class="dock-divider" aria-hidden="true"></span>
                     <button class="dock-app-btn chat-dock-btn active" id="open-chat-dock-btn" data-label="Oblivion" aria-label="Oblivion">
                         <div class="app-icon chat-icon"><svg viewBox="0 0 100 100" aria-hidden="true"><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#ic-orb-bg)"/><circle cx="50" cy="50" r="31" fill="url(#ic-orb)"/><circle cx="50" cy="50" r="31" fill="url(#ic-orb-glow)"/><ellipse cx="40" cy="36" rx="14" ry="8" fill="#fff" fill-opacity=".45" transform="rotate(-25 40 36)"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#os-shine)"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="none" stroke="#000" stroke-opacity=".12" stroke-width="1"/></svg></div>
@@ -875,6 +878,87 @@
     </div>
 
     <!-- ==========================================================================
+         5g. Schedules & Automations Window Modal (#schedulesModal) (Month 6)
+         ========================================================================== -->
+    <div id="schedulesModal" class="split-modal-overlay">
+        <div class="split-window-frame schedules-window-frame">
+            <!-- Window Header Bar -->
+            <div class="split-frame-header">
+                <div class="traffic-lights">
+                    <button class="tl tl-close" id="close-schedules-modal-btn" title="Close"></button>
+                    <button class="tl tl-min" title="Minimize"></button>
+                    <button class="tl tl-max" title="Zoom"></button>
+                </div>
+                <div class="split-frame-title">Schedules &amp; Automations</div>
+                <div class="schedules-header-actions">
+                    <span id="schedules-count-badge" class="split-frame-badge">0 schedules</span>
+                    <button id="schedules-new-btn" class="mem-btn mem-btn-primary">+ New Schedule</button>
+                </div>
+            </div>
+
+            <!-- Schedules Window Body -->
+            <div class="schedules-window-body">
+                <!-- Add/Edit Schedule Form Pane -->
+                <div id="schedules-editor-pane" class="schedules-editor-pane" style="display: none;">
+                    <div class="editor-header">
+                        <h4 id="schedules-editor-title">New Scheduled Automation</h4>
+                        <button id="schedules-editor-close-btn" class="editor-close-btn" type="button">✕</button>
+                    </div>
+                    <form id="schedules-editor-form">
+                        <input type="hidden" id="edit-schedule-id" value="">
+                        
+                        <div class="form-row">
+                            <label for="edit-schedule-name">Task Name</label>
+                            <input type="text" id="edit-schedule-name" placeholder="e.g. Morning Brief or Daily Healthcheck" class="mem-input" required>
+                        </div>
+
+                        <div class="form-row">
+                            <label for="edit-schedule-expr">Schedule Expression (Cron, Interval, or Preset)</label>
+                            <div class="schedule-expr-input-group">
+                                <input type="text" id="edit-schedule-expr" placeholder="e.g. 0 9 * * * or every 2h or @daily" class="mem-input" required>
+                                <select id="schedule-preset-select" class="mem-select">
+                                    <option value="">Presets...</option>
+                                    <option value="every 30m">Every 30 minutes</option>
+                                    <option value="every 1h">Every hour</option>
+                                    <option value="0 9 * * *">Every day at 9:00 AM</option>
+                                    <option value="0 9 * * 1">Every Monday at 9:00 AM</option>
+                                    <option value="@daily">Daily midnight (@daily)</option>
+                                    <option value="@weekly">Weekly Sunday (@weekly)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <label for="edit-schedule-workspace">Workspace Folder (Optional)</label>
+                            <input type="text" id="edit-schedule-workspace" placeholder="Default agent workspace" class="mem-input">
+                        </div>
+
+                        <div class="form-row">
+                            <label for="edit-schedule-prompt">Prompt / Instructions to Run</label>
+                            <textarea id="edit-schedule-prompt" rows="3" class="mem-textarea" placeholder="e.g. Check git status, summarize any new commits, and verify clean builds." required></textarea>
+                        </div>
+
+                        <div class="editor-actions">
+                            <button type="button" id="schedules-editor-cancel-btn" class="mem-btn">Cancel</button>
+                            <button type="submit" id="schedules-editor-save-btn" class="mem-btn mem-btn-primary">Save Schedule</button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Schedules List Container -->
+                <div class="schedules-list-scroll">
+                    <div id="schedules-items-container" class="schedules-cards-grid">
+                        <div class="schedules-empty-state">
+                            <div class="empty-icon">⏰</div>
+                            <div class="empty-text">Loading schedules...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================================================
          6. Oblivion panel (slides in from the right; see static/js/oblivion.js)
          ========================================================================== -->
     <aside id="ob-panel" class="ob-panel" aria-label="Oblivion assistant" aria-hidden="true">
@@ -929,5 +1013,6 @@
     <script src="/static/js/wizard.js"></script>
     <script src="/static/js/voice.js"></script>
     <script src="/static/js/computer.js"></script>
+    <script src="/static/js/schedules.js"></script>
 </body>
 </html>

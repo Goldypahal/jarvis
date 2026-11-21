@@ -124,6 +124,7 @@ pub struct WebState {
     pub voice_transcriber: Option<Arc<dyn oblivion_core::VoiceTranscriber>>,
     pub voice_synthesizer: Option<Arc<dyn oblivion_core::VoiceSynthesizer>>,
     pub wake_word_enabled: Arc<std::sync::atomic::AtomicBool>,
+    pub scheduler: Option<Arc<crate::schedule_runner::ScheduleRunner>>,
 }
 
 impl WebState {
@@ -637,6 +638,34 @@ pub fn router(state: WebState) -> Router {
         .route("/api/oblivion/computer/stop", post(post_computer_stop))
         .route("/api/computer/reset", post(post_computer_reset))
         .route("/api/oblivion/computer/reset", post(post_computer_reset))
+        // Schedules / Automations
+        .route(
+            "/api/schedules",
+            get(list_schedules_handler).post(create_schedule_handler),
+        )
+        .route(
+            "/api/oblivion/schedules",
+            get(list_schedules_handler).post(create_schedule_handler),
+        )
+        .route(
+            "/api/schedules/{id}",
+            get(get_schedule_handler)
+                .patch(update_schedule_handler)
+                .put(update_schedule_handler)
+                .delete(delete_schedule_handler),
+        )
+        .route(
+            "/api/oblivion/schedules/{id}",
+            get(get_schedule_handler)
+                .patch(update_schedule_handler)
+                .put(update_schedule_handler)
+                .delete(delete_schedule_handler),
+        )
+        .route("/api/schedules/{id}/run", post(run_schedule_handler))
+        .route(
+            "/api/oblivion/schedules/{id}/run",
+            post(run_schedule_handler),
+        )
         .with_state(state)
 }
 
@@ -2200,6 +2229,253 @@ async fn post_computer_reset(
     })))
 }
 
+// =========================================================================
+// Schedules & Automations
+// =========================================================================
+
+async fn list_schedules_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q_map): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<oblivion_store::ScheduledTask>>, StatusCode> {
+    if !st.authorized(&headers, &q_map) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let enabled_only = q_map
+        .get("enabled")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+    let tasks = st
+        .store
+        .list_scheduled_tasks(enabled_only)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(tasks))
+}
+
+#[derive(Deserialize)]
+struct CreateScheduleBody {
+    name: String,
+    prompt: String,
+    schedule: String,
+    #[serde(default)]
+    workspace: Option<String>,
+    #[serde(default)]
+    enabled: Option<bool>,
+}
+
+async fn create_schedule_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Json(body): Json<CreateScheduleBody>,
+) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<serde_json::Value>)> {
+    if !st.authorized(&headers, &q) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        ));
+    }
+    let name = body.name.trim();
+    let prompt = body.prompt.trim();
+    let sched_expr = body.schedule.trim();
+    if name.is_empty() || prompt.is_empty() || sched_expr.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "name, prompt, and schedule cannot be empty"})),
+        ));
+    }
+
+    let now = chrono::Utc::now();
+    let next_run = match oblivion_core::schedule::next_run_after(sched_expr, now) {
+        Ok(nr) => nr,
+        Err(e) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": format!("Invalid schedule expression: {e}")})),
+            ));
+        }
+    };
+
+    let mut new_task = oblivion_store::NewScheduledTask::new(name, prompt, sched_expr);
+    if let Some(ws) = body.workspace {
+        if !ws.trim().is_empty() {
+            new_task = new_task.with_workspace(ws.trim());
+        }
+    }
+    if let Some(en) = body.enabled {
+        new_task = new_task.with_enabled(en);
+    }
+    if let Some(nr) = next_run {
+        new_task.next_run = Some(nr);
+    }
+
+    match st.store.add_scheduled_task(&new_task) {
+        Ok(created) => Ok((
+            StatusCode::CREATED,
+            Json(serde_json::to_value(created).unwrap()),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )),
+    }
+}
+
+async fn get_schedule_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Path(id): Path<String>,
+) -> Result<Json<oblivion_store::ScheduledTask>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    match st.store.get_scheduled_task(&id) {
+        Ok(Some(task)) => Ok(Json(task)),
+        Ok(None) => Err(StatusCode::NOT_FOUND),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+#[derive(Deserialize, Default)]
+struct UpdateScheduleBody {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    prompt: Option<String>,
+    #[serde(default)]
+    schedule: Option<String>,
+    #[serde(default)]
+    workspace: Option<Option<String>>,
+    #[serde(default)]
+    enabled: Option<bool>,
+}
+
+async fn update_schedule_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateScheduleBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if !st.authorized(&headers, &q) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        ));
+    }
+
+    let _existing = match st.store.get_scheduled_task(&id) {
+        Ok(Some(t)) => t,
+        Ok(None) => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({"error": "Task not found"})),
+            ))
+        }
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": e.to_string()})),
+            ))
+        }
+    };
+
+    let mut update = oblivion_store::UpdateScheduledTask {
+        name: body.name,
+        prompt: body.prompt,
+        workspace: body.workspace,
+        enabled: body.enabled,
+        ..Default::default()
+    };
+
+    if let Some(ref new_sched) = body.schedule {
+        let now = chrono::Utc::now();
+        match oblivion_core::schedule::next_run_after(new_sched, now) {
+            Ok(nr) => {
+                update.schedule = Some(new_sched.clone());
+                update.next_run = Some(nr);
+            }
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": format!("Invalid schedule expression: {e}")})),
+                ));
+            }
+        }
+    }
+
+    match st.store.update_scheduled_task(&id, &update) {
+        Ok(updated) => Ok(Json(serde_json::to_value(updated).unwrap())),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )),
+    }
+}
+
+async fn delete_schedule_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if !st.authorized(&headers, &q) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        ));
+    }
+    match st.store.delete_scheduled_task(&id) {
+        Ok(true) => Ok(Json(serde_json::json!({"deleted": true, "id": id}))),
+        Ok(false) => Err((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "Task not found"})),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )),
+    }
+}
+
+async fn run_schedule_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if !st.authorized(&headers, &q) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        ));
+    }
+    if let Some(ref runner) = st.scheduler {
+        match runner.run_task(&id).await {
+            Ok(res) => Ok(Json(serde_json::json!({
+                "triggered": true,
+                "task_id": res.task_id,
+                "session_id": res.session_id,
+                "outcome": res.outcome,
+                "error": res.error,
+                "steps": res.steps,
+                "tool_calls": res.tool_calls,
+                "trace_id": res.trace_id,
+            }))),
+            Err(e) => Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": e.to_string()})),
+            )),
+        }
+    } else {
+        Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Scheduler runner is not active"})),
+        ))
+    }
+}
+
 /// Bind 127.0.0.1:port, or any free port if that one is taken.
 pub async fn bind(port: u16) -> std::io::Result<(tokio::net::TcpListener, SocketAddr)> {
     let listener = match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
@@ -2314,6 +2590,7 @@ mod live {
             voice_transcriber: None,
             voice_synthesizer: None,
             wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
         };
         tokio::spawn(pump(events, bus));
         tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
@@ -2562,6 +2839,7 @@ mod live {
             voice_transcriber: None,
             voice_synthesizer: None,
             wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
         };
         tokio::spawn(pump(events, bus));
         tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
@@ -2652,6 +2930,7 @@ mod live {
             voice_transcriber: None,
             voice_synthesizer: None,
             wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
         };
         tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
         let base = format!("http://{addr}");
@@ -2776,6 +3055,7 @@ mod live {
             voice_transcriber: None,
             voice_synthesizer: None,
             wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
         };
 
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
@@ -2928,6 +3208,7 @@ mod live {
             voice_transcriber: None,
             voice_synthesizer: None,
             wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
         };
 
         let app = router(state);
@@ -3000,6 +3281,7 @@ mod live {
             voice_transcriber: None,
             voice_synthesizer: None,
             wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -3107,6 +3389,7 @@ mod live {
             voice_transcriber: None,
             voice_synthesizer: None,
             wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -3231,6 +3514,7 @@ mod live {
             voice_transcriber: None,
             voice_synthesizer: None,
             wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -3330,6 +3614,7 @@ mod live {
             voice_transcriber: None,
             voice_synthesizer: None,
             wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -3432,6 +3717,7 @@ mod live {
             voice_transcriber: None,
             voice_synthesizer: None,
             wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -3555,6 +3841,7 @@ mod live {
             voice_transcriber: None,
             voice_synthesizer: None,
             wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -3680,6 +3967,7 @@ mod live {
             ))),
             voice_synthesizer: Some(Arc::new(oblivion_core::MockSynthesizer::new("mock-piper"))),
             wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -3905,5 +4193,185 @@ mod live {
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
         assert!(!oblivion_tools::is_emergency_stopped());
+    }
+
+    #[tokio::test]
+    async fn web_schedules_api_endpoints_crud_and_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let store =
+            Arc::new(oblivion_store::Store::open(&dir.path().join("test_sched.db")).unwrap());
+        let sse_body = crate::testkit::sse(&[
+            r#"{"choices":[{"delta":{"role":"assistant","content":"Scheduled report done."}}]}"#,
+            r#"{"choices":[{"delta":{}}],"usage":{"prompt_tokens":15,"completion_tokens":8}}"#,
+        ]);
+        let (url, _seen) = crate::testkit::fake_server(vec![(200, sse_body)]).await;
+        let (_worker, controls, _events) = crate::testkit::worker(&url, dir.path());
+
+        let url_clone = url.clone();
+        let traces_dir = dir.path().join("traces");
+        std::fs::create_dir_all(&traces_dir).unwrap();
+        let tmp_root = dir.path().to_path_buf();
+
+        let factory: crate::schedule_runner::AgentFactory = Arc::new(move |_ws| {
+            let t = crate::testkit::target("mock", &url_clone);
+            let router = oblivion_providers::Router::new(vec![t]);
+            let tools = oblivion_tools::ToolBox::new(
+                tmp_root.clone(),
+                oblivion_tools::Shell::platform_default(),
+                tmp_root.join("snaps"),
+            );
+            Ok(oblivion_core::Agent::new(
+                router,
+                tools,
+                Box::new(oblivion_core::schedule::UnattendedApprover),
+                oblivion_core::ApprovalMode::Ask,
+                5,
+                "System prompt".into(),
+            ))
+        });
+
+        let runner = Arc::new(crate::schedule_runner::ScheduleRunner::new(
+            store.clone(),
+            traces_dir,
+            factory,
+        ));
+
+        let bus = Arc::new(Bus::default());
+        let token = "test-token-sched";
+        let state = WebState {
+            token: token.into(),
+            controls,
+            bus: bus.clone(),
+            store: store.clone(),
+            ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
+            config_path: None,
+            voice_transcriber: None,
+            voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: Some(runner),
+        };
+
+        let (listener, addr) = bind(0).await.unwrap();
+        let base = format!("http://{addr}");
+        tokio::spawn(async move {
+            axum::serve(listener, router(state)).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+
+        // 1. Unauthenticated -> 401
+        let unauth = client
+            .get(format!("{base}/api/schedules"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unauth.status(), StatusCode::UNAUTHORIZED);
+
+        // 2. Initial list -> 200, empty
+        let res = client
+            .get(format!("{base}/api/schedules"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let list: Vec<serde_json::Value> = res.json().await.unwrap();
+        assert_eq!(list.len(), 0);
+
+        // 3. Create invalid schedule expression -> 400
+        let bad_res = client
+            .post(format!("{base}/api/schedules"))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({
+                "name": "Bad task",
+                "prompt": "Do nothing",
+                "schedule": "not a valid schedule"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(bad_res.status(), StatusCode::BAD_REQUEST);
+
+        // 4. Create valid schedule -> 201
+        let create_res = client
+            .post(format!("{base}/api/schedules"))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({
+                "name": "Morning Brief",
+                "prompt": "Summarize news",
+                "schedule": "0 9 * * *",
+                "workspace": "/tmp/test"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(create_res.status(), StatusCode::CREATED);
+        let created: serde_json::Value = create_res.json().await.unwrap();
+        assert_eq!(created["name"], "Morning Brief");
+        assert_eq!(created["enabled"], true);
+        assert!(created["next_run"].is_string());
+        let task_id = created["id"].as_str().unwrap().to_string();
+
+        // 5. Get schedule by ID -> 200
+        let get_res = client
+            .get(format!("{base}/api/schedules/{task_id}"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(get_res.status(), StatusCode::OK);
+        let fetched: serde_json::Value = get_res.json().await.unwrap();
+        assert_eq!(fetched["id"], task_id);
+        assert_eq!(fetched["name"], "Morning Brief");
+
+        // 6. Update schedule -> 200
+        let update_res = client
+            .patch(format!("{base}/api/schedules/{task_id}"))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({
+                "enabled": false,
+                "schedule": "every 3h"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(update_res.status(), StatusCode::OK);
+        let updated: serde_json::Value = update_res.json().await.unwrap();
+        assert_eq!(updated["enabled"], false);
+        assert_eq!(updated["schedule"], "every 3h");
+
+        // 7. Run schedule manually -> 200
+        let run_res = client
+            .post(format!("{base}/api/schedules/{task_id}/run"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(run_res.status(), StatusCode::OK);
+        let run_json: serde_json::Value = run_res.json().await.unwrap();
+        assert_eq!(run_json["triggered"], true);
+        assert_eq!(run_json["outcome"], "done");
+        assert!(run_json["trace_id"].is_string());
+
+        // 8. Delete schedule -> 200
+        let del_res = client
+            .delete(format!("{base}/api/schedules/{task_id}"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(del_res.status(), StatusCode::OK);
+
+        // 9. Get after delete -> 404
+        let not_found = client
+            .get(format!("{base}/api/schedules/{task_id}"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(not_found.status(), StatusCode::NOT_FOUND);
     }
 }

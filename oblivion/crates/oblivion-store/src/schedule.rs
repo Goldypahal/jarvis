@@ -59,6 +59,11 @@ impl NewScheduledTask {
         self
     }
 
+    pub fn with_enabled(mut self, enabled: bool) -> Self {
+        self.enabled = Some(enabled);
+        self
+    }
+
     pub fn one_off(mut self, run_at: DateTime<Utc>) -> Self {
         self.is_recurring = false;
         self.next_run = Some(run_at);

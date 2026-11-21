@@ -389,5 +389,75 @@ def test_oblivion_computer_routes(client, auth_headers, monkeypatch):
     assert r_reset.get_json()["stopped"] is False
 
 
+def test_oblivion_schedules_routes(client, auth_headers, monkeypatch):
+    """Schedules routes require auth and forward correctly."""
+    calls = []
+
+    class FakeSchedulesBridge:
+        def request(self, method, path, body=None, headers=None):
+            calls.append((method, path, body))
+            if path == "/api/schedules" and method == "GET":
+                return 200, '[{"id": "sched-1", "name": "Morning Brief", "schedule": "0 9 * * *", "enabled": true}]', "application/json"
+            elif path == "/api/schedules" and method == "POST":
+                return 201, '{"id": "sched-2", "name": "Test", "schedule": "every 1h", "enabled": true}', "application/json"
+            elif path == "/api/schedules/sched-1" and method == "GET":
+                return 200, '{"id": "sched-1", "name": "Morning Brief"}', "application/json"
+            elif path == "/api/schedules/sched-1" and method == "PATCH":
+                return 200, '{"id": "sched-1", "enabled": false}', "application/json"
+            elif path == "/api/schedules/sched-1/run" and method == "POST":
+                return 200, '{"triggered": true, "task_id": "sched-1", "outcome": "done"}', "application/json"
+            elif path == "/api/schedules/sched-1" and method == "DELETE":
+                return 200, '{"deleted": true, "id": "sched-1"}', "application/json"
+            return 404, "Not found", "text/plain"
+
+    monkeypatch.setitem(app.config, "OBLIVION_BRIDGE", FakeSchedulesBridge())
+
+    # Unauthorized requests fail with 403
+    assert client.get("/api/oblivion/schedules").status_code == 403
+    assert client.post("/api/oblivion/schedules").status_code == 403
+    assert client.get("/api/oblivion/schedules/sched-1").status_code == 403
+    assert client.patch("/api/oblivion/schedules/sched-1").status_code == 403
+    assert client.delete("/api/oblivion/schedules/sched-1").status_code == 403
+    assert client.post("/api/oblivion/schedules/sched-1/run").status_code == 403
+
+    # List schedules
+    r_list = client.get("/api/oblivion/schedules", headers=auth_headers)
+    assert r_list.status_code == 200
+    assert len(r_list.get_json()) == 1
+
+    # Create schedule
+    r_create = client.post(
+        "/api/oblivion/schedules",
+        headers=auth_headers,
+        json={"name": "Test", "prompt": "Run test", "schedule": "every 1h"}
+    )
+    assert r_create.status_code == 201
+    assert r_create.get_json()["id"] == "sched-2"
+
+    # Get single schedule
+    r_get = client.get("/api/oblivion/schedules/sched-1", headers=auth_headers)
+    assert r_get.status_code == 200
+    assert r_get.get_json()["id"] == "sched-1"
+
+    # Patch schedule
+    r_patch = client.patch(
+        "/api/oblivion/schedules/sched-1",
+        headers=auth_headers,
+        json={"enabled": False}
+    )
+    assert r_patch.status_code == 200
+    assert r_patch.get_json()["enabled"] is False
+
+    # Run schedule
+    r_run = client.post("/api/oblivion/schedules/sched-1/run", headers=auth_headers)
+    assert r_run.status_code == 200
+    assert r_run.get_json()["triggered"] is True
+
+    # Delete schedule
+    r_del = client.delete("/api/oblivion/schedules/sched-1", headers=auth_headers)
+    assert r_del.status_code == 200
+    assert r_del.get_json()["deleted"] is True
+
+
 def false_or_true(val):
     return val

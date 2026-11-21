@@ -93,6 +93,7 @@ pub const HELP: &str = "\
 /screen [prompt] capture your screen with preview and attach it to your request
 /stop          emergency stop all computer use desktop operations (halt immediately)
 /computer      show computer use allow list and emergency status
+/schedule      manage automations (/schedule list, add, pause, resume, delete)
 /skills        list skills; run one with /<skill-name> [request]
 /mcp           list MCP servers and their tools
 /exit          quit";
@@ -626,6 +627,129 @@ pub async fn handle_command(
             };
             return Ok(Command::RunWithImages(prompt, vec![attachment]));
         }
+        "schedule" | "schedules" => {
+            let Some(st) = store else {
+                return Ok(Command::Done(
+                    "Storage is not available for scheduled tasks.".into(),
+                ));
+            };
+            let (subcmd, rest) = arg
+                .split_once(' ')
+                .map(|(a, b)| (a, b.trim()))
+                .unwrap_or((arg, ""));
+            match subcmd {
+                "list" | "" => {
+                    let tasks = st.list_scheduled_tasks(false)?;
+                    if tasks.is_empty() {
+                        "No scheduled tasks configured. Add one with: /schedule add \"<schedule>\" <prompt>"
+                            .to_string()
+                    } else {
+                        let mut lines = vec![format!("Scheduled Tasks ({}):", tasks.len())];
+                        for t in tasks {
+                            let status = if t.enabled { "active" } else { "paused" };
+                            let next = t
+                                .next_run
+                                .map(|n| n.format("%Y-%m-%d %H:%M UTC").to_string())
+                                .unwrap_or_else(|| "none".to_string());
+                            let last = t.last_outcome.as_deref().unwrap_or("never run");
+                            lines.push(format!(
+                                "  • [{}] {} — \"{}\" (Status: {status}, Next: {next}, Last: {last})",
+                                t.id, t.name, t.schedule
+                            ));
+                        }
+                        lines.join("\n")
+                    }
+                }
+                "pause" => {
+                    if rest.is_empty() {
+                        "Usage: /schedule pause <task_id>".to_string()
+                    } else {
+                        let update = oblivion_store::UpdateScheduledTask {
+                            enabled: Some(false),
+                            ..Default::default()
+                        };
+                        match st.update_scheduled_task(rest, &update) {
+                            Ok(t) => format!("Paused task '{}' [{}]", t.name, t.id),
+                            Err(e) => format!("Failed to pause task: {e}"),
+                        }
+                    }
+                }
+                "resume" => {
+                    if rest.is_empty() {
+                        "Usage: /schedule resume <task_id>".to_string()
+                    } else {
+                        let update = oblivion_store::UpdateScheduledTask {
+                            enabled: Some(true),
+                            ..Default::default()
+                        };
+                        match st.update_scheduled_task(rest, &update) {
+                            Ok(t) => format!("Resumed task '{}' [{}]", t.name, t.id),
+                            Err(e) => format!("Failed to resume task: {e}"),
+                        }
+                    }
+                }
+                "delete" | "rm" => {
+                    if rest.is_empty() {
+                        "Usage: /schedule delete <task_id>".to_string()
+                    } else {
+                        match st.delete_scheduled_task(rest) {
+                            Ok(true) => format!("Deleted scheduled task '{rest}'."),
+                            Ok(false) => format!("Task not found: '{rest}'"),
+                            Err(e) => format!("Failed to delete task: {e}"),
+                        }
+                    }
+                }
+                "add" => {
+                    let parts = split_quoted_args(rest);
+                    if parts.len() < 2 {
+                        "Usage: /schedule add \"<schedule>\" <prompt>  OR  /schedule add \"<name>\" \"<schedule>\" <prompt>"
+                            .to_string()
+                    } else {
+                        let (name, sched_expr, prompt) = if parts.len() >= 3 {
+                            (parts[0].clone(), parts[1].clone(), parts[2..].join(" "))
+                        } else {
+                            (
+                                format!("Task ({})", parts[0]),
+                                parts[0].clone(),
+                                parts[1..].join(" "),
+                            )
+                        };
+                        match oblivion_core::schedule::next_run_after(
+                            &sched_expr,
+                            chrono::Utc::now(),
+                        ) {
+                            Ok(next_run) => {
+                                let mut new_task = oblivion_store::NewScheduledTask::new(
+                                    &name,
+                                    &prompt,
+                                    &sched_expr,
+                                )
+                                .with_workspace(agent.tools.root().to_string_lossy());
+                                if let Some(nr) = next_run {
+                                    new_task.next_run = Some(nr);
+                                }
+                                match st.add_scheduled_task(&new_task) {
+                                    Ok(task) => format!(
+                                        "Created scheduled task '{}' [{}] with schedule '{}'. Next run: {}",
+                                        task.name,
+                                        task.id,
+                                        task.schedule,
+                                        task.next_run
+                                            .map(|n| n.to_rfc3339())
+                                            .unwrap_or_else(|| "none".to_string())
+                                    ),
+                                    Err(e) => format!("Failed to create task: {e}"),
+                                }
+                            }
+                            Err(e) => format!("Invalid schedule expression '{sched_expr}': {e}"),
+                        }
+                    }
+                }
+                other => format!(
+                    "Unknown schedule subcommand '{other}'. Usage: /schedule list | add | pause | resume | delete"
+                ),
+            }
+        }
         other => format!("Unknown command /{other}. Try /help or /skills."),
     };
     Ok(Command::Done(text))
@@ -637,6 +761,42 @@ pub fn approval_name(m: ApprovalMode) -> &'static str {
         ApprovalMode::AutoEdit => "auto-edit",
         ApprovalMode::Yolo => "yolo",
     }
+}
+
+pub fn split_quoted_args(input: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut chars = input.chars().peekable();
+    while let Some(&c) = chars.peek() {
+        if c.is_whitespace() {
+            chars.next();
+            continue;
+        }
+        if c == '"' || c == '\'' {
+            let quote = c;
+            chars.next();
+            let mut s = String::new();
+            while let Some(&ch) = chars.peek() {
+                if ch == quote {
+                    chars.next();
+                    break;
+                }
+                s.push(ch);
+                chars.next();
+            }
+            args.push(s);
+        } else {
+            let mut s = String::new();
+            while let Some(&ch) = chars.peek() {
+                if ch.is_whitespace() {
+                    break;
+                }
+                s.push(ch);
+                chars.next();
+            }
+            args.push(s);
+        }
+    }
+    args
 }
 
 #[cfg(test)]
@@ -715,6 +875,136 @@ mod tests {
                 assert_eq!(images[0].mime_type, "image/png");
             }
             other => panic!("expected Command::RunWithImages, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_schedule_command_crud() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (tx, _rx) = crate::app::channels();
+        let approvals = crate::app::Approvals::new(tx);
+        let tools = oblivion_tools::ToolBox::new(
+            tmp.path(),
+            oblivion_tools::Shell::Cmd,
+            tmp.path().join(".snap"),
+        );
+        let mut a = Agent::new(
+            oblivion_providers::Router::new(vec![]),
+            tools,
+            approvals.approver(),
+            ApprovalMode::Ask,
+            10,
+            "system".into(),
+        );
+        let skills = SkillSet::default();
+        let hub = McpHub::new(vec![]);
+        let mut sink = |_e: AgentEvent| {};
+        let store = oblivion_store::Store::in_memory().unwrap();
+
+        // 1. Initial list empty
+        let res = handle_command(
+            &mut a,
+            &skills,
+            &hub,
+            Some(&store),
+            "schedule list",
+            &mut sink,
+        )
+        .await
+        .unwrap();
+        if let Command::Done(txt) = res {
+            assert!(txt.contains("No scheduled tasks"));
+        } else {
+            panic!("expected Command::Done");
+        }
+
+        // 2. Add task
+        let res = handle_command(
+            &mut a,
+            &skills,
+            &hub,
+            Some(&store),
+            "schedule add \"Daily Check\" \"every 1d\" Run healthcheck",
+            &mut sink,
+        )
+        .await
+        .unwrap();
+        let task_id = if let Command::Done(txt) = res {
+            assert!(txt.contains("Created scheduled task 'Daily Check'"));
+            let start = txt.find('[').unwrap() + 1;
+            let end = txt.find(']').unwrap();
+            txt[start..end].to_string()
+        } else {
+            panic!("expected Command::Done");
+        };
+
+        // 3. List shows the task
+        let res = handle_command(
+            &mut a,
+            &skills,
+            &hub,
+            Some(&store),
+            "schedule list",
+            &mut sink,
+        )
+        .await
+        .unwrap();
+        if let Command::Done(txt) = res {
+            assert!(txt.contains("Daily Check"));
+            assert!(txt.contains("active"));
+        } else {
+            panic!("expected Command::Done");
+        }
+
+        // 4. Pause task
+        let res = handle_command(
+            &mut a,
+            &skills,
+            &hub,
+            Some(&store),
+            &format!("schedule pause {task_id}"),
+            &mut sink,
+        )
+        .await
+        .unwrap();
+        if let Command::Done(txt) = res {
+            assert!(txt.contains("Paused task"));
+        } else {
+            panic!("expected Command::Done");
+        }
+
+        // 5. Resume task
+        let res = handle_command(
+            &mut a,
+            &skills,
+            &hub,
+            Some(&store),
+            &format!("schedule resume {task_id}"),
+            &mut sink,
+        )
+        .await
+        .unwrap();
+        if let Command::Done(txt) = res {
+            assert!(txt.contains("Resumed task"));
+        } else {
+            panic!("expected Command::Done");
+        }
+
+        // 6. Delete task
+        let res = handle_command(
+            &mut a,
+            &skills,
+            &hub,
+            Some(&store),
+            &format!("schedule delete {task_id}"),
+            &mut sink,
+        )
+        .await
+        .unwrap();
+        if let Command::Done(txt) = res {
+            assert!(txt.contains("Deleted scheduled task"));
+        } else {
+            panic!("expected Command::Done");
         }
     }
 }
