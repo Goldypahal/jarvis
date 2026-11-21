@@ -93,6 +93,11 @@
                 <span class="wakeword-label hide-mobile" id="menubar-wakeword-label">Wake Word: Off</span>
             </button>
             <span class="menu-sep hide-mobile">|</span>
+            <button class="menu-stop-btn" id="menubar-stop-btn" title="Emergency Stop (Esc): Click to immediately halt desktop computer actions">
+                <span class="stop-icon" id="menubar-stop-icon">🛑</span>
+                <span class="stop-label hide-mobile" id="menubar-stop-label">Stop (Esc)</span>
+            </button>
+            <span class="menu-sep hide-mobile">|</span>
             <button class="menu-offline-toggle" id="menubar-offline-toggle" title="Offline Mode: force local models only (Ollama)">
                 <span class="offline-icon" id="menubar-offline-icon">🌐</span>
                 <span class="offline-label" id="menubar-offline-label">Cloud + Local</span>
@@ -923,5 +928,6 @@
     <script src="/static/js/models.js"></script>
     <script src="/static/js/wizard.js"></script>
     <script src="/static/js/voice.js"></script>
+    <script src="/static/js/computer.js"></script>
 </body>
 </html>

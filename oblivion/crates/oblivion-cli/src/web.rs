@@ -624,6 +624,19 @@ pub fn router(state: WebState) -> Router {
             "/api/oblivion/voice/wake-word",
             get(get_wake_word_status).post(post_wake_word_toggle),
         )
+        // Computer Use
+        .route(
+            "/api/computer/status",
+            get(get_computer_status).post(post_computer_status),
+        )
+        .route(
+            "/api/oblivion/computer/status",
+            get(get_computer_status).post(post_computer_status),
+        )
+        .route("/api/computer/stop", post(post_computer_stop))
+        .route("/api/oblivion/computer/stop", post(post_computer_stop))
+        .route("/api/computer/reset", post(post_computer_reset))
+        .route("/api/oblivion/computer/reset", post(post_computer_reset))
         .with_state(state)
 }
 
@@ -2079,6 +2092,111 @@ async fn post_wake_word_toggle(
         } else {
             "Wake word detection disabled (push-to-talk only)."
         }
+    })))
+}
+
+#[derive(Deserialize)]
+struct ComputerSettingsUpdateBody {
+    #[serde(default)]
+    enabled: Option<bool>,
+    #[serde(default)]
+    allowed_apps: Option<Vec<String>>,
+}
+
+async fn get_computer_status(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let cfg = oblivion_core::Config::load(&st.config_file_path()).unwrap_or_default();
+    let enabled = cfg.computer_use.enabled || std::env::var("OBLIVION_ENABLE_COMPUTER_USE").is_ok();
+    let stopped = oblivion_tools::is_emergency_stopped();
+    let active_win = oblivion_tools::computer::get_active_window().ok();
+
+    Ok(Json(serde_json::json!({
+        "enabled": enabled,
+        "stopped": stopped,
+        "allowed_apps": cfg.computer_use.allowed_apps,
+        "stop_hotkey": cfg.computer_use.stop_hotkey,
+        "ask_all": cfg.computer_use.ask_all,
+        "active_window": active_win,
+    })))
+}
+
+async fn post_computer_status(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Json(body): Json<ComputerSettingsUpdateBody>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let p = st.config_file_path();
+    let base_text = if p.exists() {
+        std::fs::read_to_string(&p)
+            .unwrap_or_else(|_| oblivion_core::config::DEFAULT_CONFIG.to_string())
+    } else {
+        if let Some(parent) = p.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        oblivion_core::config::DEFAULT_CONFIG.to_string()
+    };
+
+    let updated = oblivion_core::config::apply_computer_use_to_config_text(
+        &base_text,
+        body.enabled,
+        body.allowed_apps.as_deref(),
+    );
+    let _ = std::fs::write(&p, updated);
+
+    let cfg = oblivion_core::Config::load(&p).unwrap_or_default();
+    let enabled = cfg.computer_use.enabled || std::env::var("OBLIVION_ENABLE_COMPUTER_USE").is_ok();
+    let stopped = oblivion_tools::is_emergency_stopped();
+    let active_win = oblivion_tools::computer::get_active_window().ok();
+
+    Ok(Json(serde_json::json!({
+        "enabled": enabled,
+        "stopped": stopped,
+        "allowed_apps": cfg.computer_use.allowed_apps,
+        "stop_hotkey": cfg.computer_use.stop_hotkey,
+        "ask_all": cfg.computer_use.ask_all,
+        "active_window": active_win,
+    })))
+}
+
+async fn post_computer_stop(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    oblivion_tools::trigger_emergency_stop();
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "stopped": true,
+        "message": "Emergency stop activated: all desktop computer operations halted."
+    })))
+}
+
+async fn post_computer_reset(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    oblivion_tools::reset_emergency_stop();
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "stopped": false,
+        "message": "Emergency stop reset: desktop computer operations resumed."
     })))
 }
 
@@ -3743,5 +3861,49 @@ mod live {
         } else {
             assert!(screen_json.get("error").is_some());
         }
+
+        // 14. Computer use endpoints: status, stop, reset
+        let res = client
+            .get(format!("{base}/api/computer/status"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let cu_status: serde_json::Value = res.json().await.unwrap();
+        assert!(cu_status.get("enabled").is_some());
+        assert_eq!(cu_status["stopped"], false);
+        assert_eq!(cu_status["stop_hotkey"], "Escape");
+
+        // Emergency stop
+        let res = client
+            .post(format!("{base}/api/computer/stop"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert!(oblivion_tools::is_emergency_stopped());
+
+        // Check status reflects stopped
+        let res = client
+            .get(format!("{base}/api/oblivion/computer/status"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let cu_status2: serde_json::Value = res.json().await.unwrap();
+        assert_eq!(cu_status2["stopped"], true);
+
+        // Emergency reset
+        let res = client
+            .post(format!("{base}/api/oblivion/computer/reset"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert!(!oblivion_tools::is_emergency_stopped());
     }
 }

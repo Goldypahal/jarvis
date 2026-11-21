@@ -811,6 +811,40 @@ def register(app, bridge=None, allowed_port=None, token=None):
         mime = "application/json" if text.strip().startswith(("{", "[")) else "text/plain"
         return Response(text, status=code, mimetype=mime)
 
+    @app.route("/api/oblivion/computer/status", methods=["GET", "POST"])
+    @app.route("/api/computer/status", methods=["GET", "POST"])
+    def oblivion_computer_status():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        if request.method == "POST":
+            body = request.get_json(silent=True) or {}
+            code, text, ct = b.request("POST", "/api/computer/status", body=body)
+        else:
+            code, text, ct = b.request("GET", "/api/computer/status")
+        return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/computer/stop", methods=["POST"])
+    @app.route("/api/computer/stop", methods=["POST"])
+    def oblivion_computer_stop():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        code, text, ct = b.request("POST", "/api/computer/stop", body={})
+        return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/computer/reset", methods=["POST"])
+    @app.route("/api/computer/reset", methods=["POST"])
+    def oblivion_computer_reset():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        code, text, ct = b.request("POST", "/api/computer/reset", body={})
+        return Response(text, status=code, mimetype=ct)
+
     return bridge
 
 

@@ -1385,6 +1385,50 @@ body[data-theme="black"] .menu-wakeword-btn.active {
     color: #ff9f0a;
     box-shadow: 0 0 10px rgba(255, 159, 10, 0.4);
 }
+
+/* Emergency Stop Button Styles */
+.menu-stop-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 9px;
+    border-radius: 12px;
+    background: rgba(255, 59, 48, 0.08);
+    border: 1px solid rgba(255, 59, 48, 0.25);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    color: #d70015;
+    transition: all 0.2s ease;
+    user-select: none;
+}
+.menu-stop-btn:hover {
+    background: rgba(255, 59, 48, 0.18);
+    border-color: #ff3b30;
+}
+.menu-stop-btn.stopped-active {
+    background: #ff3b30;
+    color: #ffffff;
+    border-color: #d70015;
+    animation: stop-pulse 1.2s infinite ease-in-out;
+}
+@keyframes stop-pulse {
+    0%, 100% { transform: scale(1); box-shadow: 0 0 4px rgba(255, 59, 48, 0.4); }
+    50% { transform: scale(1.04); box-shadow: 0 0 12px rgba(255, 59, 48, 0.8); }
+}
+body[data-theme="black"] .menu-stop-btn {
+    background: rgba(255, 69, 58, 0.12);
+    border-color: rgba(255, 69, 58, 0.3);
+    color: #ff453a;
+}
+body[data-theme="black"] .menu-stop-btn:hover {
+    background: rgba(255, 69, 58, 0.22);
+}
+body[data-theme="black"] .menu-stop-btn.stopped-active {
+    background: #ff453a;
+    color: #ffffff;
+    border-color: #ff6961;
+}
 .menu-mic-btn.recording {
     background: rgba(255, 59, 48, 0.15);
     border-color: #ff3b30;

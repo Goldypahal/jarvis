@@ -957,6 +957,20 @@ fn describe(name: &str, args: &Value) -> String {
             a @ ("click" | "select") => format!("browser: {a} {}", get("ref")),
             a => format!("browser: {a}"),
         },
+        "computer" => match get("action").as_str() {
+            "screenshot" => "computer: capture screenshot".into(),
+            "click" => {
+                let x = args.get("x").and_then(Value::as_i64).unwrap_or(0);
+                let y = args.get("y").and_then(Value::as_i64).unwrap_or(0);
+                format!("computer: click at ({x}, {y})")
+            }
+            "type" => format!("computer: type \"{}\"", get("text")),
+            "key" => format!("computer: press {}", get("key")),
+            "active_window" => "computer: inspect active window".into(),
+            "stop" => "computer: emergency stop".into(),
+            "reset" => "computer: resume operations".into(),
+            a => format!("computer: {a}"),
+        },
         "mcp" => format!("list tools on {}", get("server")),
         _ => name.to_string(),
     }

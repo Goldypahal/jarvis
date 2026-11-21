@@ -4,6 +4,7 @@
 //! approval, then runs it with [`ToolBox::execute`]. Every file change is
 //! snapshotted first so it can be undone (SRS FR-62).
 
+pub mod computer;
 mod fs_tools;
 mod fuzzy;
 mod search;
@@ -20,6 +21,10 @@ use std::sync::Arc;
 use oblivion_providers::ToolSpec;
 use serde_json::Value;
 
+pub use computer::{
+    is_emergency_stopped, reset_emergency_stop, trigger_emergency_stop, ActiveWindowInfo,
+    ComputerTool, ComputerUseSettings, EMERGENCY_STOP,
+};
 pub use shell::Shell;
 pub use snapshot::{Journal, UndoReport};
 pub use todo::{TodoItem, TodoList, TodoStatus};

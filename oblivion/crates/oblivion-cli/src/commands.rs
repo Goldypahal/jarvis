@@ -91,6 +91,8 @@ pub const HELP: &str = "\
 /wake-word [on|off] toggle or show wake word detection (hands-free 'Hey Jarvis' keyword spotting)
 /image <path> [prompt] attach an image to your request
 /screen [prompt] capture your screen with preview and attach it to your request
+/stop          emergency stop all computer use desktop operations (halt immediately)
+/computer      show computer use allow list and emergency status
 /skills        list skills; run one with /<skill-name> [request]
 /mcp           list MCP servers and their tools
 /exit          quit";
@@ -169,6 +171,20 @@ pub async fn handle_command(
             }
         }
         "help" | "h" => HELP.to_string(),
+        "stop" => {
+            oblivion_tools::trigger_emergency_stop();
+            "Emergency stop activated: all desktop computer operations halted.".to_string()
+        }
+        "computer" => {
+            let stopped = oblivion_tools::is_emergency_stopped();
+            format!(
+                "Computer Use:\n  • Emergency Stop Active: {stopped}\n  • Use `/stop` to halt actions immediately\n  • Use `/reset` or `/resume` to reset emergency stop"
+            )
+        }
+        "reset" | "unstop" => {
+            oblivion_tools::reset_emergency_stop();
+            "Emergency stop reset: desktop computer operations may resume.".to_string()
+        }
         "undo" => match agent.undo_last_turn()? {
             Some(r) => format!(
                 "Restored {} file(s), removed {} new file(s).",
@@ -247,7 +263,12 @@ pub async fn handle_command(
         }
         "resume" => {
             if arg.is_empty() {
-                "Usage: /resume <session_id>".to_string()
+                if oblivion_tools::is_emergency_stopped() {
+                    oblivion_tools::reset_emergency_stop();
+                    "Emergency stop reset: desktop computer operations may resume.".to_string()
+                } else {
+                    "Usage: /resume <session_id>".to_string()
+                }
             } else if let Some(st) = store {
                 match st.load_session(arg) {
                     Ok(loaded) => {

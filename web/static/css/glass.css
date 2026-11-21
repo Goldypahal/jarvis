@@ -263,6 +263,7 @@ body.os .menu-sep { display: none; }
 body.os .menu-mic-btn,
 body.os .menu-speaker-btn,
 body.os .menu-wakeword-btn,
+body.os .menu-stop-btn,
 body.os .menu-offline-toggle,
 body.os .menu-oblivion {
     height: 22px;
@@ -274,7 +275,7 @@ body.os .menu-oblivion {
     font: 500 13px var(--font);
     box-shadow: none;
 }
-body.os .menu-mic-btn:hover, body.os .menu-speaker-btn:hover, body.os .menu-wakeword-btn:hover, body.os .menu-offline-toggle:hover, body.os .menu-oblivion:hover,
+body.os .menu-mic-btn:hover, body.os .menu-speaker-btn:hover, body.os .menu-wakeword-btn:hover, body.os .menu-stop-btn:hover, body.os .menu-offline-toggle:hover, body.os .menu-oblivion:hover,
 body.os .menu-oblivion.on { background: rgba(255, 255, 255, 0.2); }
 body.os .menu-date, body.os .menu-clock { font-size: 13px; font-weight: 500; padding: 0 3px; }
 body.os .menu-date { padding-left: 8px; }

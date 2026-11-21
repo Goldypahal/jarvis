@@ -743,6 +743,15 @@ async fn run() -> Result<()> {
         if let Some(b) = &browser {
             tools.add_provider(b.clone());
         }
+        let computer_settings = oblivion_tools::ComputerUseSettings {
+            enabled: cfg.computer_use.enabled
+                || std::env::var("OBLIVION_ENABLE_COMPUTER_USE").is_ok(),
+            allowed_apps: cfg.computer_use.allowed_apps.clone(),
+            ask_all: cfg.computer_use.ask_all,
+            stop_hotkey: cfg.computer_use.stop_hotkey.clone(),
+        };
+        let computer_tool = Arc::new(oblivion_tools::ComputerTool::new(computer_settings));
+        tools.add_provider(computer_tool);
         let memory_tools = Arc::new(oblivion_store::MemoryTools::with_project(
             store.clone(),
             root.to_string_lossy(),

@@ -291,7 +291,7 @@ mod tests {
     fn test_image_attachment_strips_data_url_prefix() {
         let raw_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk";
         let with_prefix = format!("data:image/jpeg;base64,{raw_b64}");
-        let img = ImageAttachment::new("image/jpeg", with_prefix);
+        let img = ImageAttachment::new("image/jpeg", &with_prefix);
         assert_eq!(img.data_base64, raw_b64);
         assert_eq!(img.mime_type, "image/jpeg");
         assert_eq!(img.data_url(), format!("data:image/jpeg;base64,{raw_b64}"));

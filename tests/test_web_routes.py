@@ -342,3 +342,52 @@ def test_oblivion_screen_capture_route(client, auth_headers, monkeypatch):
     assert data["ok"] is True
     assert data["image"]["mime_type"] == "image/png"
     assert called == [("/api/oblivion/screen/capture", {})]
+
+
+# ==========================================
+# 11. Computer Use Routes: Status, Stop, Reset
+# ==========================================
+
+def test_oblivion_computer_routes(client, auth_headers, monkeypatch):
+    """Computer use routes require auth and forward correctly."""
+    calls = []
+
+    class FakeComputerBridge:
+        def request(self, method, path, body=None, headers=None):
+            calls.append((method, path, body))
+            if path == "/api/computer/status":
+                return 200, '{"enabled": true, "stopped": false, "allowed_apps": ["notepad.exe"], "stop_hotkey": "Escape"}', "application/json"
+            elif path == "/api/computer/stop":
+                return 200, '{"ok": true, "stopped": true, "message": "Emergency stop activated"}', "application/json"
+            elif path == "/api/computer/reset":
+                return 200, '{"ok": true, "stopped": false, "message": "Emergency stop reset"}', "application/json"
+            return 404, "Not found", "text/plain"
+
+    monkeypatch.setitem(app.config, "OBLIVION_BRIDGE", FakeComputerBridge())
+
+    # Unauthorized requests fail with 403
+    assert client.get("/api/oblivion/computer/status").status_code == 403
+    assert client.post("/api/oblivion/computer/stop").status_code == 403
+    assert client.post("/api/oblivion/computer/reset").status_code == 403
+
+    # Authorized GET status
+    r_status = client.get("/api/oblivion/computer/status", headers=auth_headers)
+    assert r_status.status_code == 200
+    st_data = r_status.get_json()
+    assert st_data["enabled"] is True
+    assert st_data["stopped"] is false_or_true(False)
+    assert st_data["stop_hotkey"] == "Escape"
+
+    # Authorized POST stop
+    r_stop = client.post("/api/oblivion/computer/stop", headers=auth_headers)
+    assert r_stop.status_code == 200
+    assert r_stop.get_json()["stopped"] is True
+
+    # Authorized POST reset
+    r_reset = client.post("/api/oblivion/computer/reset", headers=auth_headers)
+    assert r_reset.status_code == 200
+    assert r_reset.get_json()["stopped"] is False
+
+
+def false_or_true(val):
+    return val

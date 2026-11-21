@@ -79,7 +79,7 @@ Current milestone: **Month 5 — vision and computer use** · Branch: `roadmap/m
 - [x] Image input in providers and all interfaces — 2026-11-20, e19ba89, cargo test: 196 passed; pytest: 85 passed; clippy: 0 warnings; node check: clean; browser subagent UI test verified (file upload, preview tray, image chips, light & dark themes)
 - [x] "Look at my screen" with preview before sending — 2026-11-20, d95b0dd, cargo test: 199 passed; pytest: 86 passed; clippy: 0 warnings; node check: clean; browser subagent UI test verified (look at screen button, preview tray inspection, cancel/remove chip, light & dark themes)
 - [x] Browser agent screenshot fallback for picture-only pages — 2026-11-20, 56a3377, cargo test: 201 passed; pytest: 86 passed; clippy: 0 warnings; evals: 35/35 passed (100%); automatic screenshot fallback on insufficient page text, explicit screenshot action, multimodal ToolOutput attachment extraction & picture_quiz.html verified
-- [ ] Computer use behind a setting, per-app allow list, stop hotkey
+- [x] Computer use behind a setting, per-app allow list, stop hotkey — 2026-11-21, ed8c762, cargo test: 205 passed; pytest: 87 passed; clippy: 0 warnings; node check: clean; browser subagent UI test verified (emergency stop button, stopped-active badge, app allow list, stop hotkey Escape, /computer and /stop commands)
 - [ ] 10 vision evals; milestone check
 
 ## Month 6 — automations and connectors → v1.5
@@ -228,16 +228,20 @@ Current milestone: **Month 5 — vision and computer use** · Branch: `roadmap/m
 <!-- Surprises about the code, environment quirks, things the next session must know. -->
 - Month 4 is complete and merged.
 - Working on Month 5 — vision and computer use (`roadmap/m5` branch).
-- First two items of Month 5 ("Image input in providers and all interfaces" and "'Look at my screen' with preview before sending") are complete.
+- First four items of Month 5 are complete:
+  - "Image input in providers and all interfaces"
+  - "'Look at my screen' with preview before sending"
+  - "Browser agent screenshot fallback for picture-only pages"
+  - "Computer use behind a setting, per-app allow list, stop hotkey"
 - Next item to work on:
-  `Browser agent screenshot fallback for picture-only pages`
+  `10 vision evals; milestone check`
 - Quality gates status:
-  - `cargo test --workspace -- --test-threads=1`: 199 passed, 0 failed (sequential test threads required on Windows to avoid local port exhaustion and registry access collisions)
+  - `cargo test --workspace -- --test-threads=1`: 205 passed, 0 failed
   - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings
   - `cargo fmt --all`: clean
-  - `python -m pytest -q tests`: 86 passed, 0 failed
+  - `python -m pytest -q tests`: 87 passed, 0 failed
   - `node --check`: clean on all static JS files
-  - UI visual verification: verified with browser subagent across Ice Blue and Dark Charcoal themes with screenshot evidence.
+  - UI visual verification: verified with browser subagent with screenshot evidence (`final_step_136.png`).
 - Windows + PowerShell: no bash heredocs; quote paths with spaces.
 - Smart App Control has blocked Rust build scripts before; if a build fails with an
   "Application Control policy" error, mark the item BLOCKED (needs user) instead of retrying.

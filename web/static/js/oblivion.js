@@ -455,6 +455,8 @@
             <button data-cmd="/undo">Undo last changes <small>/undo</small></button>
             <button data-cmd="/compact">Free up memory <small>/compact</small></button>
             <button data-cmd="/skills">List skills <small>/skills</small></button>
+            <button data-cmd="/computer">Computer Use status <small>/computer</small></button>
+            <button data-cmd="/stop">Emergency Stop <small>/stop</small></button>
             <button data-cmd="/clear">New conversation <small>/clear</small></button>
             <hr><div class="sec">Models today</div>${models || '<div class="ob-model">none</div>'}
             <hr><div class="sec">Working in</div><div class="ob-where">${esc(state.root)}</div>`;
@@ -795,7 +797,12 @@
         $("open-chat-dock-btn")?.addEventListener("click", toggle);
         $("ob-menubar")?.addEventListener("click", toggle);
         $("ob-close").onclick = close;
-        $("ob-stop").onclick = () => post("cancel");
+        $("ob-stop").onclick = () => {
+            post("cancel");
+            if (window.JarvisComputer && typeof window.JarvisComputer.triggerStop === 'function') {
+                window.JarvisComputer.triggerStop();
+            }
+        };
         $("ob-more-btn").onclick = (ev) => { ev.stopPropagation(); renderMore(); $("ob-more").hidden = !$("ob-more").hidden; };
         document.addEventListener("click", (ev) => { if (!$("ob-more").contains(ev.target)) $("ob-more").hidden = true; });
         document.querySelectorAll("#ob-seg button").forEach((b) => b.onclick = () => send("/approval " + b.dataset.mode));
@@ -846,6 +853,9 @@
         },
         answer(id, answer, source = "manual") {
             return post("approve", { id, answer, source });
+        },
+        cancel() {
+            return post("cancel");
         }
     };
     window.JarvisOblivionSend = function (text, isVoice = false) {
