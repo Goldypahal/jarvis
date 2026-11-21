@@ -7,7 +7,7 @@
 use anyhow::Result;
 use rusqlite::Connection;
 
-pub const CURRENT_VERSION: i64 = 4;
+pub const CURRENT_VERSION: i64 = 5;
 
 pub fn migrate(conn: &mut Connection) -> Result<()> {
     let tx = conn.transaction()?;
@@ -107,6 +107,30 @@ pub fn migrate(conn: &mut Connection) -> Result<()> {
         tx.pragma_update(None, "user_version", 4)?;
     }
 
+    if current_version < 5 {
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS scheduled_tasks (
+                id           TEXT PRIMARY KEY,
+                name         TEXT NOT NULL,
+                prompt       TEXT NOT NULL,
+                schedule     TEXT NOT NULL,
+                is_recurring INTEGER NOT NULL DEFAULT 1,
+                next_run     TEXT,
+                workspace    TEXT,
+                enabled      INTEGER NOT NULL DEFAULT 1,
+                last_run     TEXT,
+                last_outcome TEXT,
+                last_error   TEXT,
+                last_session TEXT,
+                created_at   TEXT NOT NULL,
+                updated_at   TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_enabled ON scheduled_tasks(enabled);
+            CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run ON scheduled_tasks(next_run);",
+        )?;
+        tx.pragma_update(None, "user_version", 5)?;
+    }
+
     tx.commit()?;
     Ok(())
 }
@@ -139,6 +163,7 @@ mod tests {
         assert!(tables.contains(&"memories".to_string()));
         assert!(tables.contains(&"memories_fts".to_string()));
         assert!(tables.contains(&"memory_embeddings".to_string()));
+        assert!(tables.contains(&"scheduled_tasks".to_string()));
     }
 
     #[test]
@@ -203,5 +228,49 @@ mod tests {
             )
             .unwrap();
         assert_eq!(fts_count, 1);
+    }
+
+    #[test]
+    fn migration_upgrades_v4_to_v5_preserving_existing_data() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        // Setup schema up to version 4
+        conn.execute_batch(
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, created TEXT, updated TEXT, workspace TEXT, title TEXT, messages TEXT);
+             CREATE TABLE usage (day TEXT, target TEXT, requests INTEGER, prompt_tokens INTEGER, completion_tokens INTEGER, PRIMARY KEY (day, target));
+             CREATE TABLE memories (id INTEGER PRIMARY KEY AUTOINCREMENT, mem_type TEXT, text TEXT, source_session TEXT, project TEXT, created TEXT, last_used TEXT, importance INTEGER DEFAULT 3);
+             CREATE VIRTUAL TABLE memories_fts USING fts5(text, content='memories', content_rowid='id');
+             CREATE TABLE memory_embeddings (memory_id INTEGER PRIMARY KEY REFERENCES memories(id) ON DELETE CASCADE, model TEXT, dimensions INTEGER, embedding BLOB, created TEXT);
+             PRAGMA user_version = 4;
+             INSERT INTO sessions (id, created, updated, workspace, title, messages) VALUES ('s1', 'now', 'now', '/tmp', 'Test', '[]');"
+        ).unwrap();
+
+        migrate(&mut conn).unwrap();
+
+        let v: i64 = conn
+            .query_row("PRAGMA user_version;", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(v, 5);
+
+        // Verify existing session preserved
+        let s_count: i64 = conn
+            .query_row("SELECT count(*) FROM sessions WHERE id = 's1'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(s_count, 1);
+
+        // Verify scheduled_tasks exists and accepts inserts
+        conn.execute(
+            "INSERT INTO scheduled_tasks (id, name, prompt, schedule, created_at, updated_at) VALUES ('t1', 'Brief', 'Check email', '0 9 * * *', 'now', 'now')",
+            [],
+        ).unwrap();
+        let t_count: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM scheduled_tasks WHERE id = 't1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(t_count, 1);
     }
 }

@@ -10,6 +10,7 @@ pub mod ollama;
 pub mod prompt;
 pub mod routing;
 pub mod rules;
+pub mod schedule;
 pub mod session;
 pub mod small_model;
 pub mod subagent;
@@ -30,6 +31,7 @@ pub use ollama::{
 };
 pub use routing::{classify_request, RequestClass, RoutingRules};
 pub use rules::Rules;
+pub use schedule::{next_run_after, CronExpr, SchedulePattern, UnattendedApprover};
 pub use session::{JsonDir, Session, SessionInfo, SessionStore};
 pub use small_model::{extract_tool_calls_from_text, is_small_model_name, repair_tool_arguments};
 pub use subagent::SubagentFactory;

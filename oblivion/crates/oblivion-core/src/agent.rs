@@ -167,6 +167,11 @@ impl Agent {
         }
     }
 
+    /// Update the approver implementation.
+    pub fn set_approver(&mut self, approver: Box<dyn Approver>) {
+        self.approver = approver;
+    }
+
     /// Provide a memory recall implementation to inject relevant memories into turns.
     pub fn set_memory_recall(&mut self, recall: Arc<dyn crate::extract::MemoryRecall>) {
         self.memory_recall = Some(recall);

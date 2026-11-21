@@ -4,6 +4,7 @@ mod app;
 pub mod autostart;
 mod commands;
 mod keys;
+pub mod schedule_runner;
 pub mod screen;
 #[cfg(test)]
 mod testkit;

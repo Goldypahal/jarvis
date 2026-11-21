@@ -83,7 +83,8 @@ Current milestone: **Month 6 — automations and connectors → v1.5** · Branch
 - [x] 10 vision evals; milestone check — 2026-11-21, c5e0037, cargo test: 210 passed; pytest: 88 passed; clippy: 0 warnings; 10 vision eval tasks (36-45); milestone check complete (picture quiz fallback, desktop setting change with Risk::Ask approval, emergency stop, per-app allow list)
 
 ## Month 6 — automations and connectors → v1.5
-- [ ] Scheduler (one-off and repeating) in the tray process; runs as fresh sessions with traces
+- [x] Scheduler core: SQLite schema v5, cron/one-off schedule evaluation, fresh session execution with traces — 2026-11-22, 8e80a6f, cargo test: 175 passed; pytest: 88 passed; clippy: 0 warnings; SQLite schema v5 migration, cron & relative intervals parser, unattended approver, fresh session & trace execution tested
+- [ ] Scheduler runner & UI: background ticker in tray/web, /schedule command, REST API, desktop schedule window
 - [ ] Notifications and approval queue for unattended runs; risky actions always wait
 - [ ] Connector setup screen for MCP servers; keys in Credential Manager
 - [ ] Starter automations (morning brief, repo watcher, weekly report)

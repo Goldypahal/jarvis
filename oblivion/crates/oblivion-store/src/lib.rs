@@ -5,10 +5,12 @@
 pub mod embedding;
 pub mod memory;
 pub mod migrations;
+pub mod schedule;
 pub mod tools;
 
 pub use embedding::{EmbedFuture, Embedder, MockEmbedder, OllamaEmbedder};
 pub use memory::{Memory, MemoryFilter, NewMemory};
+pub use schedule::{NewScheduledTask, ScheduledTask, UpdateScheduledTask};
 pub use tools::MemoryTools;
 
 use std::path::Path;
@@ -811,6 +813,57 @@ impl Store {
         }
         self.search_memories(query_str, filter, limit)
     }
+
+    // ---------- scheduled tasks ----------
+
+    pub fn add_scheduled_task(&self, task: &NewScheduledTask) -> Result<ScheduledTask> {
+        let conn = self.conn.lock().unwrap();
+        schedule::db_add_task(&conn, task)
+    }
+
+    pub fn get_scheduled_task(&self, id: &str) -> Result<Option<ScheduledTask>> {
+        let conn = self.conn.lock().unwrap();
+        schedule::db_get_task(&conn, id)
+    }
+
+    pub fn list_scheduled_tasks(&self, enabled_only: bool) -> Result<Vec<ScheduledTask>> {
+        let conn = self.conn.lock().unwrap();
+        schedule::db_list_tasks(&conn, enabled_only)
+    }
+
+    pub fn due_scheduled_tasks(
+        &self,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<ScheduledTask>> {
+        let conn = self.conn.lock().unwrap();
+        schedule::db_due_tasks(&conn, now)
+    }
+
+    pub fn update_scheduled_task(
+        &self,
+        id: &str,
+        updates: &UpdateScheduledTask,
+    ) -> Result<ScheduledTask> {
+        let conn = self.conn.lock().unwrap();
+        schedule::db_update_task(&conn, id, updates)
+    }
+
+    pub fn delete_scheduled_task(&self, id: &str) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        schedule::db_delete_task(&conn, id)
+    }
+
+    pub fn record_task_run(
+        &self,
+        id: &str,
+        session_id: &str,
+        outcome: &str,
+        error: Option<&str>,
+        next_run: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        schedule::db_record_task_run(&conn, id, session_id, outcome, error, next_run)
+    }
 }
 
 fn vector_to_bytes(v: &[f32]) -> Vec<u8> {
@@ -1578,5 +1631,67 @@ mod tests {
             .await;
         let joined_fts = recalled_fts.join("\n");
         assert!(joined_fts.contains("React and Tailwind CSS"));
+    }
+
+    #[test]
+    fn test_store_scheduled_tasks_crud_and_due_tasks() {
+        let st = Store::in_memory().unwrap();
+
+        // 1. Add tasks
+        let past = chrono::Utc::now() - chrono::Duration::minutes(5);
+        let future = chrono::Utc::now() + chrono::Duration::hours(2);
+
+        let t1 = st
+            .add_scheduled_task(
+                &NewScheduledTask::new("Morning brief", "Summarize news", "0 9 * * *")
+                    .with_workspace("/repos/jarvis"),
+            )
+            .unwrap();
+        assert_eq!(t1.name, "Morning brief");
+        assert!(t1.enabled);
+        assert!(t1.is_recurring);
+
+        // Update t1 to have next_run in the past (due now)
+        let t1_updated = st
+            .update_scheduled_task(
+                &t1.id,
+                &UpdateScheduledTask {
+                    next_run: Some(Some(past)),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(t1_updated.next_run, Some(past));
+
+        let t2 = st
+            .add_scheduled_task(
+                &NewScheduledTask::new("One-off task", "Check deployment", "at-once")
+                    .one_off(future),
+            )
+            .unwrap();
+        assert!(!t2.is_recurring);
+        assert_eq!(t2.next_run, Some(future));
+
+        // 2. List tasks
+        let all = st.list_scheduled_tasks(false).unwrap();
+        assert_eq!(all.len(), 2);
+
+        // 3. Due tasks
+        let due = st.due_scheduled_tasks(chrono::Utc::now()).unwrap();
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].id, t1.id);
+
+        // 4. Record task run
+        st.record_task_run(&t1.id, "sess-123", "done", None, Some(future))
+            .unwrap();
+        let t1_after = st.get_scheduled_task(&t1.id).unwrap().unwrap();
+        assert_eq!(t1_after.last_session.as_deref(), Some("sess-123"));
+        assert_eq!(t1_after.last_outcome.as_deref(), Some("done"));
+        assert_eq!(t1_after.next_run, Some(future));
+
+        // 5. Delete task
+        let deleted = st.delete_scheduled_task(&t2.id).unwrap();
+        assert!(deleted);
+        assert!(st.get_scheduled_task(&t2.id).unwrap().is_none());
     }
 }
