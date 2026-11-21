@@ -1,0 +1,7 @@
+ACTIVE_WINDOW:
+title = Document1 - Notepad
+process_name = notepad.exe
+x = 100
+y = 100
+width = 800
+height = 600

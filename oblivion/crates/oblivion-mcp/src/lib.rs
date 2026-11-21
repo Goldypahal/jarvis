@@ -23,7 +23,7 @@ use serde_json::{json, Value};
 use tokio::sync::Mutex;
 
 mod browser;
-pub use browser::{BrowserMode, BrowserSettings, BrowserTool};
+pub use browser::{is_insufficient_page_text, BrowserMode, BrowserSettings, BrowserTool};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Transport {

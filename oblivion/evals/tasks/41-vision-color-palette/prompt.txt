@@ -1,0 +1,1 @@
+Inspect swatches.html. Extract the hex colors for Primary, Secondary, and Accent. Write them to palette.json with keys 'primary', 'secondary', and 'accent' (strings in #RRGGBB format).

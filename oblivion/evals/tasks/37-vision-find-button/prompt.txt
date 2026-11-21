@@ -1,0 +1,1 @@
+Inspect dashboard.html. Find the button used to deploy to production. Write its HTML element id and button text into button_info.json with keys 'id' and 'text'.

@@ -1,0 +1,1 @@
+Examine architecture.svg. Extract the names of all pipeline components in order from left to right. Write the ordered list of component names as a JSON array of strings to pipeline.json.
