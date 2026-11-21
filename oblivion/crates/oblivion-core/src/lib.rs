@@ -23,6 +23,7 @@ pub use extract::{
     RecallFuture,
 };
 pub use hardware::{detect_hardware, recommend_model, HardwareInfo, ModelRecommendation};
+pub use oblivion_providers::ImageAttachment;
 pub use ollama::{
     format_bytes, OllamaClient, OllamaModel, OllamaModelDetails, OllamaPullProgress,
     OllamaSpeedTestResult, OllamaStatus,

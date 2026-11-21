@@ -4,7 +4,7 @@ The agent ticks items here as it finishes them: `- [x] item — 2026-11-18, <com
 Blocked items stay unticked with `BLOCKED (...)`. Problem IDs refer to `ANALYSIS_AND_ROADMAP.md`.
 Split any item that turns out bigger than about 400 changed lines.
 
-Current milestone: **Month 4 — voice** · Branch: `roadmap/m4`
+Current milestone: **Month 5 — vision and computer use** · Branch: `roadmap/m5`
 
 ---
 
@@ -76,11 +76,11 @@ Current milestone: **Month 4 — voice** · Branch: `roadmap/m4`
 - [x] Latency and accuracy measured; milestone check — 2026-11-20, 7b7acb7, cargo test: 198 passed; pytest: 84 passed; clippy: 0 warnings; node check: clean; roundtrip latency < 450ms (target < 2s); command accuracy 10/10 (100%); barge-in < 5ms; idle wake word overhead 0% CPU; milestone check complete
 
 ## Month 5 — vision and computer use
-- [ ] Image input in providers and all interfaces
-- [ ] "Look at my screen" with preview before sending
-- [ ] Browser agent screenshot fallback for picture-only pages
-- [ ] Computer use behind a setting, per-app allow list, stop hotkey
-- [ ] 10 vision evals; milestone check
+- [x] Image input in providers and all interfaces — 2026-11-20, e19ba89, cargo test: 196 passed; pytest: 85 passed; clippy: 0 warnings; node check: clean; browser subagent UI test verified (file upload, preview tray, image chips, light & dark themes)
+- [x] "Look at my screen" with preview before sending — 2026-11-20, d95b0dd, cargo test: 199 passed; pytest: 86 passed; clippy: 0 warnings; node check: clean; browser subagent UI test verified (look at screen button, preview tray inspection, cancel/remove chip, light & dark themes)
+- [x] Browser agent screenshot fallback for picture-only pages — 2026-11-20, 56a3377, cargo test: 201 passed; pytest: 86 passed; clippy: 0 warnings; evals: 35/35 passed (100%); automatic screenshot fallback on insufficient page text, explicit screenshot action, multimodal ToolOutput attachment extraction & picture_quiz.html verified
+- [x] Computer use behind a setting, per-app allow list, stop hotkey — 2026-11-21, ed8c762, cargo test: 205 passed; pytest: 87 passed; clippy: 0 warnings; node check: clean; browser subagent UI test verified (emergency stop button, stopped-active badge, app allow list, stop hotkey Escape, /computer and /stop commands)
+- [x] 10 vision evals; milestone check — 2026-11-21, c5e0037, cargo test: 210 passed; pytest: 88 passed; clippy: 0 warnings; 10 vision eval tasks (36-45); milestone check complete (picture quiz fallback, desktop setting change with Risk::Ask approval, emergency stop, per-app allow list)
 
 ## Month 6 — automations and connectors → v1.5
 - [ ] Scheduler (one-off and repeating) in the tray process; runs as fresh sessions with traces
@@ -224,17 +224,31 @@ Current milestone: **Month 4 — voice** · Branch: `roadmap/m4`
   - `node --check`: clean on all static JS files
   - UI visual verification: verified with browser subagent across light & dark themes for PTT, TTS barge-in, voice approvals, and hands-free wake word.
 
-## Notes for next session
-<!-- Surprises about the code, environment quirks, things the next session must know. -->
-- Month 4 is complete.
-- Exact next milestone to work on: Month 5 — vision and computer use (`roadmap/m5` branch).
-- First item of Month 5:
-  "Image input in providers and all interfaces"
-- Quality gates status:
-  - `cargo test --workspace`: 198 passed, 0 failed
+### Month 5 Summary (2026-11-21)
+- Items done:
+  - Image input in providers and all interfaces: ImageAttachment, base64 data URLs, file upload, drag-and-drop, preview tray, image chips, menubar attachment button across light & dark themes (3050afb / e19ba89).
+  - "Look at my screen" with preview before sending: native Windows DXGI/GDI screen capture, `/screen` CLI command, menubar screen button, inspect/cancel preview chips before model submission (d95b0dd / 2bd0001).
+  - Browser agent screenshot fallback for picture-only pages: automatic detection of insufficient text via page outline inspection (`is_insufficient_page_text`), explicit Playwright screenshot capture, multimodal ToolOutput attachment extraction, tested on visual SVG diagrams and quizzes (d54ceb9 / 56a3377).
+  - Computer use behind a setting, per-app allow list, stop hotkey: `ComputerTool`, `[computer_use]` config, allow list security boundary, emergency stop invariant (`trigger_emergency_stop`, `/stop`, `Escape` hotkey, UI stop button with pulse indicator), ask approval on setting changes (ed8c762 / 198ea4c).
+  - 10 vision evals and milestone check: created eval tasks 36–45 covering chart reading, button finding, picture quiz, diagram inspection, table extraction, color palette, active window computation, emergency stop safety, app allow list, and desktop setting changes; milestone verification suite in `milestone_vision_check.rs` verifying picture practice quiz completion, setting change with approval, stop hotkey, and request classification.
+- Gate results:
+  - `cargo test --workspace -- --test-threads=1`: 210 passed, 0 failed
   - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings
   - `cargo fmt --all`: clean
-  - `python -m pytest -q tests`: 84 passed, 0 failed
+  - `python -m pytest -q tests`: 88 passed, 0 failed
+  - `node --check`: clean on all static JS files
+  - UI visual verification: verified with browser subagent across light & dark themes for image uploads, screen capture preview, and computer use emergency stop controls.
+
+## Notes for next session
+<!-- Surprises about the code, environment quirks, things the next session must know. -->
+- Month 5 is complete and ready to merge into main.
+- Next milestone: Month 6 — automations and connectors (`roadmap/m6` branch) leading to v1.5 release.
+- First item of Month 6: "Scheduler (one-off and repeating) in the tray process; runs as fresh sessions with traces".
+- Quality gates status:
+  - `cargo test --workspace -- --test-threads=1`: 210 passed, 0 failed
+  - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings
+  - `cargo fmt --all`: clean
+  - `python -m pytest -q tests`: 88 passed, 0 failed
   - `node --check`: clean on all static JS files
 - Windows + PowerShell: no bash heredocs; quote paths with spaces.
 - Smart App Control has blocked Rust build scripts before; if a build fails with an

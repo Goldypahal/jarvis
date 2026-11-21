@@ -523,6 +523,16 @@ impl Agent {
         user_text: &str,
         on_event: &mut (dyn FnMut(AgentEvent) + Send),
     ) -> Result<TurnSummary> {
+        self.run_turn_with_images(user_text, vec![], on_event).await
+    }
+
+    /// Run one user request to completion, optionally providing attached images for visual reasoning.
+    pub async fn run_turn_with_images(
+        &mut self,
+        user_text: &str,
+        images: Vec<oblivion_providers::ImageAttachment>,
+        on_event: &mut (dyn FnMut(AgentEvent) + Send),
+    ) -> Result<TurnSummary> {
         self.turn_marks.push(self.tools.journal().mark());
         let mut effective_system = self.base_system_prompt.clone();
         if let Some(ref recall) = self.memory_recall {
@@ -546,12 +556,16 @@ impl Agent {
         if !self.session.messages.is_empty() && self.session.messages[0].role == Role::System {
             self.session.messages[0].content = Some(effective_system);
         }
-        self.session.messages.push(Message::user(user_text));
+        let has_images =
+            !images.is_empty() || self.session.messages.iter().any(|m| !m.images.is_empty());
+        self.session
+            .messages
+            .push(Message::user_with_images(user_text, images));
         self.save();
 
         let history_tokens = self.budget();
         let class =
-            crate::routing::classify_request(user_text, history_tokens, false, self.offline);
+            crate::routing::classify_request(user_text, history_tokens, has_images, self.offline);
         let patterns = self.routing_rules.patterns_for(class);
         let offline_or_private = self.offline || class == crate::routing::RequestClass::Private;
         let mut turn_router = self
@@ -617,6 +631,16 @@ impl Agent {
                 ));
             }
             self.compact(false, on_event).await?;
+
+            if !offline_or_private && self.session.messages.iter().any(|m| !m.images.is_empty()) {
+                let vision_patterns = self
+                    .routing_rules
+                    .patterns_for(crate::routing::RequestClass::Vision);
+                turn_router = self
+                    .router
+                    .share()
+                    .for_patterns(vision_patterns, offline_or_private);
+            }
 
             let completion = {
                 let mut forward = |e: StreamEvent| match e {
@@ -849,9 +873,9 @@ impl Agent {
                     text.hash(&mut h);
                     page_hash = h.finish();
                 }
-                self.session
-                    .messages
-                    .push(Message::tool_result(&call.id, text));
+                let mut msg = Message::tool_result(&call.id, text);
+                msg.images = out.images.clone();
+                self.session.messages.push(msg);
                 self.save();
             }
             if stuck {
@@ -882,6 +906,7 @@ impl Agent {
                     "[older page view removed to save space; the newest page view is further down]"
                         .into(),
                 );
+                m.images.clear();
             }
         }
     }
@@ -931,6 +956,20 @@ fn describe(name: &str, args: &Value) -> String {
             "press" => format!("browser: press {}", get("key")),
             a @ ("click" | "select") => format!("browser: {a} {}", get("ref")),
             a => format!("browser: {a}"),
+        },
+        "computer" => match get("action").as_str() {
+            "screenshot" => "computer: capture screenshot".into(),
+            "click" => {
+                let x = args.get("x").and_then(Value::as_i64).unwrap_or(0);
+                let y = args.get("y").and_then(Value::as_i64).unwrap_or(0);
+                format!("computer: click at ({x}, {y})")
+            }
+            "type" => format!("computer: type \"{}\"", get("text")),
+            "key" => format!("computer: press {}", get("key")),
+            "active_window" => "computer: inspect active window".into(),
+            "stop" => "computer: emergency stop".into(),
+            "reset" => "computer: resume operations".into(),
+            a => format!("computer: {a}"),
         },
         "mcp" => format!("list tools on {}", get("server")),
         _ => name.to_string(),
@@ -1143,5 +1182,29 @@ mod tests {
         let spoken_prompt = a.session.messages[0].content.as_deref().unwrap();
         assert!(spoken_prompt.contains("Voice Mode & Spoken Reply Style"));
         assert!(spoken_prompt.contains("Do not read long code blocks"));
+    }
+
+    #[tokio::test]
+    async fn test_run_turn_with_images_classifies_vision() {
+        let d = tempfile::tempdir().unwrap();
+        let mut a = agent(d.path());
+        let mut sink = |_e: AgentEvent| {};
+
+        let img = oblivion_providers::ImageAttachment::new(
+            "image/png",
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+        );
+        let _ = a
+            .run_turn_with_images("describe this screenshot", vec![img], &mut sink)
+            .await;
+
+        let last_msg = a.session.messages.last().expect("expected user message");
+        assert_eq!(last_msg.role, Role::User);
+        assert_eq!(
+            last_msg.content.as_deref(),
+            Some("describe this screenshot")
+        );
+        assert_eq!(last_msg.images.len(), 1);
+        assert_eq!(last_msg.images[0].mime_type, "image/png");
     }
 }

@@ -98,9 +98,10 @@ impl Client {
             "{}/chat/completions",
             provider.base_url.trim_end_matches('/')
         );
+        let wire_messages: Vec<Value> = messages.iter().map(Message::to_wire).collect();
         let mut body = json!({
             "model": model,
-            "messages": messages,
+            "messages": wire_messages,
             "stream": true,
         });
         if !tools.is_empty() {

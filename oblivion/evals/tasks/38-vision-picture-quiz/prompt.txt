@@ -1,0 +1,1 @@
+Solve the visual quiz in picture_quiz.html. Question 1 asks for the angle shown in the geometry diagram. Question 2 asks to identify the logic gate in the diagram. Save your answers as a JSON object to answers.json with keys 'q1' (e.g. '90') and 'q2' (e.g. 'and').

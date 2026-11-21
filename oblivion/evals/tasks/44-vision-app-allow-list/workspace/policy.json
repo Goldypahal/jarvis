@@ -1,0 +1,11 @@
+{
+  "computer_use": {
+    "enabled": true,
+    "allowed_apps": [
+      "notepad.exe",
+      "calc.exe",
+      "calculator.exe",
+      "mspaint.exe"
+    ]
+  }
+}

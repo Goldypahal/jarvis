@@ -1,0 +1,7 @@
+{
+  "app": "notepad.exe",
+  "action": "change_setting",
+  "setting": "font_size",
+  "new_value": 14,
+  "requires_approval": true
+}

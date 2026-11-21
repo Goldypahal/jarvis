@@ -93,6 +93,11 @@
                 <span class="wakeword-label hide-mobile" id="menubar-wakeword-label">Wake Word: Off</span>
             </button>
             <span class="menu-sep hide-mobile">|</span>
+            <button class="menu-stop-btn" id="menubar-stop-btn" title="Emergency Stop (Esc): Click to immediately halt desktop computer actions">
+                <span class="stop-icon" id="menubar-stop-icon">🛑</span>
+                <span class="stop-label hide-mobile" id="menubar-stop-label">Stop (Esc)</span>
+            </button>
+            <span class="menu-sep hide-mobile">|</span>
             <button class="menu-offline-toggle" id="menubar-offline-toggle" title="Offline Mode: force local models only (Ollama)">
                 <span class="offline-icon" id="menubar-offline-icon">🌐</span>
                 <span class="offline-label" id="menubar-offline-label">Cloud + Local</span>
@@ -901,12 +906,16 @@
         <div class="ob-sheets" id="ob-sheets"></div>
         <div class="ob-compose">
             <div class="ob-suggest" id="ob-suggest" hidden></div>
+            <div class="ob-image-preview-tray" id="ob-image-preview-tray" hidden></div>
             <div class="ob-field">
-                <textarea id="ob-input" rows="1" placeholder="Ask Oblivion, or type / for skills"></textarea>
+                <input type="file" id="ob-image-file-input" accept="image/*" multiple hidden>
+                <button class="ob-attach-btn" id="ob-attach-btn" title="Attach image (or paste / drag & drop)" type="button">📎</button>
+                <button class="ob-screen-btn" id="ob-screen-btn" title="Look at my screen (captures screenshot with preview before sending)" type="button">🖥️</button>
+                <textarea id="ob-input" rows="1" placeholder="Ask Oblivion, paste image, or / for skills"></textarea>
                 <button class="ob-mic-btn" id="ob-mic-btn" title="Push-to-talk: Hold Ctrl+Space or click to speak" type="button">🎙️</button>
                 <button class="ob-send" id="ob-send" title="Send (Enter)" disabled>↑</button>
             </div>
-            <div class="ob-hint"><span>Enter to send · Shift+Enter new line</span><span>Ctrl+Space to talk · Esc stops</span></div>
+            <div class="ob-hint"><span>Enter to send · Shift+Enter new line</span><span>🖥️ Look at screen · Ctrl+Space to talk</span></div>
         </div>
     </aside>
 
@@ -919,5 +928,6 @@
     <script src="/static/js/models.js"></script>
     <script src="/static/js/wizard.js"></script>
     <script src="/static/js/voice.js"></script>
+    <script src="/static/js/computer.js"></script>
 </body>
 </html>

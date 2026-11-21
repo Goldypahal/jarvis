@@ -1,0 +1,1 @@
+Read policy.json defining the computer use allowed applications. Evaluate whether 'calc.exe' and 'cmd.exe' are permitted. Save your evaluation to allow_check.json with keys 'calc_allowed' (boolean) and 'cmd_allowed' (boolean).

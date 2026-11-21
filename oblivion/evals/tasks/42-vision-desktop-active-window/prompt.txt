@@ -1,0 +1,1 @@
+Read window_info.txt containing desktop window inspection output. Parse the window title, process name, and compute the window area (width * height). Write to window_parsed.json with keys 'title', 'process', and 'area' (number).

@@ -217,16 +217,17 @@ class OblivionBridge:
         finally:
             conn.close()
 
-    def send_and_wait(self, text, timeout=60):
+    def send_and_wait(self, text, timeout=60, images=None):
         """Send text to Oblivion and wait for the turn to complete.
 
         Reads events from the SSE stream until turn_end (or an instant command info).
         Returns a dict with {'response': str, 'outcome': str, 'error': Optional[str]}.
         """
-        if not text or not str(text).strip():
-            raise ValueError("text must not be empty")
-
-        text = str(text).strip()
+        text = str(text or "").strip()
+        if not text and not images:
+            raise ValueError("text or images must not be empty")
+        if not text and images:
+            text = "Describe this image."
 
         if not self.running():
             st = self.start()
@@ -279,7 +280,10 @@ class OblivionBridge:
                             prior_seq = max(prior_seq, ev["seq"])
 
                 # Send the message
-                code, resp_text = self.post("/send", {"text": text})
+                send_payload = {"text": text}
+                if images:
+                    send_payload["images"] = images
+                code, resp_text = self.post("/send", send_payload)
                 if code not in (200, 204):
                     reader_running[0] = False
                     conn.close()
@@ -794,6 +798,51 @@ def register(app, bridge=None, allowed_port=None, token=None):
             code, text, ct = b.request("POST", "/api/voice/wake-word", body=body)
         else:
             code, text, ct = b.request("GET", "/api/voice/wake-word")
+        return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/screen/capture", methods=["POST"])
+    @app.route("/api/screen/capture", methods=["POST"])
+    def oblivion_screen_capture():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        code, text = b.post("/api/oblivion/screen/capture", {})
+        mime = "application/json" if text.strip().startswith(("{", "[")) else "text/plain"
+        return Response(text, status=code, mimetype=mime)
+
+    @app.route("/api/oblivion/computer/status", methods=["GET", "POST"])
+    @app.route("/api/computer/status", methods=["GET", "POST"])
+    def oblivion_computer_status():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        if request.method == "POST":
+            body = request.get_json(silent=True) or {}
+            code, text, ct = b.request("POST", "/api/computer/status", body=body)
+        else:
+            code, text, ct = b.request("GET", "/api/computer/status")
+        return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/computer/stop", methods=["POST"])
+    @app.route("/api/computer/stop", methods=["POST"])
+    def oblivion_computer_stop():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        code, text, ct = b.request("POST", "/api/computer/stop", body={})
+        return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/computer/reset", methods=["POST"])
+    @app.route("/api/computer/reset", methods=["POST"])
+    def oblivion_computer_reset():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        code, text, ct = b.request("POST", "/api/computer/reset", body={})
         return Response(text, status=code, mimetype=ct)
 
     return bridge

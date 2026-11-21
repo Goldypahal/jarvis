@@ -1385,6 +1385,50 @@ body[data-theme="black"] .menu-wakeword-btn.active {
     color: #ff9f0a;
     box-shadow: 0 0 10px rgba(255, 159, 10, 0.4);
 }
+
+/* Emergency Stop Button Styles */
+.menu-stop-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 9px;
+    border-radius: 12px;
+    background: rgba(255, 59, 48, 0.08);
+    border: 1px solid rgba(255, 59, 48, 0.25);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    color: #d70015;
+    transition: all 0.2s ease;
+    user-select: none;
+}
+.menu-stop-btn:hover {
+    background: rgba(255, 59, 48, 0.18);
+    border-color: #ff3b30;
+}
+.menu-stop-btn.stopped-active {
+    background: #ff3b30;
+    color: #ffffff;
+    border-color: #d70015;
+    animation: stop-pulse 1.2s infinite ease-in-out;
+}
+@keyframes stop-pulse {
+    0%, 100% { transform: scale(1); box-shadow: 0 0 4px rgba(255, 59, 48, 0.4); }
+    50% { transform: scale(1.04); box-shadow: 0 0 12px rgba(255, 59, 48, 0.8); }
+}
+body[data-theme="black"] .menu-stop-btn {
+    background: rgba(255, 69, 58, 0.12);
+    border-color: rgba(255, 69, 58, 0.3);
+    color: #ff453a;
+}
+body[data-theme="black"] .menu-stop-btn:hover {
+    background: rgba(255, 69, 58, 0.22);
+}
+body[data-theme="black"] .menu-stop-btn.stopped-active {
+    background: #ff453a;
+    color: #ffffff;
+    border-color: #ff6961;
+}
 .menu-mic-btn.recording {
     background: rgba(255, 59, 48, 0.15);
     border-color: #ff3b30;
@@ -1764,6 +1808,117 @@ body[data-theme="black"] .routing-target-tag.local-target {
     background: rgba(48, 209, 88, 0.15);
     color: #30d158;
     border-color: rgba(48, 209, 88, 0.3);
+}
+
+/* ---------- multi-modal image input & preview ---------- */
+.ob-image-preview-tray {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 6px 4px 6px;
+    margin-bottom: 6px;
+    max-height: 120px;
+    overflow-y: auto;
+}
+.ob-image-preview-tray[hidden] {
+    display: none;
+}
+.ob-image-chip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    background: var(--ob-card);
+    border: 1px solid var(--ob-line);
+    border-radius: 8px;
+    padding: 3px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+.ob-image-chip img {
+    width: 48px;
+    height: 48px;
+    object-fit: cover;
+    border-radius: 6px;
+    display: block;
+}
+.ob-image-chip .ob-chip-remove {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 18px;
+    height: 18px;
+    background: #ff453a;
+    color: #fff;
+    border: 1.5px solid var(--ob-bg);
+    border-radius: 50%;
+    font-size: 10px;
+    line-height: 1;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+    transition: transform 0.1s;
+}
+.ob-image-chip .ob-chip-remove:hover {
+    transform: scale(1.15);
+}
+.ob-attach-btn,
+.ob-screen-btn {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    flex: none;
+    display: grid;
+    place-items: center;
+    background: transparent;
+    border: 0;
+    color: var(--ob-text-2);
+    font-size: 16px;
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s, transform 0.15s;
+}
+.ob-attach-btn:hover,
+.ob-screen-btn:hover {
+    color: var(--ob-accent);
+    background: var(--ob-fill);
+    transform: scale(1.08);
+}
+.ob-user-images {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+.ob-msg-thumb {
+    max-width: 220px;
+    max-height: 160px;
+    object-fit: cover;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    cursor: pointer;
+    transition: transform 0.15s;
+}
+.ob-msg-thumb:hover {
+    transform: scale(1.02);
+}
+.ob-panel.drag-over {
+    box-shadow: 0 0 0 3px var(--ob-accent), -16px 0 48px rgba(0, 0, 0, 0.25);
+}
+.ob-panel.drag-over .ob-log::after {
+    content: "Drop images here to attach";
+    position: absolute;
+    inset: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--ob-card);
+    opacity: 0.92;
+    border: 2px dashed var(--ob-accent);
+    border-radius: 14px;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--ob-accent);
+    pointer-events: none;
+    z-index: 10;
 }
 
 

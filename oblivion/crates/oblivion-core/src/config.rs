@@ -429,6 +429,45 @@ pub struct Config {
     pub browser: BrowserSection,
     #[serde(default)]
     pub voice: VoiceSettings,
+    #[serde(default)]
+    pub computer_use: ComputerUseSection,
+}
+
+/// `[computer_use]`: operating desktop apps (screenshot, click, type) with an app allow list.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ComputerUseSection {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_computer_allowed_apps")]
+    pub allowed_apps: Vec<String>,
+    #[serde(default)]
+    pub ask_all: bool,
+    #[serde(default = "default_computer_stop_hotkey")]
+    pub stop_hotkey: String,
+}
+
+impl Default for ComputerUseSection {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            allowed_apps: default_computer_allowed_apps(),
+            ask_all: false,
+            stop_hotkey: default_computer_stop_hotkey(),
+        }
+    }
+}
+
+fn default_computer_allowed_apps() -> Vec<String> {
+    vec![
+        "notepad.exe".into(),
+        "calc.exe".into(),
+        "calculator.exe".into(),
+        "mspaint.exe".into(),
+    ]
+}
+
+fn default_computer_stop_hotkey() -> String {
+    "Escape".into()
 }
 
 /// `[voice]`: push-to-talk hotkey, local speech-to-text, and voice preferences.
@@ -625,6 +664,86 @@ pub fn apply_setup_to_config_text(
             out.push("[routing]".to_string());
             out.push(format!("offline = {off}"));
         }
+    }
+
+    let mut res = out.join("\n");
+    if !res.ends_with('\n') {
+        res.push('\n');
+    }
+    res
+}
+
+/// Applies computer use configuration changes directly to the config TOML string,
+/// preserving existing formatting and comments.
+pub fn apply_computer_use_to_config_text(
+    text: &str,
+    enabled: Option<bool>,
+    allowed_apps: Option<&[String]>,
+) -> String {
+    let mut out: Vec<String> = text.lines().map(|s| s.to_string()).collect();
+    let cu_idx = out.iter().position(|l| l.trim() == "[computer_use]");
+
+    if let Some(idx) = cu_idx {
+        let mut i = idx + 1;
+        let mut found_enabled = false;
+        let mut found_allowed = false;
+        while i < out.len() && !out[i].trim().starts_with('[') {
+            let trimmed = out[i].trim();
+            if trimmed.starts_with("enabled") {
+                if let Some(en) = enabled {
+                    out[i] = format!("enabled = {en}");
+                    found_enabled = true;
+                }
+            } else if trimmed.starts_with("allowed_apps") {
+                if let Some(apps) = allowed_apps {
+                    let formatted: Vec<String> = apps
+                        .iter()
+                        .map(|a| format!("\"{}\"", a.replace('\\', "\\\\")))
+                        .collect();
+                    out[i] = format!("allowed_apps = [{}]", formatted.join(", "));
+                    found_allowed = true;
+                }
+            }
+            i += 1;
+        }
+        if !found_enabled {
+            if let Some(en) = enabled {
+                out.insert(idx + 1, format!("enabled = {en}"));
+            }
+        }
+        if !found_allowed {
+            if let Some(apps) = allowed_apps {
+                let formatted: Vec<String> = apps
+                    .iter()
+                    .map(|a| format!("\"{}\"", a.replace('\\', "\\\\")))
+                    .collect();
+                out.insert(
+                    idx + 1,
+                    format!("allowed_apps = [{}]", formatted.join(", ")),
+                );
+            }
+        }
+    } else {
+        out.push(String::new());
+        out.push("[computer_use]".to_string());
+        if let Some(en) = enabled {
+            out.push(format!("enabled = {en}"));
+        } else {
+            out.push("enabled = false".to_string());
+        }
+        if let Some(apps) = allowed_apps {
+            let formatted: Vec<String> = apps
+                .iter()
+                .map(|a| format!("\"{}\"", a.replace('\\', "\\\\")))
+                .collect();
+            out.push(format!("allowed_apps = [{}]", formatted.join(", ")));
+        } else {
+            out.push(
+                "allowed_apps = [\"notepad.exe\", \"calc.exe\", \"calculator.exe\", \"mspaint.exe\"]"
+                    .to_string(),
+            );
+        }
+        out.push("stop_hotkey = \"Escape\"".to_string());
     }
 
     let mut res = out.join("\n");
@@ -928,5 +1047,31 @@ models = ["openai/gpt-oss-120b"]
         assert!(!cfg2.setup.completed);
         assert_eq!(cfg2.setup.workspace.as_deref(), Some("C:/Workspace"));
         assert!(!cfg2.routing.offline);
+    }
+
+    #[test]
+    fn computer_use_section_apply_and_parse() {
+        let base = "[agent]\nmax_steps = 50\n";
+        let updated = apply_computer_use_to_config_text(
+            base,
+            Some(true),
+            Some(&["code.exe".to_string(), "notepad.exe".to_string()]),
+        );
+        let cfg = Config::parse(&updated).unwrap();
+        assert!(cfg.computer_use.enabled);
+        assert_eq!(
+            cfg.computer_use.allowed_apps,
+            vec!["code.exe".to_string(), "notepad.exe".to_string()]
+        );
+        assert_eq!(cfg.computer_use.stop_hotkey, "Escape");
+
+        // Disable computer use
+        let disabled = apply_computer_use_to_config_text(&updated, Some(false), None);
+        let cfg2 = Config::parse(&disabled).unwrap();
+        assert!(!cfg2.computer_use.enabled);
+        assert_eq!(
+            cfg2.computer_use.allowed_apps,
+            vec!["code.exe".to_string(), "notepad.exe".to_string()]
+        );
     }
 }

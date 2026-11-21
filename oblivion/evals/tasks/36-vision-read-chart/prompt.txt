@@ -1,0 +1,1 @@
+Read chart.html. Extract the quarterly revenue numbers, compute the total annual revenue, and find the top quarter. Save as a JSON object to result.json with keys 'total' (number, e.g. 87000) and 'top_quarter' (e.g. 'Q4').

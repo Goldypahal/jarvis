@@ -2,18 +2,59 @@
 //! They return plain text instead of printing, so the terminal, the full-screen
 //! UI and the web UI can each show it their own way.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use oblivion_core::{Agent, AgentEvent, ApprovalMode};
 use oblivion_mcp::McpHub;
 use oblivion_skills::SkillSet;
 use oblivion_tools::TodoList;
 
+#[derive(Debug)]
 pub enum Command {
     Quit,
     /// Finished; show this text.
     Done(String),
     /// Run this as a request to the agent.
     Run(String),
+    /// Run this request with image attachments.
+    RunWithImages(String, Vec<oblivion_core::ImageAttachment>),
+}
+
+/// Load an image from disk and wrap it in an [`ImageAttachment`].
+pub fn load_image_attachment(
+    path_str: &str,
+    root: &std::path::Path,
+) -> Result<oblivion_core::ImageAttachment> {
+    use base64::Engine;
+    let path = std::path::Path::new(path_str);
+    let full_path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    };
+    if !full_path.exists() {
+        anyhow::bail!("image file does not exist: {}", full_path.display());
+    }
+    let bytes = std::fs::read(&full_path)
+        .with_context(|| format!("failed to read image file '{}'", full_path.display()))?;
+    let ext = full_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let mime = match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "bmp" => "image/bmp",
+        _ => "image/png",
+    };
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    let name = full_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("image");
+    Ok(oblivion_core::ImageAttachment::new(mime, b64).with_name(name))
 }
 
 /// The user message for `/skill-name args`: the skill's instructions are
@@ -48,6 +89,10 @@ pub const HELP: &str = "\
 /small-model [on|off] toggle or show small-model mode (short prompt, core tools, strict repair)
 /spoken [on|off] toggle or show spoken reply style (short answers, code omitted from speech)
 /wake-word [on|off] toggle or show wake word detection (hands-free 'Hey Jarvis' keyword spotting)
+/image <path> [prompt] attach an image to your request
+/screen [prompt] capture your screen with preview and attach it to your request
+/stop          emergency stop all computer use desktop operations (halt immediately)
+/computer      show computer use allow list and emergency status
 /skills        list skills; run one with /<skill-name> [request]
 /mcp           list MCP servers and their tools
 /exit          quit";
@@ -126,6 +171,20 @@ pub async fn handle_command(
             }
         }
         "help" | "h" => HELP.to_string(),
+        "stop" => {
+            oblivion_tools::trigger_emergency_stop();
+            "Emergency stop activated: all desktop computer operations halted.".to_string()
+        }
+        "computer" => {
+            let stopped = oblivion_tools::is_emergency_stopped();
+            format!(
+                "Computer Use:\n  • Emergency Stop Active: {stopped}\n  • Use `/stop` to halt actions immediately\n  • Use `/reset` or `/resume` to reset emergency stop"
+            )
+        }
+        "reset" | "unstop" => {
+            oblivion_tools::reset_emergency_stop();
+            "Emergency stop reset: desktop computer operations may resume.".to_string()
+        }
         "undo" => match agent.undo_last_turn()? {
             Some(r) => format!(
                 "Restored {} file(s), removed {} new file(s).",
@@ -204,7 +263,12 @@ pub async fn handle_command(
         }
         "resume" => {
             if arg.is_empty() {
-                "Usage: /resume <session_id>".to_string()
+                if oblivion_tools::is_emergency_stopped() {
+                    oblivion_tools::reset_emergency_stop();
+                    "Emergency stop reset: desktop computer operations may resume.".to_string()
+                } else {
+                    "Usage: /resume <session_id>".to_string()
+                }
             } else if let Some(st) = store {
                 match st.load_session(arg) {
                     Ok(loaded) => {
@@ -530,6 +594,38 @@ pub async fn handle_command(
                 format!("Unknown argument '{other}'. Use `/wake-word on` or `/wake-word off`.")
             }
         },
+        "image" => {
+            if arg.is_empty() {
+                return Ok(Command::Done("Usage: /image <path> [prompt]".to_string()));
+            }
+            let (path_str, prompt_text) = if let Some(rest) = arg.strip_prefix('"') {
+                if let Some(end) = rest.find('"') {
+                    let p = &rest[..end];
+                    let rem = rest[end + 1..].trim();
+                    (p, rem)
+                } else {
+                    (arg, "")
+                }
+            } else {
+                arg.split_once(' ').unwrap_or((arg, ""))
+            };
+            let attachment = load_image_attachment(path_str, agent.tools.root())?;
+            let prompt = if prompt_text.is_empty() {
+                "Describe this image in detail.".to_string()
+            } else {
+                prompt_text.to_string()
+            };
+            return Ok(Command::RunWithImages(prompt, vec![attachment]));
+        }
+        "screen" => {
+            let attachment = crate::screen::capture_screen()?;
+            let prompt = if arg.is_empty() {
+                "Look at my screen and describe what you see.".to_string()
+            } else {
+                arg.to_string()
+            };
+            return Ok(Command::RunWithImages(prompt, vec![attachment]));
+        }
         other => format!("Unknown command /{other}. Try /help or /skills."),
     };
     Ok(Command::Done(text))
@@ -540,5 +636,85 @@ pub fn approval_name(m: ApprovalMode) -> &'static str {
         ApprovalMode::Ask => "ask",
         ApprovalMode::AutoEdit => "auto-edit",
         ApprovalMode::Yolo => "yolo",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_load_image_attachment_png() {
+        let tmp = tempfile::tempdir().unwrap();
+        let img_path = tmp.path().join("test_shot.png");
+        std::fs::write(&img_path, b"\x89PNG\r\n\x1a\nfakeimagebytes").unwrap();
+
+        let att = load_image_attachment("test_shot.png", tmp.path()).unwrap();
+        assert_eq!(att.mime_type, "image/png");
+        assert_eq!(att.name.as_deref(), Some("test_shot.png"));
+        assert!(!att.data_base64.is_empty());
+    }
+
+    #[test]
+    fn test_load_image_attachment_jpg() {
+        let tmp = tempfile::tempdir().unwrap();
+        let img_path = tmp.path().join("photo.jpeg");
+        std::fs::write(&img_path, b"fakejpeg").unwrap();
+
+        let att = load_image_attachment(img_path.to_str().unwrap(), tmp.path()).unwrap();
+        assert_eq!(att.mime_type, "image/jpeg");
+        assert_eq!(att.name.as_deref(), Some("photo.jpeg"));
+    }
+
+    #[test]
+    fn test_load_image_attachment_missing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let res = load_image_attachment("nonexistent.png", tmp.path());
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_screen_command_runs_with_images() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (tx, _rx) = crate::app::channels();
+        let approvals = crate::app::Approvals::new(tx);
+        let tools = oblivion_tools::ToolBox::new(
+            tmp.path(),
+            oblivion_tools::Shell::Cmd,
+            tmp.path().join(".snap"),
+        );
+        let mut a = Agent::new(
+            oblivion_providers::Router::new(vec![]),
+            tools,
+            approvals.approver(),
+            ApprovalMode::Ask,
+            10,
+            "system".into(),
+        );
+        let skills = SkillSet::default();
+        let hub = McpHub::new(vec![]);
+        let mut sink = |_e: AgentEvent| {};
+
+        std::env::set_var("OBLIVION_MOCK_SCREEN_CAPTURE", "1");
+        let res = handle_command(
+            &mut a,
+            &skills,
+            &hub,
+            None,
+            "screen what is open",
+            &mut sink,
+        )
+        .await
+        .unwrap();
+        std::env::remove_var("OBLIVION_MOCK_SCREEN_CAPTURE");
+
+        match res {
+            Command::RunWithImages(prompt, images) => {
+                assert_eq!(prompt, "what is open");
+                assert_eq!(images.len(), 1);
+                assert_eq!(images[0].mime_type, "image/png");
+            }
+            other => panic!("expected Command::RunWithImages, got {other:?}"),
+        }
     }
 }

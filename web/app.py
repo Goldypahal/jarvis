@@ -36,14 +36,18 @@ def chat():
     try:
         data = request.get_json(silent=True) or {}
         message = data.get('message', '')
-        if not message or not str(message).strip():
-            return jsonify({'response': 'Please enter a message.'}), 400
+        images = data.get('images', [])
+        if (not message or not str(message).strip()) and not images:
+            return jsonify({'response': 'Please enter a message or attach an image.'}), 400
 
         bridge = app.config.get('OBLIVION_BRIDGE')
         if not bridge:
             return jsonify({'response': 'Oblivion bridge is not configured.'}), 500
 
-        result = bridge.send_and_wait(message)
+        if images:
+            result = bridge.send_and_wait(message, images=images)
+        else:
+            result = bridge.send_and_wait(message)
         return jsonify(result)
     except TimeoutError:
         return jsonify({'response': 'Oblivion request timed out.'}), 504

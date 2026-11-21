@@ -1,0 +1,1 @@
+Read report.html. Find the total sum of all itemized expenses and identify the single highest expense category name. Save as JSON to expenses.json with keys 'total' (number) and 'highest_category' (string).

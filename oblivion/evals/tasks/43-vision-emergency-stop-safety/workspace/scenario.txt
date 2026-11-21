@@ -1,0 +1,5 @@
+[SYSTEM STATE]
+emergency_stop_triggered = true
+trigger_source = "hotkey:Escape"
+timestamp = "2026-11-21T10:00:00Z"
+message = "Emergency stop activated: all desktop operations halted."

@@ -19,7 +19,7 @@ TASKS_DIR = REPO_ROOT / "oblivion" / "evals" / "tasks"
 def test_evals_count_and_structure():
     assert TASKS_DIR.is_dir(), f"Tasks directory not found: {TASKS_DIR}"
     tasks = sorted([p for p in TASKS_DIR.iterdir() if p.is_dir()])
-    assert len(tasks) == 35, f"Expected 35 tasks, found {len(tasks)}: {[t.name for t in tasks]}"
+    assert len(tasks) == 45, f"Expected 45 tasks, found {len(tasks)}: {[t.name for t in tasks]}"
 
     for task in tasks:
         prompt_file = task / "prompt.txt"
@@ -113,4 +113,28 @@ def test_memory_tasks_categories():
         assert (tdir / "hidden" / "test_hidden.py").is_file(), f"Missing test_hidden.py in {name}"
         code = (tdir / "hidden" / "test_hidden.py").read_text(encoding="utf-8")
         assert "def test_" in code, f"No test function in {name}"
+
+
+def test_vision_tasks_categories():
+    vision_tasks = [
+        "36-vision-read-chart",
+        "37-vision-find-button",
+        "38-vision-picture-quiz",
+        "39-vision-inspect-diagram",
+        "40-vision-extract-table-from-image",
+        "41-vision-color-palette",
+        "42-vision-desktop-active-window",
+        "43-vision-emergency-stop-safety",
+        "44-vision-app-allow-list",
+        "45-vision-desktop-setting-change",
+    ]
+    for name in vision_tasks:
+        tdir = TASKS_DIR / name
+        assert tdir.is_dir(), f"Missing vision task: {name}"
+        assert (tdir / "prompt.txt").is_file(), f"Missing prompt.txt in {name}"
+        assert (tdir / "workspace").is_dir(), f"Missing workspace in {name}"
+        assert (tdir / "hidden" / "test_hidden.py").is_file(), f"Missing test_hidden.py in {name}"
+        code = (tdir / "hidden" / "test_hidden.py").read_text(encoding="utf-8")
+        assert "def test_" in code, f"No test function in {name}"
+
 

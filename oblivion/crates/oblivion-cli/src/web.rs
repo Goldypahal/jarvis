@@ -302,6 +302,8 @@ struct ChatBody {
     message: String,
     #[serde(default)]
     text: String,
+    #[serde(default)]
+    images: Vec<oblivion_core::ImageAttachment>,
 }
 
 async fn chat_handler(
@@ -322,14 +324,23 @@ async fn chat_handler(
     } else {
         body.text
     };
-    if msg.trim().is_empty() {
+    if msg.trim().is_empty() && body.images.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": "empty message"})),
         )
             .into_response();
     }
-    st.controls.send(msg);
+    let msg = if msg.trim().is_empty() && !body.images.is_empty() {
+        "Describe this image.".to_string()
+    } else {
+        msg
+    };
+    if !body.images.is_empty() {
+        st.controls.send_with_images(msg, body.images);
+    } else {
+        st.controls.send(msg);
+    }
     (
         StatusCode::OK,
         Json(serde_json::json!({"response": "Message sent to agent"})),
@@ -487,6 +498,8 @@ pub fn router(state: WebState) -> Router {
         .route("/api/oblivion/start", post(get_status).get(get_status))
         .route("/api/oblivion/status", get(get_status))
         .route("/api/chat", post(chat_handler))
+        .route("/api/screen/capture", post(screen_capture))
+        .route("/api/oblivion/screen/capture", post(screen_capture))
         // System & dashboard
         .route("/api/system/dashboard", get(get_dashboard))
         .route("/api/oblivion/dashboard", get(get_dashboard))
@@ -611,6 +624,19 @@ pub fn router(state: WebState) -> Router {
             "/api/oblivion/voice/wake-word",
             get(get_wake_word_status).post(post_wake_word_toggle),
         )
+        // Computer Use
+        .route(
+            "/api/computer/status",
+            get(get_computer_status).post(post_computer_status),
+        )
+        .route(
+            "/api/oblivion/computer/status",
+            get(get_computer_status).post(post_computer_status),
+        )
+        .route("/api/computer/stop", post(post_computer_stop))
+        .route("/api/oblivion/computer/stop", post(post_computer_stop))
+        .route("/api/computer/reset", post(post_computer_reset))
+        .route("/api/oblivion/computer/reset", post(post_computer_reset))
         .with_state(state)
 }
 
@@ -671,9 +697,12 @@ async fn events(
 
 #[derive(Deserialize)]
 struct SendBody {
+    #[serde(default)]
     text: String,
     #[serde(default)]
     voice: bool,
+    #[serde(default)]
+    images: Vec<oblivion_core::ImageAttachment>,
 }
 
 async fn send(
@@ -685,15 +714,51 @@ async fn send(
     if !st.authorized(&headers, &q) {
         return StatusCode::UNAUTHORIZED;
     }
-    if body.text.trim().is_empty() {
+    if body.text.trim().is_empty() && body.images.is_empty() {
         return StatusCode::BAD_REQUEST;
     }
-    if body.voice {
-        st.controls.send_voice(body.text);
+    let text = if body.text.trim().is_empty() && !body.images.is_empty() {
+        "Describe this image.".to_string()
     } else {
-        st.controls.send(body.text);
+        body.text
+    };
+    if body.voice {
+        st.controls.send_voice(text);
+    } else if !body.images.is_empty() {
+        st.controls.send_with_images(text, body.images);
+    } else {
+        st.controls.send(text);
     }
     StatusCode::NO_CONTENT
+}
+
+async fn screen_capture(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    if !st.authorized(&headers, &q) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    match crate::screen::capture_screen() {
+        Ok(att) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "ok": true,
+                "image": att,
+            })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "ok": false,
+                "error": e.to_string(),
+                "needs_client_capture": true,
+            })),
+        )
+            .into_response(),
+    }
 }
 
 #[derive(Deserialize)]
@@ -2030,6 +2095,111 @@ async fn post_wake_word_toggle(
     })))
 }
 
+#[derive(Deserialize)]
+struct ComputerSettingsUpdateBody {
+    #[serde(default)]
+    enabled: Option<bool>,
+    #[serde(default)]
+    allowed_apps: Option<Vec<String>>,
+}
+
+async fn get_computer_status(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let cfg = oblivion_core::Config::load(&st.config_file_path()).unwrap_or_default();
+    let enabled = cfg.computer_use.enabled || std::env::var("OBLIVION_ENABLE_COMPUTER_USE").is_ok();
+    let stopped = oblivion_tools::is_emergency_stopped();
+    let active_win = oblivion_tools::computer::get_active_window().ok();
+
+    Ok(Json(serde_json::json!({
+        "enabled": enabled,
+        "stopped": stopped,
+        "allowed_apps": cfg.computer_use.allowed_apps,
+        "stop_hotkey": cfg.computer_use.stop_hotkey,
+        "ask_all": cfg.computer_use.ask_all,
+        "active_window": active_win,
+    })))
+}
+
+async fn post_computer_status(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Json(body): Json<ComputerSettingsUpdateBody>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let p = st.config_file_path();
+    let base_text = if p.exists() {
+        std::fs::read_to_string(&p)
+            .unwrap_or_else(|_| oblivion_core::config::DEFAULT_CONFIG.to_string())
+    } else {
+        if let Some(parent) = p.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        oblivion_core::config::DEFAULT_CONFIG.to_string()
+    };
+
+    let updated = oblivion_core::config::apply_computer_use_to_config_text(
+        &base_text,
+        body.enabled,
+        body.allowed_apps.as_deref(),
+    );
+    let _ = std::fs::write(&p, updated);
+
+    let cfg = oblivion_core::Config::load(&p).unwrap_or_default();
+    let enabled = cfg.computer_use.enabled || std::env::var("OBLIVION_ENABLE_COMPUTER_USE").is_ok();
+    let stopped = oblivion_tools::is_emergency_stopped();
+    let active_win = oblivion_tools::computer::get_active_window().ok();
+
+    Ok(Json(serde_json::json!({
+        "enabled": enabled,
+        "stopped": stopped,
+        "allowed_apps": cfg.computer_use.allowed_apps,
+        "stop_hotkey": cfg.computer_use.stop_hotkey,
+        "ask_all": cfg.computer_use.ask_all,
+        "active_window": active_win,
+    })))
+}
+
+async fn post_computer_stop(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    oblivion_tools::trigger_emergency_stop();
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "stopped": true,
+        "message": "Emergency stop activated: all desktop computer operations halted."
+    })))
+}
+
+async fn post_computer_reset(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    oblivion_tools::reset_emergency_stop();
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "stopped": false,
+        "message": "Emergency stop reset: desktop computer operations resumed."
+    })))
+}
+
 /// Bind 127.0.0.1:port, or any free port if that one is taken.
 pub async fn bind(port: u16) -> std::io::Result<(tokio::net::TcpListener, SocketAddr)> {
     let listener = match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
@@ -2062,7 +2232,10 @@ mod tests {
     #[test]
     fn history_merges_text_and_keeps_one_state() {
         let bus = Bus::default();
-        bus.publish(UiEvent::User { text: "hi".into() });
+        bus.publish(UiEvent::User {
+            text: "hi".into(),
+            images: vec![],
+        });
         bus.publish(UiEvent::Text { text: "Hel".into() });
         bus.publish(UiEvent::Text { text: "lo".into() });
         bus.publish(UiEvent::Todos { items: vec![] });
@@ -3634,5 +3807,103 @@ mod live {
         assert_eq!(res.status(), StatusCode::OK);
         let ww_resp2: serde_json::Value = res.json().await.unwrap();
         assert_eq!(ww_resp2["enabled"], true);
+
+        // 11. Send with image attachment
+        let res = client
+            .post(format!("{base}/send"))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({
+                "text": "What is in this image?",
+                "images": [
+                    {
+                        "mime_type": "image/png",
+                        "data_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+                        "name": "red_dot.png"
+                    }
+                ]
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+        // 12. Chat handler with image attachment
+        let res = client
+            .post(format!("{base}/api/chat"))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({
+                "message": "Analyze screen",
+                "images": [
+                    {
+                        "mime_type": "image/jpeg",
+                        "data_base64": "/9j/4AAQSkZJRg==",
+                        "name": "screen.jpg"
+                    }
+                ]
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        // 13. Screen capture endpoint
+        let res = client
+            .post(format!("{base}/api/oblivion/screen/capture"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let screen_json: serde_json::Value = res.json().await.unwrap();
+        assert!(screen_json.get("ok").is_some());
+        if screen_json["ok"] == true {
+            assert!(screen_json.get("image").is_some());
+        } else {
+            assert!(screen_json.get("error").is_some());
+        }
+
+        // 14. Computer use endpoints: status, stop, reset
+        let res = client
+            .get(format!("{base}/api/computer/status"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let cu_status: serde_json::Value = res.json().await.unwrap();
+        assert!(cu_status.get("enabled").is_some());
+        assert_eq!(cu_status["stopped"], false);
+        assert_eq!(cu_status["stop_hotkey"], "Escape");
+
+        // Emergency stop
+        let res = client
+            .post(format!("{base}/api/computer/stop"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert!(oblivion_tools::is_emergency_stopped());
+
+        // Check status reflects stopped
+        let res = client
+            .get(format!("{base}/api/oblivion/computer/status"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let cu_status2: serde_json::Value = res.json().await.unwrap();
+        assert_eq!(cu_status2["stopped"], true);
+
+        // Emergency reset
+        let res = client
+            .post(format!("{base}/api/oblivion/computer/reset"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert!(!oblivion_tools::is_emergency_stopped());
     }
 }

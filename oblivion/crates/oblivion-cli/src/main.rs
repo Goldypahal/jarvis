@@ -4,6 +4,7 @@ mod app;
 pub mod autostart;
 mod commands;
 mod keys;
+pub mod screen;
 #[cfg(test)]
 mod testkit;
 pub mod trace;
@@ -138,6 +139,14 @@ struct Cli {
     /// Small-model mode (shorter prompt, core tools only, strict output repair).
     #[arg(long)]
     small_model: bool,
+
+    /// Attach an image file to the request.
+    #[arg(long, value_name = "IMAGE_PATH")]
+    image: Option<PathBuf>,
+
+    /// Capture a screenshot of the primary display and attach it to the request.
+    #[arg(long)]
+    screen: bool,
 
     /// Print a run's trace log (JSON lines) by run id, then exit. Use "list" to show traces.
     #[arg(long, value_name = "ID")]
@@ -734,6 +743,15 @@ async fn run() -> Result<()> {
         if let Some(b) = &browser {
             tools.add_provider(b.clone());
         }
+        let computer_settings = oblivion_tools::ComputerUseSettings {
+            enabled: cfg.computer_use.enabled
+                || std::env::var("OBLIVION_ENABLE_COMPUTER_USE").is_ok(),
+            allowed_apps: cfg.computer_use.allowed_apps.clone(),
+            ask_all: cfg.computer_use.ask_all,
+            stop_hotkey: cfg.computer_use.stop_hotkey.clone(),
+        };
+        let computer_tool = Arc::new(oblivion_tools::ComputerTool::new(computer_settings));
+        tools.add_provider(computer_tool);
         let memory_tools = Arc::new(oblivion_store::MemoryTools::with_project(
             store.clone(),
             root.to_string_lossy(),
@@ -800,8 +818,39 @@ async fn run() -> Result<()> {
         let worker = worker
             .with_traces(traces_dir, current_tracer.clone())
             .with_store(store.clone());
-        if !cli.prompt.is_empty() {
-            controls.send(cli.prompt.join(" "));
+        let mut initial_images = if let Some(ref img_path) = cli.image {
+            match commands::load_image_attachment(&img_path.to_string_lossy(), &root) {
+                Ok(att) => vec![att],
+                Err(e) => {
+                    eprintln!("{RED}✗ Failed to load --image: {e:#}{RESET}");
+                    vec![]
+                }
+            }
+        } else {
+            vec![]
+        };
+        if cli.screen {
+            match screen::capture_screen() {
+                Ok(att) => initial_images.push(att),
+                Err(e) => eprintln!("{RED}✗ Failed to capture --screen: {e:#}{RESET}"),
+            }
+        }
+
+        if !cli.prompt.is_empty() || !initial_images.is_empty() {
+            let p = if cli.prompt.is_empty() {
+                if cli.screen {
+                    "Look at my screen and describe what you see.".to_string()
+                } else {
+                    "Describe this image.".to_string()
+                }
+            } else {
+                cli.prompt.join(" ")
+            };
+            if !initial_images.is_empty() {
+                controls.send_with_images(p, initial_images);
+            } else {
+                controls.send(p);
+            }
         }
         let result = if cli.web {
             let opts = WebOptions {
@@ -840,8 +889,33 @@ async fn run() -> Result<()> {
         });
     }
 
-    if !cli.prompt.is_empty() {
-        let mut task = cli.prompt.join(" ");
+    if !cli.prompt.is_empty() || cli.image.is_some() || cli.screen {
+        let mut initial_images = if let Some(ref img_path) = cli.image {
+            match commands::load_image_attachment(&img_path.to_string_lossy(), &root) {
+                Ok(att) => vec![att],
+                Err(e) => {
+                    eprintln!("{RED}✗ Failed to load --image: {e:#}{RESET}");
+                    vec![]
+                }
+            }
+        } else {
+            vec![]
+        };
+        if cli.screen {
+            match screen::capture_screen() {
+                Ok(att) => initial_images.push(att),
+                Err(e) => eprintln!("{RED}✗ Failed to capture --screen: {e:#}{RESET}"),
+            }
+        }
+        let mut task = if cli.prompt.is_empty() {
+            if cli.screen {
+                "Look at my screen and describe what you see.".to_string()
+            } else {
+                "Describe this image in detail.".to_string()
+            }
+        } else {
+            cli.prompt.join(" ")
+        };
         // `oblivion "/code-review the last commit"` runs a skill directly.
         if let Some(cmd) = task.strip_prefix('/') {
             let (name, arg) = cmd.split_once(' ').unwrap_or((cmd, ""));
@@ -852,6 +926,7 @@ async fn run() -> Result<()> {
         run_one(
             &mut agent,
             &task,
+            initial_images,
             &in_turn,
             &cancel,
             &traces_dir,
@@ -897,6 +972,19 @@ async fn run() -> Result<()> {
                     run_one(
                         &mut agent,
                         &task,
+                        vec![],
+                        &in_turn,
+                        &cancel,
+                        &traces_dir,
+                        current_tracer.clone(),
+                    )
+                    .await
+                }
+                Command::RunWithImages(task, imgs) => {
+                    run_one(
+                        &mut agent,
+                        &task,
+                        imgs,
                         &in_turn,
                         &cancel,
                         &traces_dir,
@@ -910,6 +998,7 @@ async fn run() -> Result<()> {
         run_one(
             &mut agent,
             input,
+            vec![],
             &in_turn,
             &cancel,
             &traces_dir,
@@ -1204,6 +1293,7 @@ fn dirs_home() -> Option<PathBuf> {
 async fn run_one(
     agent: &mut Agent,
     task: &str,
+    images: Vec<oblivion_core::ImageAttachment>,
     in_turn: &AtomicBool,
     cancel: &Notify,
     traces_dir: &std::path::Path,
@@ -1246,7 +1336,7 @@ async fn run_one(
         print_event(e);
     };
     let result = tokio::select! {
-        r = agent.run_turn(task, &mut on_event) => Some(r),
+        r = agent.run_turn_with_images(task, images, &mut on_event) => Some(r),
         _ = cancel.notified() => None,
     };
     in_turn.store(false, Ordering::SeqCst);
