@@ -707,13 +707,19 @@ body.os .split-chat-form button { background: var(--accent); color: #fff; border
 body.os .memory-window-frame,
 body.os .sessions-window-frame,
 body.os .files-window-frame,
-body.os .models-window-frame {
+body.os .models-window-frame,
+body.os .schedules-window-frame,
+body.os .approvals-window-frame,
+body.os .connectors-window-frame {
     background: var(--win-bg);
     border-color: var(--win-border);
     color: var(--win-text);
 }
 body.os .memory-window-body, body.os .sessions-window-body,
-body.os .files-window-body, body.os .models-window-body { background: transparent; }
+body.os .files-window-body, body.os .models-window-body,
+body.os .schedules-window-body,
+body.os .approvals-window-body,
+body.os .connectors-window-body { background: transparent; }
 
 /* Controls inside windows */
 body.os .split-window-frame input[type="text"],

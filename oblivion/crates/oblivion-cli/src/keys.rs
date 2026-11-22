@@ -88,3 +88,64 @@ pub fn delete(provider: &str) -> Result<()> {
     println!("Deleted the saved {provider} key.");
     Ok(())
 }
+
+// ---------- Connector (MCP) Keys in Credential Manager ----------
+
+pub fn save_connector_key(connector: &str, key: &str) -> Result<()> {
+    let name = format!("mcp-{}", connector.trim());
+    save(&name, key)
+}
+
+pub fn get_connector_key(connector: &str, token_env: Option<&str>) -> Option<(String, KeySource)> {
+    let name = format!("mcp-{}", connector.trim());
+    lookup(&name, token_env).or_else(|| lookup(connector, token_env))
+}
+
+pub fn delete_connector_key(connector: &str) -> Result<()> {
+    let name = format!("mcp-{}", connector.trim());
+    delete(&name).or_else(|_| delete(connector))
+}
+
+#[allow(dead_code)]
+pub fn has_connector_key(connector: &str, token_env: Option<&str>) -> bool {
+    get_connector_key(connector, token_env).is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lookup_env_override() {
+        let test_var = "TEST_MCP_GITHUB_TOKEN_XYZ";
+        std::env::set_var(test_var, "ghp_secret12345");
+        let res = lookup("mcp-github", Some(test_var));
+        assert_eq!(res, Some(("ghp_secret12345".to_string(), KeySource::Env)));
+        std::env::remove_var(test_var);
+    }
+
+    #[test]
+    fn test_connector_key_lifecycle() {
+        let name = "test-connector-lifecycle";
+        // Delete any existing
+        let _ = delete_connector_key(name);
+
+        assert!(!has_connector_key(name, None));
+
+        // Save key to credential manager
+        let save_res = save_connector_key(name, "secret-token-abcdef");
+        if save_res.is_ok() {
+            assert!(has_connector_key(name, None));
+            let retrieved = get_connector_key(name, None);
+            assert_eq!(
+                retrieved,
+                Some(("secret-token-abcdef".to_string(), KeySource::Store))
+            );
+
+            // Clean up
+            let del_res = delete_connector_key(name);
+            assert!(del_res.is_ok());
+            assert!(!has_connector_key(name, None));
+        }
+    }
+}

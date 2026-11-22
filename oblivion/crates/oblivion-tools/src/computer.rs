@@ -659,8 +659,12 @@ mod tests {
         ));
     }
 
+    static TEST_MUTEX: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     #[tokio::test]
     async fn test_computer_use_disabled_refuses_actions() {
+        let _guard = TEST_MUTEX.lock().await;
+        reset_emergency_stop();
         let tool = ComputerTool::new(ComputerUseSettings {
             enabled: false,
             allowed_apps: vec!["notepad.exe".into()],
@@ -688,6 +692,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_computer_use_unauthorized_app_blocked() {
+        let _guard = TEST_MUTEX.lock().await;
+        reset_emergency_stop();
         let tool = ComputerTool::new(ComputerUseSettings {
             enabled: true,
             allowed_apps: vec!["notepad.exe".into()],
@@ -715,6 +721,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_computer_use_allowed_app_succeeds() {
+        let _guard = TEST_MUTEX.lock().await;
+        reset_emergency_stop();
         let tool = ComputerTool::new(ComputerUseSettings {
             enabled: true,
             allowed_apps: vec!["notepad.exe".into()],
@@ -755,6 +763,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_emergency_stop_halts_interaction() {
+        let _guard = TEST_MUTEX.lock().await;
+        reset_emergency_stop();
         let tool = ComputerTool::new(ComputerUseSettings {
             enabled: true,
             allowed_apps: vec!["notepad.exe".into()],

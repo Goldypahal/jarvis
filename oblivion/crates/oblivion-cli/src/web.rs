@@ -124,6 +124,7 @@ pub struct WebState {
     pub voice_transcriber: Option<Arc<dyn oblivion_core::VoiceTranscriber>>,
     pub voice_synthesizer: Option<Arc<dyn oblivion_core::VoiceSynthesizer>>,
     pub wake_word_enabled: Arc<std::sync::atomic::AtomicBool>,
+    pub scheduler: Option<Arc<crate::schedule_runner::ScheduleRunner>>,
 }
 
 impl WebState {
@@ -637,6 +638,115 @@ pub fn router(state: WebState) -> Router {
         .route("/api/oblivion/computer/stop", post(post_computer_stop))
         .route("/api/computer/reset", post(post_computer_reset))
         .route("/api/oblivion/computer/reset", post(post_computer_reset))
+        // Schedules / Automations
+        .route(
+            "/api/schedules",
+            get(list_schedules_handler).post(create_schedule_handler),
+        )
+        .route(
+            "/api/oblivion/schedules",
+            get(list_schedules_handler).post(create_schedule_handler),
+        )
+        .route(
+            "/api/schedules/{id}",
+            get(get_schedule_handler)
+                .patch(update_schedule_handler)
+                .put(update_schedule_handler)
+                .delete(delete_schedule_handler),
+        )
+        .route(
+            "/api/oblivion/schedules/{id}",
+            get(get_schedule_handler)
+                .patch(update_schedule_handler)
+                .put(update_schedule_handler)
+                .delete(delete_schedule_handler),
+        )
+        .route("/api/schedules/{id}/run", post(run_schedule_handler))
+        .route(
+            "/api/oblivion/schedules/{id}/run",
+            post(run_schedule_handler),
+        )
+        // Starter Automations
+        .route(
+            "/api/schedules/starters",
+            get(list_schedule_starters_handler),
+        )
+        .route(
+            "/api/oblivion/schedules/starters",
+            get(list_schedule_starters_handler),
+        )
+        .route(
+            "/api/schedules/starters/{id}/install",
+            post(install_schedule_starter_handler),
+        )
+        .route(
+            "/api/oblivion/schedules/starters/{id}/install",
+            post(install_schedule_starter_handler),
+        )
+        // Approvals queue
+        .route("/api/approvals", get(list_approvals_handler))
+        .route("/api/oblivion/approvals", get(list_approvals_handler))
+        .route("/api/approvals/{id}", get(get_approval_handler))
+        .route("/api/oblivion/approvals/{id}", get(get_approval_handler))
+        .route(
+            "/api/approvals/{id}/resolve",
+            post(resolve_approval_handler),
+        )
+        .route(
+            "/api/oblivion/approvals/{id}/resolve",
+            post(resolve_approval_handler),
+        )
+        // Notifications store
+        .route("/api/notifications", get(list_notifications_handler))
+        .route(
+            "/api/oblivion/notifications",
+            get(list_notifications_handler),
+        )
+        .route("/api/notifications/{id}", get(get_notification_handler))
+        .route(
+            "/api/oblivion/notifications/{id}",
+            get(get_notification_handler),
+        )
+        .route(
+            "/api/notifications/{id}/read",
+            post(mark_notification_read_handler),
+        )
+        .route(
+            "/api/oblivion/notifications/{id}/read",
+            post(mark_notification_read_handler),
+        )
+        .route(
+            "/api/notifications/read-all",
+            post(mark_all_notifications_read_handler),
+        )
+        .route(
+            "/api/oblivion/notifications/read-all",
+            post(mark_all_notifications_read_handler),
+        )
+        // Connectors & MCP Integrations (Month 6)
+        .route("/api/connectors", get(list_connectors_handler))
+        .route("/api/oblivion/connectors", get(list_connectors_handler))
+        .route(
+            "/api/connectors/{name}/key",
+            post(set_connector_key_handler).delete(delete_connector_key_handler),
+        )
+        .route(
+            "/api/oblivion/connectors/{name}/key",
+            post(set_connector_key_handler).delete(delete_connector_key_handler),
+        )
+        .route(
+            "/api/connectors/{name}/toggle",
+            post(toggle_connector_handler),
+        )
+        .route(
+            "/api/oblivion/connectors/{name}/toggle",
+            post(toggle_connector_handler),
+        )
+        .route("/api/connectors/{name}/test", post(test_connector_handler))
+        .route(
+            "/api/oblivion/connectors/{name}/test",
+            post(test_connector_handler),
+        )
         .with_state(state)
 }
 
@@ -2200,6 +2310,668 @@ async fn post_computer_reset(
     })))
 }
 
+// =========================================================================
+// Schedules & Automations
+// =========================================================================
+
+async fn list_schedules_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q_map): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<oblivion_store::ScheduledTask>>, StatusCode> {
+    if !st.authorized(&headers, &q_map) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let enabled_only = q_map
+        .get("enabled")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+    let tasks = st
+        .store
+        .list_scheduled_tasks(enabled_only)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(tasks))
+}
+
+#[derive(Deserialize)]
+struct CreateScheduleBody {
+    name: String,
+    prompt: String,
+    schedule: String,
+    #[serde(default)]
+    workspace: Option<String>,
+    #[serde(default)]
+    enabled: Option<bool>,
+}
+
+async fn create_schedule_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Json(body): Json<CreateScheduleBody>,
+) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<serde_json::Value>)> {
+    if !st.authorized(&headers, &q) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        ));
+    }
+    let name = body.name.trim();
+    let prompt = body.prompt.trim();
+    let sched_expr = body.schedule.trim();
+    if name.is_empty() || prompt.is_empty() || sched_expr.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "name, prompt, and schedule cannot be empty"})),
+        ));
+    }
+
+    let now = chrono::Utc::now();
+    let next_run = match oblivion_core::schedule::next_run_after(sched_expr, now) {
+        Ok(nr) => nr,
+        Err(e) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": format!("Invalid schedule expression: {e}")})),
+            ));
+        }
+    };
+
+    let mut new_task = oblivion_store::NewScheduledTask::new(name, prompt, sched_expr);
+    if let Some(ws) = body.workspace {
+        if !ws.trim().is_empty() {
+            new_task = new_task.with_workspace(ws.trim());
+        }
+    }
+    if let Some(en) = body.enabled {
+        new_task = new_task.with_enabled(en);
+    }
+    if let Some(nr) = next_run {
+        new_task.next_run = Some(nr);
+    }
+
+    match st.store.add_scheduled_task(&new_task) {
+        Ok(created) => Ok((
+            StatusCode::CREATED,
+            Json(serde_json::to_value(created).unwrap()),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )),
+    }
+}
+
+async fn get_schedule_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Path(id): Path<String>,
+) -> Result<Json<oblivion_store::ScheduledTask>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    match st.store.get_scheduled_task(&id) {
+        Ok(Some(task)) => Ok(Json(task)),
+        Ok(None) => Err(StatusCode::NOT_FOUND),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+#[derive(Deserialize, Default)]
+struct UpdateScheduleBody {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    prompt: Option<String>,
+    #[serde(default)]
+    schedule: Option<String>,
+    #[serde(default)]
+    workspace: Option<Option<String>>,
+    #[serde(default)]
+    enabled: Option<bool>,
+}
+
+async fn update_schedule_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateScheduleBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if !st.authorized(&headers, &q) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        ));
+    }
+
+    let _existing = match st.store.get_scheduled_task(&id) {
+        Ok(Some(t)) => t,
+        Ok(None) => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({"error": "Task not found"})),
+            ))
+        }
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": e.to_string()})),
+            ))
+        }
+    };
+
+    let mut update = oblivion_store::UpdateScheduledTask {
+        name: body.name,
+        prompt: body.prompt,
+        workspace: body.workspace,
+        enabled: body.enabled,
+        ..Default::default()
+    };
+
+    if let Some(ref new_sched) = body.schedule {
+        let now = chrono::Utc::now();
+        match oblivion_core::schedule::next_run_after(new_sched, now) {
+            Ok(nr) => {
+                update.schedule = Some(new_sched.clone());
+                update.next_run = Some(nr);
+            }
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": format!("Invalid schedule expression: {e}")})),
+                ));
+            }
+        }
+    }
+
+    match st.store.update_scheduled_task(&id, &update) {
+        Ok(updated) => Ok(Json(serde_json::to_value(updated).unwrap())),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )),
+    }
+}
+
+async fn delete_schedule_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if !st.authorized(&headers, &q) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        ));
+    }
+    match st.store.delete_scheduled_task(&id) {
+        Ok(true) => Ok(Json(serde_json::json!({"deleted": true, "id": id}))),
+        Ok(false) => Err((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "Task not found"})),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )),
+    }
+}
+
+async fn run_schedule_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if !st.authorized(&headers, &q) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        ));
+    }
+    if let Some(ref runner) = st.scheduler {
+        match runner.run_task(&id).await {
+            Ok(res) => Ok(Json(serde_json::json!({
+                "triggered": true,
+                "task_id": res.task_id,
+                "session_id": res.session_id,
+                "outcome": res.outcome,
+                "error": res.error,
+                "steps": res.steps,
+                "tool_calls": res.tool_calls,
+                "trace_id": res.trace_id,
+            }))),
+            Err(e) => Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": e.to_string()})),
+            )),
+        }
+    } else {
+        Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Scheduler runner is not active"})),
+        ))
+    }
+}
+
+#[derive(Serialize)]
+struct StarterAutomationStatus {
+    id: &'static str,
+    name: &'static str,
+    title: &'static str,
+    description: &'static str,
+    prompt: &'static str,
+    schedule: &'static str,
+    category: &'static str,
+    icon: &'static str,
+    installed: bool,
+    task_id: Option<String>,
+}
+
+async fn list_schedule_starters_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q_map): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<StarterAutomationStatus>>, StatusCode> {
+    if !st.authorized(&headers, &q_map) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let existing_tasks = st.store.list_scheduled_tasks(false).unwrap_or_default();
+    let starters = st.store.starter_automations();
+
+    let result = starters
+        .iter()
+        .map(|s| {
+            let matched = existing_tasks.iter().find(|t| {
+                t.name.eq_ignore_ascii_case(s.name) || t.id == format!("starter-{}", s.id)
+            });
+            StarterAutomationStatus {
+                id: s.id,
+                name: s.name,
+                title: s.title,
+                description: s.description,
+                prompt: s.prompt,
+                schedule: s.schedule,
+                category: s.category,
+                icon: s.icon,
+                installed: matched.is_some(),
+                task_id: matched.map(|t| t.id.clone()),
+            }
+        })
+        .collect();
+
+    Ok(Json(result))
+}
+
+async fn install_schedule_starter_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q_map): Query<HashMap<String, String>>,
+    Path(starter_id): Path<String>,
+) -> Result<(StatusCode, Json<oblivion_store::ScheduledTask>), (StatusCode, Json<serde_json::Value>)>
+{
+    if !st.authorized(&headers, &q_map) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        ));
+    }
+    let ws = std::env::current_dir()
+        .ok()
+        .map(|p| p.to_string_lossy().to_string());
+    match st
+        .store
+        .install_starter_automation(&starter_id, ws.as_deref())
+    {
+        Ok(task) => {
+            // Also calculate next_run if missing
+            if task.next_run.is_none() {
+                if let Ok(Some(nr)) =
+                    oblivion_core::schedule::next_run_after(&task.schedule, chrono::Utc::now())
+                {
+                    let _ = st.store.update_scheduled_task(
+                        &task.id,
+                        &oblivion_store::UpdateScheduledTask {
+                            next_run: Some(Some(nr)),
+                            ..Default::default()
+                        },
+                    );
+                }
+            }
+            let refreshed = st
+                .store
+                .get_scheduled_task(&task.id)
+                .ok()
+                .flatten()
+                .unwrap_or(task);
+            Ok((StatusCode::CREATED, Json(refreshed)))
+        }
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )),
+    }
+}
+
+// =========================================================================
+// Pending Approvals & Notifications
+// =========================================================================
+
+async fn list_approvals_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q_map): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<oblivion_store::PendingApproval>>, StatusCode> {
+    if !st.authorized(&headers, &q_map) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let status_filter = q_map.get("status").map(|s| s.as_str());
+    match st.store.list_pending_approvals(status_filter) {
+        Ok(list) => Ok(Json(list)),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+async fn get_approval_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Path(id): Path<String>,
+) -> Result<Json<oblivion_store::PendingApproval>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    match st.store.get_pending_approval(&id) {
+        Ok(Some(appr)) => Ok(Json(appr)),
+        Ok(None) => Err(StatusCode::NOT_FOUND),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+#[derive(Deserialize, Default)]
+struct ResolveApprovalBody {
+    #[serde(default)]
+    decision: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+}
+
+async fn resolve_approval_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Path(id): Path<String>,
+    Json(body): Json<ResolveApprovalBody>,
+) -> Result<Json<oblivion_store::PendingApproval>, (StatusCode, Json<serde_json::Value>)> {
+    if !st.authorized(&headers, &q) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        ));
+    }
+    let chosen = body
+        .decision
+        .or(body.status)
+        .unwrap_or_else(|| "approved".to_string());
+    match st.store.resolve_pending_approval(&id, &chosen) {
+        Ok(appr) => Ok(Json(appr)),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("not found") {
+                Err((
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({"error": msg})),
+                ))
+            } else {
+                Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": msg})),
+                ))
+            }
+        }
+    }
+}
+
+async fn list_notifications_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q_map): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<oblivion_store::Notification>>, StatusCode> {
+    if !st.authorized(&headers, &q_map) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let unread_only = q_map
+        .get("unread")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+    let limit = q_map.get("limit").and_then(|l| l.parse::<usize>().ok());
+
+    match st.store.list_notifications(unread_only, limit) {
+        Ok(list) => Ok(Json(list)),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+async fn get_notification_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Path(id): Path<String>,
+) -> Result<Json<oblivion_store::Notification>, StatusCode> {
+    if !st.authorized(&headers, &q) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    match st.store.get_notification(&id) {
+        Ok(Some(notif)) => Ok(Json(notif)),
+        Ok(None) => Err(StatusCode::NOT_FOUND),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+async fn mark_notification_read_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if !st.authorized(&headers, &q) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        ));
+    }
+    match st.store.mark_notification_read(&id) {
+        Ok(true) => Ok(Json(serde_json::json!({"read": true, "id": id}))),
+        Ok(false) => Err((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "Notification not found"})),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )),
+    }
+}
+
+async fn mark_all_notifications_read_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if !st.authorized(&headers, &q) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        ));
+    }
+    match st.store.mark_all_notifications_read() {
+        Ok(count) => Ok(Json(serde_json::json!({"marked": count}))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )),
+    }
+}
+
+// =========================================================================
+// Connectors & MCP Integrations
+// =========================================================================
+
+async fn list_connectors_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q_map): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<crate::connectors::ConnectorInfo>>, StatusCode> {
+    if !st.authorized(&headers, &q_map) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let config_path = st.config_file_path();
+    let config = if config_path.exists() {
+        oblivion_core::config::Config::load(&config_path).unwrap_or_default()
+    } else {
+        oblivion_core::config::Config::default()
+    };
+    Ok(Json(crate::connectors::list_connectors(&config)))
+}
+
+#[derive(Deserialize)]
+struct SetConnectorKeyBody {
+    key: String,
+}
+
+async fn set_connector_key_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Path(name): Path<String>,
+    Json(body): Json<SetConnectorKeyBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if !st.authorized(&headers, &q) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        ));
+    }
+    match crate::keys::save_connector_key(&name, &body.key) {
+        Ok(()) => Ok(Json(serde_json::json!({
+            "ok": true,
+            "name": name,
+            "has_key": true,
+            "key_source": "credential_manager"
+        }))),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )),
+    }
+}
+
+async fn delete_connector_key_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if !st.authorized(&headers, &q) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        ));
+    }
+    match crate::keys::delete_connector_key(&name) {
+        Ok(()) => Ok(Json(serde_json::json!({
+            "ok": true,
+            "name": name,
+            "has_key": false
+        }))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )),
+    }
+}
+
+#[derive(Deserialize)]
+struct ToggleConnectorBody {
+    enabled: bool,
+}
+
+async fn toggle_connector_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Path(name): Path<String>,
+    Json(body): Json<ToggleConnectorBody>,
+) -> Result<Json<crate::connectors::ConnectorInfo>, (StatusCode, Json<serde_json::Value>)> {
+    if !st.authorized(&headers, &q) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        ));
+    }
+    let config_path = st.config_file_path();
+    match crate::connectors::toggle_connector(&config_path, &name, body.enabled) {
+        Ok(info) => Ok(Json(info)),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )),
+    }
+}
+
+async fn test_connector_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if !st.authorized(&headers, &q) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        ));
+    }
+    let config_path = st.config_file_path();
+    let config = if config_path.exists() {
+        oblivion_core::config::Config::load(&config_path).unwrap_or_default()
+    } else {
+        oblivion_core::config::Config::default()
+    };
+    let connectors = crate::connectors::list_connectors(&config);
+    let target = connectors.into_iter().find(|c| c.name == name);
+
+    match target {
+        Some(c) => {
+            if c.needs_key && !c.has_key {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({
+                        "ok": false,
+                        "name": name,
+                        "error": format!("API key or token for '{}' is missing. Please save credentials to Windows Credential Manager first.", c.display_name)
+                    })),
+                ));
+            }
+            Ok(Json(serde_json::json!({
+                "ok": true,
+                "name": name,
+                "display_name": c.display_name,
+                "status": "connected",
+                "message": format!("Connector '{}' is configured and verified ready.", c.display_name),
+                "has_key": c.has_key,
+                "transport": c.transport_type
+            })))
+        }
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": format!("Connector '{name}' not found")})),
+        )),
+    }
+}
+
 /// Bind 127.0.0.1:port, or any free port if that one is taken.
 pub async fn bind(port: u16) -> std::io::Result<(tokio::net::TcpListener, SocketAddr)> {
     let listener = match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
@@ -2314,6 +3086,7 @@ mod live {
             voice_transcriber: None,
             voice_synthesizer: None,
             wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
         };
         tokio::spawn(pump(events, bus));
         tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
@@ -2562,6 +3335,7 @@ mod live {
             voice_transcriber: None,
             voice_synthesizer: None,
             wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
         };
         tokio::spawn(pump(events, bus));
         tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
@@ -2652,6 +3426,7 @@ mod live {
             voice_transcriber: None,
             voice_synthesizer: None,
             wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
         };
         tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
         let base = format!("http://{addr}");
@@ -2776,6 +3551,7 @@ mod live {
             voice_transcriber: None,
             voice_synthesizer: None,
             wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
         };
 
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
@@ -2928,6 +3704,7 @@ mod live {
             voice_transcriber: None,
             voice_synthesizer: None,
             wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
         };
 
         let app = router(state);
@@ -3000,6 +3777,7 @@ mod live {
             voice_transcriber: None,
             voice_synthesizer: None,
             wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -3107,6 +3885,7 @@ mod live {
             voice_transcriber: None,
             voice_synthesizer: None,
             wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -3231,6 +4010,7 @@ mod live {
             voice_transcriber: None,
             voice_synthesizer: None,
             wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -3330,6 +4110,7 @@ mod live {
             voice_transcriber: None,
             voice_synthesizer: None,
             wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -3432,6 +4213,7 @@ mod live {
             voice_transcriber: None,
             voice_synthesizer: None,
             wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -3555,6 +4337,7 @@ mod live {
             voice_transcriber: None,
             voice_synthesizer: None,
             wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -3680,6 +4463,7 @@ mod live {
             ))),
             voice_synthesizer: Some(Arc::new(oblivion_core::MockSynthesizer::new("mock-piper"))),
             wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
         };
 
         let (listener, addr) = bind(0).await.unwrap();
@@ -3905,5 +4689,550 @@ mod live {
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
         assert!(!oblivion_tools::is_emergency_stopped());
+    }
+
+    #[tokio::test]
+    async fn web_schedules_api_endpoints_crud_and_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let store =
+            Arc::new(oblivion_store::Store::open(&dir.path().join("test_sched.db")).unwrap());
+        let sse_body = crate::testkit::sse(&[
+            r#"{"choices":[{"delta":{"role":"assistant","content":"Scheduled report done."}}]}"#,
+            r#"{"choices":[{"delta":{}}],"usage":{"prompt_tokens":15,"completion_tokens":8}}"#,
+        ]);
+        let (url, _seen) = crate::testkit::fake_server(vec![(200, sse_body)]).await;
+        let (_worker, controls, _events) = crate::testkit::worker(&url, dir.path());
+
+        let url_clone = url.clone();
+        let traces_dir = dir.path().join("traces");
+        std::fs::create_dir_all(&traces_dir).unwrap();
+        let tmp_root = dir.path().to_path_buf();
+
+        let factory: crate::schedule_runner::AgentFactory = Arc::new(move |_ws| {
+            let t = crate::testkit::target("mock", &url_clone);
+            let router = oblivion_providers::Router::new(vec![t]);
+            let tools = oblivion_tools::ToolBox::new(
+                tmp_root.clone(),
+                oblivion_tools::Shell::platform_default(),
+                tmp_root.join("snaps"),
+            );
+            Ok(oblivion_core::Agent::new(
+                router,
+                tools,
+                Box::new(oblivion_core::schedule::UnattendedApprover),
+                oblivion_core::ApprovalMode::Ask,
+                5,
+                "System prompt".into(),
+            ))
+        });
+
+        let runner = Arc::new(crate::schedule_runner::ScheduleRunner::new(
+            store.clone(),
+            traces_dir,
+            factory,
+        ));
+
+        let bus = Arc::new(Bus::default());
+        let token = "test-token-sched";
+        let state = WebState {
+            token: token.into(),
+            controls,
+            bus: bus.clone(),
+            store: store.clone(),
+            ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
+            config_path: None,
+            voice_transcriber: None,
+            voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: Some(runner),
+        };
+
+        let (listener, addr) = bind(0).await.unwrap();
+        let base = format!("http://{addr}");
+        tokio::spawn(async move {
+            axum::serve(listener, router(state)).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+
+        // 1. Unauthenticated -> 401
+        let unauth = client
+            .get(format!("{base}/api/schedules"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unauth.status(), StatusCode::UNAUTHORIZED);
+
+        // 2. Initial list -> 200, empty
+        let res = client
+            .get(format!("{base}/api/schedules"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let list: Vec<serde_json::Value> = res.json().await.unwrap();
+        assert_eq!(list.len(), 0);
+
+        // 3. Create invalid schedule expression -> 400
+        let bad_res = client
+            .post(format!("{base}/api/schedules"))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({
+                "name": "Bad task",
+                "prompt": "Do nothing",
+                "schedule": "not a valid schedule"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(bad_res.status(), StatusCode::BAD_REQUEST);
+
+        // 4. Create valid schedule -> 201
+        let create_res = client
+            .post(format!("{base}/api/schedules"))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({
+                "name": "Morning Brief",
+                "prompt": "Summarize news",
+                "schedule": "0 9 * * *",
+                "workspace": "/tmp/test"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(create_res.status(), StatusCode::CREATED);
+        let created: serde_json::Value = create_res.json().await.unwrap();
+        assert_eq!(created["name"], "Morning Brief");
+        assert_eq!(created["enabled"], true);
+        assert!(created["next_run"].is_string());
+        let task_id = created["id"].as_str().unwrap().to_string();
+
+        // 5. Get schedule by ID -> 200
+        let get_res = client
+            .get(format!("{base}/api/schedules/{task_id}"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(get_res.status(), StatusCode::OK);
+        let fetched: serde_json::Value = get_res.json().await.unwrap();
+        assert_eq!(fetched["id"], task_id);
+        assert_eq!(fetched["name"], "Morning Brief");
+
+        // 6. Update schedule -> 200
+        let update_res = client
+            .patch(format!("{base}/api/schedules/{task_id}"))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({
+                "enabled": false,
+                "schedule": "every 3h"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(update_res.status(), StatusCode::OK);
+        let updated: serde_json::Value = update_res.json().await.unwrap();
+        assert_eq!(updated["enabled"], false);
+        assert_eq!(updated["schedule"], "every 3h");
+
+        // 7. Run schedule manually -> 200
+        let run_res = client
+            .post(format!("{base}/api/schedules/{task_id}/run"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(run_res.status(), StatusCode::OK);
+        let run_json: serde_json::Value = run_res.json().await.unwrap();
+        assert_eq!(run_json["triggered"], true);
+        assert_eq!(run_json["outcome"], "done");
+        assert!(run_json["trace_id"].is_string());
+
+        // 8. Delete schedule -> 200
+        let del_res = client
+            .delete(format!("{base}/api/schedules/{task_id}"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(del_res.status(), StatusCode::OK);
+
+        // 9. Get after delete -> 404
+        let not_found = client
+            .get(format!("{base}/api/schedules/{task_id}"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(not_found.status(), StatusCode::NOT_FOUND);
+
+        // 10. Starters list -> 200, 3 items
+        let starters_res = client
+            .get(format!("{base}/api/schedules/starters"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(starters_res.status(), StatusCode::OK);
+        let starters: Vec<serde_json::Value> = starters_res.json().await.unwrap();
+        assert_eq!(starters.len(), 3);
+        assert!(starters.iter().any(|s| s["id"] == "morning_brief"));
+        assert!(starters.iter().any(|s| s["id"] == "repo_watcher"));
+        assert!(starters.iter().any(|s| s["id"] == "weekly_report"));
+
+        // 11. Install morning_brief -> 201 Created
+        let install_res = client
+            .post(format!(
+                "{base}/api/schedules/starters/morning_brief/install"
+            ))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(install_res.status(), StatusCode::CREATED);
+        let installed: serde_json::Value = install_res.json().await.unwrap();
+        assert_eq!(installed["id"], "starter-morning_brief");
+        assert_eq!(installed["name"], "Morning brief");
+
+        // 12. Starters list now reflects installed: true
+        let starters_res2 = client
+            .get(format!("{base}/api/schedules/starters"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        let starters2: Vec<serde_json::Value> = starters_res2.json().await.unwrap();
+        let mb = starters2
+            .iter()
+            .find(|s| s["id"] == "morning_brief")
+            .unwrap();
+        assert_eq!(mb["installed"], true);
+        assert_eq!(mb["task_id"], "starter-morning_brief");
+    }
+
+    #[tokio::test]
+    async fn web_approvals_and_notifications_endpoints_crud() {
+        let dir = tempfile::tempdir().unwrap();
+        let store =
+            Arc::new(oblivion_store::Store::open(&dir.path().join("test_appr.db")).unwrap());
+        let (url, _seen) = crate::testkit::fake_server(vec![]).await;
+        let (_worker, controls, _events) = crate::testkit::worker(&url, dir.path());
+
+        let bus = Arc::new(Bus::default());
+        let token = "secret-token-xyz";
+        let state = WebState {
+            token: token.into(),
+            controls,
+            bus,
+            store: store.clone(),
+            ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
+            config_path: None,
+            voice_transcriber: None,
+            voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
+        };
+
+        let app = router(state);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+        let base = format!("http://{}", addr);
+        let token = "secret-token-xyz";
+
+        // 1. Unauthorized checks
+        let unauth = client
+            .get(format!("{base}/api/approvals"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unauth.status(), StatusCode::UNAUTHORIZED);
+
+        let unauth_notif = client
+            .get(format!("{base}/api/notifications"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unauth_notif.status(), StatusCode::UNAUTHORIZED);
+
+        // 2. Add pending approval and notification to store
+        let created_appr = store
+            .add_pending_approval(&oblivion_store::NewPendingApproval {
+                id: None,
+                task_id: Some("task-123".to_string()),
+                session_id: "sched-123".to_string(),
+                tool_name: "shell".to_string(),
+                summary: "rm -rf test/".to_string(),
+                risk: Some("ask".to_string()),
+            })
+            .unwrap();
+
+        let created_notif = store
+            .add_notification(&oblivion_store::NewNotification {
+                id: None,
+                title: "Approval required".to_string(),
+                body: "Shell command requested".to_string(),
+                kind: "approval_needed".to_string(),
+                task_id: Some("task-123".to_string()),
+                session_id: Some("sched-123".to_string()),
+                approval_id: Some(created_appr.id.clone()),
+            })
+            .unwrap();
+
+        // 3. List approvals
+        let res = client
+            .get(format!("{base}/api/approvals"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let list: Vec<oblivion_store::PendingApproval> = res.json().await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, created_appr.id);
+        assert_eq!(list[0].status, "pending");
+
+        // 4. Get approval by id
+        let res = client
+            .get(format!("{base}/api/approvals/{}", created_appr.id))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let single: oblivion_store::PendingApproval = res.json().await.unwrap();
+        assert_eq!(single.id, created_appr.id);
+
+        // 5. Resolve approval -> approved
+        let res = client
+            .post(format!("{base}/api/approvals/{}/resolve", created_appr.id))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({"decision": "approved"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let resolved: oblivion_store::PendingApproval = res.json().await.unwrap();
+        assert_eq!(resolved.status, "approved");
+        assert!(resolved.resolved_at.is_some());
+
+        // 6. Check filter by status
+        let res = client
+            .get(format!("{base}/api/approvals?status=pending"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let pending_list: Vec<oblivion_store::PendingApproval> = res.json().await.unwrap();
+        assert_eq!(pending_list.len(), 0);
+
+        let res = client
+            .get(format!("{base}/api/approvals?status=approved"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let approved_list: Vec<oblivion_store::PendingApproval> = res.json().await.unwrap();
+        assert_eq!(approved_list.len(), 1);
+
+        // 7. List notifications (unread)
+        let res = client
+            .get(format!("{base}/api/notifications?unread=true"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let notifs: Vec<oblivion_store::Notification> = res.json().await.unwrap();
+        assert_eq!(notifs.len(), 1);
+        assert_eq!(notifs[0].id, created_notif.id);
+
+        // 8. Get notification by ID
+        let res = client
+            .get(format!("{base}/api/notifications/{}", created_notif.id))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let single_notif: oblivion_store::Notification = res.json().await.unwrap();
+        assert_eq!(single_notif.id, created_notif.id);
+
+        // 9. Mark notification read
+        let res = client
+            .post(format!(
+                "{base}/api/notifications/{}/read",
+                created_notif.id
+            ))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let res = client
+            .get(format!("{base}/api/notifications?unread=true"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let unread_after: Vec<oblivion_store::Notification> = res.json().await.unwrap();
+        assert_eq!(unread_after.len(), 0);
+
+        // 10. Mark all read
+        let res = client
+            .post(format!("{base}/api/notifications/read-all"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn web_connectors_api_endpoints_crud_and_keyring() {
+        let dir = tempfile::tempdir().unwrap();
+        let store =
+            Arc::new(oblivion_store::Store::open(&dir.path().join("test_conn.db")).unwrap());
+        let (url, _seen) = crate::testkit::fake_server(vec![]).await;
+        let (_worker, controls, _events) = crate::testkit::worker(&url, dir.path());
+
+        let cfg_path = dir.path().join("oblivion.toml");
+        std::fs::write(&cfg_path, oblivion_core::config::DEFAULT_CONFIG).unwrap();
+
+        let bus = Arc::new(Bus::default());
+        let token = "secret-token-conn";
+        let state = WebState {
+            token: token.into(),
+            controls,
+            bus,
+            store,
+            ollama: None,
+            routing: Arc::new(std::sync::RwLock::new(
+                oblivion_core::config::RoutingSettings::default(),
+            )),
+            config_path: Some(cfg_path.clone()),
+            voice_transcriber: None,
+            voice_synthesizer: None,
+            wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scheduler: None,
+        };
+
+        let app = router(state);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+        let base = format!("http://{}", addr);
+
+        // 1. Unauthorized
+        let unauth = client
+            .get(format!("{base}/api/connectors"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unauth.status(), StatusCode::UNAUTHORIZED);
+
+        // 2. List connectors
+        let res = client
+            .get(format!("{base}/api/connectors"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let connectors: Vec<crate::connectors::ConnectorInfo> = res.json().await.unwrap();
+        assert!(connectors.len() >= 5);
+        let names: Vec<String> = connectors.iter().map(|c| c.name.clone()).collect();
+        assert!(names.contains(&"github".to_string()));
+        assert!(names.contains(&"notion".to_string()));
+        assert!(names.contains(&"gmail".to_string()));
+        assert!(names.contains(&"calendar".to_string()));
+        assert!(names.contains(&"files".to_string()));
+
+        // 3. Test files connector (doesn't need key) -> 200 OK
+        let res = client
+            .post(format!("{base}/api/connectors/files/test"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let files_test: serde_json::Value = res.json().await.unwrap();
+        assert_eq!(files_test["ok"], true);
+
+        // 4. Test github connector before key is set -> 400 Bad Request
+        let res = client
+            .post(format!("{base}/api/connectors/github/test"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        // Missing key triggers error
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+        // 5. Save github key in credential manager
+        let res = client
+            .post(format!("{base}/api/connectors/github/key"))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({"key": "ghp_test_token_secret_123"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let key_saved: serde_json::Value = res.json().await.unwrap();
+        assert_eq!(key_saved["ok"], true);
+        assert_eq!(key_saved["has_key"], true);
+
+        // 6. Test github connector after key is set -> 200 OK
+        let res = client
+            .post(format!("{base}/api/connectors/github/test"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let github_test: serde_json::Value = res.json().await.unwrap();
+        assert_eq!(github_test["ok"], true);
+
+        // 7. Toggle connector enabled in config
+        let res = client
+            .post(format!("{base}/api/connectors/github/toggle"))
+            .header("x-oblivion-token", token)
+            .json(&serde_json::json!({"enabled": true}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let toggled: crate::connectors::ConnectorInfo = res.json().await.unwrap();
+        assert!(toggled.enabled);
+
+        // 8. Delete github key from credential manager
+        let res = client
+            .delete(format!("{base}/api/connectors/github/key"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let key_deleted: serde_json::Value = res.json().await.unwrap();
+        assert_eq!(key_deleted["has_key"], false);
     }
 }

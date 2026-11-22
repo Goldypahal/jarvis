@@ -3,7 +3,9 @@
 mod app;
 pub mod autostart;
 mod commands;
+pub mod connectors;
 mod keys;
+pub mod schedule_runner;
 pub mod screen;
 #[cfg(test)]
 mod testkit;
@@ -726,13 +728,14 @@ async fn run() -> Result<()> {
         inner: base_approver,
         tracer: current_tracer.clone(),
     });
+    let router_shared = router.share();
     let mut agent = {
         // Snapshot folder is named per run so undo data never mixes between sessions.
         let snap = home
             .join("snapshots")
             .join(chrono::Local::now().format("%Y%m%d-%H%M%S").to_string());
         let mut tools = ToolBox::new(root.clone(), shell, snap)
-            .with_search(search)
+            .with_search(search.clone())
             .allow_reads_in(skill_dirs.clone());
         if !skills.is_empty() {
             tools.add_provider(skills.clone());
@@ -763,7 +766,7 @@ async fn run() -> Result<()> {
             approver,
             approval,
             cfg.agent.max_steps,
-            system,
+            system.clone(),
         )
     };
     agent.context_tokens = cfg.agent.context_tokens;
@@ -816,7 +819,7 @@ async fn run() -> Result<()> {
             approvals,
         );
         let worker = worker
-            .with_traces(traces_dir, current_tracer.clone())
+            .with_traces(traces_dir.clone(), current_tracer.clone())
             .with_store(store.clone());
         let mut initial_images = if let Some(ref img_path) = cli.image {
             match commands::load_image_attachment(&img_path.to_string_lossy(), &root) {
@@ -852,6 +855,63 @@ async fn run() -> Result<()> {
                 controls.send(p);
             }
         }
+        let schedule_runner = {
+            let router_shared = router_shared.share();
+            let store_clone = store.clone();
+            let traces_dir = traces_dir.clone();
+            let skill_dirs = skill_dirs.clone();
+            let skills_clone = skills.clone();
+            let hub_clone = hub.clone();
+            let browser_clone = browser.clone();
+            let cfg_clone = cfg.clone();
+            let cli_offline = cli.offline;
+            let system_prompt = system.clone();
+            let home_clone = home.clone();
+
+            let factory: crate::schedule_runner::AgentFactory =
+                Arc::new(move |ws: &std::path::Path| {
+                    let snap = home_clone
+                        .join("snapshots")
+                        .join(chrono::Local::now().format("%Y%m%d-%H%M%S").to_string());
+                    let mut tools = ToolBox::new(ws.to_path_buf(), shell, snap)
+                        .with_search(search.clone())
+                        .allow_reads_in(skill_dirs.clone());
+                    if !skills_clone.is_empty() {
+                        tools.add_provider(skills_clone.clone());
+                    }
+                    if !hub_clone.is_empty() {
+                        tools.add_provider(hub_clone.clone());
+                    }
+                    if let Some(b) = &browser_clone {
+                        tools.add_provider(b.clone());
+                    }
+                    let memory_tools = Arc::new(oblivion_store::MemoryTools::with_project(
+                        store_clone.clone(),
+                        ws.to_string_lossy(),
+                    ));
+                    tools.add_provider(memory_tools);
+                    let mut ag = Agent::new(
+                        router_shared.share(),
+                        tools,
+                        Box::new(oblivion_core::schedule::UnattendedApprover),
+                        ApprovalMode::Ask,
+                        cfg_clone.agent.max_steps,
+                        system_prompt.clone(),
+                    );
+                    ag.context_tokens = cfg_clone.agent.context_tokens;
+                    ag.max_web_calls = cfg_clone.agent.max_web_calls;
+                    ag.summary_prefer = cfg_clone.routing.summary.clone();
+                    ag.offline = cfg_clone.routing.offline || cli_offline;
+                    ag.routing_rules = cfg_clone.routing.rules.clone();
+                    Ok(ag)
+                });
+            Arc::new(crate::schedule_runner::ScheduleRunner::new(
+                store.clone(),
+                traces_dir,
+                factory,
+            ))
+        };
+
         let result = if cli.web {
             let opts = WebOptions {
                 port: cli.port,
@@ -859,8 +919,18 @@ async fn run() -> Result<()> {
                 offline: cli.offline,
                 config_path: Some(config_path),
             };
-            run_web(worker, controls, store.clone(), ev_rx, opts, &cfg).await
+            run_web(
+                worker,
+                controls,
+                store.clone(),
+                ev_rx,
+                opts,
+                &cfg,
+                Some(schedule_runner),
+            )
+            .await
         } else {
+            let _ticker = schedule_runner.clone().start_ticker(15);
             tui::run(worker, controls, ev_rx).await
         };
         hub.shutdown().await;
@@ -1085,7 +1155,11 @@ async fn run_web(
     events: tokio::sync::mpsc::UnboundedReceiver<app::UiEvent>,
     opts: WebOptions,
     cfg: &Config,
+    scheduler: Option<Arc<crate::schedule_runner::ScheduleRunner>>,
 ) -> Result<()> {
+    if let Some(ref s) = scheduler {
+        s.clone().start_ticker(15);
+    }
     let bus = Arc::new(web::Bus::default());
     let token = web::new_token();
     let (listener, addr) = web::bind(opts.port)
@@ -1112,6 +1186,7 @@ async fn run_web(
         voice_transcriber: None,
         voice_synthesizer: None,
         wake_word_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        scheduler,
     };
     tokio::spawn(web::pump(events, bus));
     tokio::spawn(async move {

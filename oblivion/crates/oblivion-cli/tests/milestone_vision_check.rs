@@ -45,8 +45,12 @@ async fn milestone_vision_picture_practice_quiz() {
     assert!(img.data_url().starts_with("data:image/png;base64,"));
 }
 
+static TEST_MUTEX: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 #[tokio::test]
 async fn milestone_vision_desktop_change_setting_with_approval() {
+    let _guard = TEST_MUTEX.lock().await;
+    reset_emergency_stop();
     // "changes a setting in one desktop app, asking before each final action"
     let settings = ComputerUseSettings {
         enabled: true,
@@ -109,6 +113,7 @@ async fn milestone_vision_desktop_change_setting_with_approval() {
 
 #[tokio::test]
 async fn milestone_vision_emergency_stop_invariant() {
+    let _guard = TEST_MUTEX.lock().await;
     reset_emergency_stop();
     assert!(!is_emergency_stopped());
 

@@ -103,6 +103,12 @@
                 <span class="offline-label" id="menubar-offline-label">Cloud + Local</span>
             </button>
             <span class="menu-sep hide-mobile">|</span>
+            <button class="menu-approvals-btn" id="menubar-approvals-btn" title="Approvals & Notifications (Alt+Q)">
+                <span class="approvals-icon" id="menubar-approvals-icon">🔔</span>
+                <span class="approvals-label hide-mobile" id="menubar-approvals-label">Approvals</span>
+                <span class="approvals-badge" id="menubar-approvals-badge" style="display: none;">0</span>
+            </button>
+            <span class="menu-sep hide-mobile">|</span>
             <button class="menu-oblivion" id="ob-menubar" title="Oblivion assistant (Ctrl+J)"><span class="dot" id="ob-menubar-dot"></span>Oblivion</button>
             <span class="menu-sep hide-mobile">|</span>
             <span class="menu-date" id="menu-date">--</span>
@@ -325,6 +331,16 @@
                     </button>
                     <button class="dock-app-btn" id="open-models-dock-btn" data-action="models" data-label="Models" aria-label="Models">
                         <div class="app-icon model-dock-icon"><svg viewBox="0 0 100 100" aria-hidden="true"><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#ic-models)"/><g stroke="#fff" stroke-width="4.5" stroke-linecap="round"><path d="M38 16v12M50 16v12M62 16v12M38 72v12M50 72v12M62 72v12M16 38h12M16 50h12M16 62h12M72 38h12M72 50h12M72 62h12"/></g><rect x="27" y="27" width="46" height="46" rx="9" fill="#fff"/><rect x="39" y="39" width="22" height="22" rx="5" fill="url(#ic-models)"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#os-shine)"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="none" stroke="#000" stroke-opacity=".12" stroke-width="1"/></svg></div>
+                    </button>
+                    <button class="dock-app-btn" id="open-schedules-dock-btn" data-action="schedules" data-label="Schedules" aria-label="Schedules">
+                        <div class="app-icon schedule-dock-icon"><svg viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="ic-sched-dock" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#1d4ed8"/></linearGradient></defs><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#ic-sched-dock)"/><rect x="24" y="24" width="52" height="52" rx="10" fill="#fff" fill-opacity=".15"/><circle cx="50" cy="50" r="23" fill="none" stroke="#fff" stroke-width="5"/><path d="M50 35v15l10 6" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#os-shine)"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="none" stroke="#000" stroke-opacity=".12" stroke-width="1"/></svg></div>
+                    </button>
+                    <button class="dock-app-btn" id="open-approvals-dock-btn" data-action="approvals" data-label="Approvals" aria-label="Approvals & Notifications">
+                        <div class="app-icon approvals-dock-icon"><svg viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="ic-appr-dock" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#f59e0b"/><stop offset="100%" stop-color="#d97706"/></linearGradient></defs><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#ic-appr-dock)"/><path d="M50 22a18 18 0 0 0-18 18v14l-6 8v4h48v-4l-6-8V40a18 18 0 0 0-18-18z" fill="#fff"/><path d="M44 70a6 6 0 0 0 12 0" stroke="#fff" stroke-width="4" stroke-linecap="round" fill="none"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#os-shine)"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="none" stroke="#000" stroke-opacity=".12" stroke-width="1"/></svg></div>
+                        <span class="dock-badge" id="dock-approvals-badge" style="display: none;">0</span>
+                    </button>
+                    <button class="dock-app-btn" id="open-connectors-dock-btn" data-action="connectors" data-label="Connectors" aria-label="MCP Connectors">
+                        <div class="app-icon connectors-dock-icon"><svg viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="ic-conn-dock" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#10b981"/><stop offset="100%" stop-color="#047857"/></linearGradient></defs><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#ic-conn-dock)"/><path d="M42 26v14h16V26h-16zm-8 22v22c0 4.4 3.6 8 8 8h16c4.4 0 8-3.6 8-8V48H34zm6-22v-6h4v6h-4zm12 0v-6h4v6h-4zm-2 56v8h-4v-8h4z" fill="#fff"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="url(#os-shine)"/><path d="M50 2C13 2 2 13 2 50s11 48 48 48 48-11 48-48S87 2 50 2z" fill="none" stroke="#000" stroke-opacity=".12" stroke-width="1"/></svg></div>
                     </button>
                     <span class="dock-divider" aria-hidden="true"></span>
                     <button class="dock-app-btn chat-dock-btn active" id="open-chat-dock-btn" data-label="Oblivion" aria-label="Oblivion">
@@ -875,6 +891,202 @@
     </div>
 
     <!-- ==========================================================================
+         5g. Schedules & Automations Window Modal (#schedulesModal) (Month 6)
+         ========================================================================== -->
+    <div id="schedulesModal" class="split-modal-overlay">
+        <div class="split-window-frame schedules-window-frame">
+            <!-- Window Header Bar -->
+            <div class="split-frame-header">
+                <div class="traffic-lights">
+                    <button class="tl tl-close" id="close-schedules-modal-btn" title="Close"></button>
+                    <button class="tl tl-min" title="Minimize"></button>
+                    <button class="tl tl-max" title="Zoom"></button>
+                </div>
+                <div class="split-frame-title">Schedules &amp; Automations</div>
+                <div class="schedules-header-actions">
+                    <span id="schedules-count-badge" class="split-frame-badge">0 schedules</span>
+                    <button id="schedules-new-btn" class="mem-btn mem-btn-primary">+ New Schedule</button>
+                </div>
+            </div>
+
+            <!-- Schedules Window Body -->
+            <div class="schedules-window-body">
+                <!-- Add/Edit Schedule Form Pane -->
+                <div id="schedules-editor-pane" class="schedules-editor-pane" style="display: none;">
+                    <div class="editor-header">
+                        <h4 id="schedules-editor-title">New Scheduled Automation</h4>
+                        <button id="schedules-editor-close-btn" class="editor-close-btn" type="button">✕</button>
+                    </div>
+                    <form id="schedules-editor-form">
+                        <input type="hidden" id="edit-schedule-id" value="">
+                        
+                        <div class="form-row">
+                            <label for="edit-schedule-name">Task Name</label>
+                            <input type="text" id="edit-schedule-name" placeholder="e.g. Morning Brief or Daily Healthcheck" class="mem-input" required>
+                        </div>
+
+                        <div class="form-row">
+                            <label for="edit-schedule-expr">Schedule Expression (Cron, Interval, or Preset)</label>
+                            <div class="schedule-expr-input-group">
+                                <input type="text" id="edit-schedule-expr" placeholder="e.g. 0 9 * * * or every 2h or @daily" class="mem-input" required>
+                                <select id="schedule-preset-select" class="mem-select">
+                                    <option value="">Presets...</option>
+                                    <option value="every 30m">Every 30 minutes</option>
+                                    <option value="every 1h">Every hour</option>
+                                    <option value="0 9 * * *">Every day at 9:00 AM</option>
+                                    <option value="0 9 * * 1">Every Monday at 9:00 AM</option>
+                                    <option value="@daily">Daily midnight (@daily)</option>
+                                    <option value="@weekly">Weekly Sunday (@weekly)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <label for="edit-schedule-workspace">Workspace Folder (Optional)</label>
+                            <input type="text" id="edit-schedule-workspace" placeholder="Default agent workspace" class="mem-input">
+                        </div>
+
+                        <div class="form-row">
+                            <label for="edit-schedule-prompt">Prompt / Instructions to Run</label>
+                            <textarea id="edit-schedule-prompt" rows="3" class="mem-textarea" placeholder="e.g. Check git status, summarize any new commits, and verify clean builds." required></textarea>
+                        </div>
+
+                        <div class="editor-actions">
+                            <button type="button" id="schedules-editor-cancel-btn" class="mem-btn">Cancel</button>
+                            <button type="submit" id="schedules-editor-save-btn" class="mem-btn mem-btn-primary">Save Schedule</button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Starter Automations Quick-Add Section (Month 6) -->
+                <div class="schedules-starters-section" id="schedules-starters-section">
+                    <div class="starters-section-header">
+                        <div class="starters-header-title">
+                            <span class="starters-icon">⚡</span>
+                            <strong>Starter Automations</strong>
+                            <span class="starters-subtitle">— Preconfigured morning brief, repo watcher, and weekly cleanup</span>
+                        </div>
+                        <button id="schedules-starters-seed-all-btn" class="mem-btn btn-sm" type="button">⚡ Add All Starters</button>
+                    </div>
+                    <div id="schedules-starters-grid" class="starters-cards-grid"></div>
+                </div>
+
+                <!-- Schedules List Container -->
+                <div class="schedules-list-scroll">
+                    <div id="schedules-items-container" class="schedules-cards-grid">
+                        <div class="schedules-empty-state">
+                            <div class="empty-icon">⏰</div>
+                            <div class="empty-text">Loading schedules...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================================================
+         5h. Approvals & Notifications Window Modal (#approvalsModal) (Month 6)
+         ========================================================================== -->
+    <div id="approvalsModal" class="split-modal-overlay">
+        <div class="split-window-frame approvals-window-frame">
+            <!-- Window Header Bar -->
+            <div class="split-frame-header">
+                <div class="traffic-lights">
+                    <button class="tl tl-close" id="close-approvals-modal-btn" title="Close"></button>
+                    <button class="tl tl-min" title="Minimize"></button>
+                    <button class="tl tl-max" title="Zoom"></button>
+                </div>
+                <div class="split-frame-title">Approvals &amp; Notifications</div>
+                <div class="modal-tabs">
+                    <button id="tab-btn-approvals" class="modal-tab-btn active" type="button">
+                        Pending Approvals <span id="approvals-tab-badge" class="tab-badge" style="display:none;">0</span>
+                    </button>
+                    <button id="tab-btn-notifications" class="modal-tab-btn" type="button">
+                        Notifications <span id="notifications-tab-badge" class="tab-badge" style="display:none;">0</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Approvals Window Body -->
+            <div class="approvals-window-body">
+                <!-- Pane 1: Pending Approvals -->
+                <div id="approvals-tab-pane" class="tab-content-pane active">
+                    <div class="pane-toolbar">
+                        <span class="pane-subtitle" id="approvals-status-text">Pending actions from unattended tasks waiting for review</span>
+                        <button id="approvals-refresh-btn" class="mem-btn" type="button" title="Refresh">↻ Refresh</button>
+                    </div>
+                    <div id="approvals-cards-container" class="approvals-cards-list">
+                        <div class="approvals-empty-state">
+                            <div class="empty-icon">🛡️</div>
+                            <div class="empty-text">No pending approvals</div>
+                            <div class="empty-sub">Unattended tasks run safe read-only actions automatically. Risky actions pause here for one-click approval.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pane 2: Notifications -->
+                <div id="notifications-tab-pane" class="tab-content-pane" style="display: none;">
+                    <div class="pane-toolbar">
+                        <span class="pane-subtitle">Task completions, alerts and execution results</span>
+                        <button id="notifications-mark-all-btn" class="mem-btn" type="button">Mark All Read</button>
+                    </div>
+                    <div id="notifications-list-container" class="notifications-list">
+                        <div class="notifications-empty-state">
+                            <div class="empty-icon">🔔</div>
+                            <div class="empty-text">No notifications</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Desktop Toast Banner Container (Month 6) -->
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <!-- ==========================================================================
+         5i. Connectors & MCP Integrations Window Modal (#connectorsModal) (Month 6)
+         ========================================================================== -->
+    <div id="connectorsModal" class="split-modal-overlay">
+        <div class="split-window-frame connectors-window-frame">
+            <!-- Window Header Bar -->
+            <div class="split-frame-header">
+                <div class="traffic-lights">
+                    <button class="tl tl-close" id="close-connectors-modal-btn" title="Close"></button>
+                    <button class="tl tl-min" title="Minimize"></button>
+                    <button class="tl tl-max" title="Zoom"></button>
+                </div>
+                <div class="split-frame-title">Connectors &amp; MCP Integrations</div>
+                <div class="schedules-header-actions">
+                    <span id="connectors-count-badge" class="split-frame-badge">0 connected</span>
+                    <button id="connectors-refresh-btn" class="mem-btn" type="button">↻ Refresh</button>
+                </div>
+            </div>
+
+            <!-- Connectors Window Body -->
+            <div class="connectors-window-body">
+                <div class="connectors-header-banner">
+                    <div class="banner-icon">🔌</div>
+                    <div class="banner-text">
+                        <div class="banner-title">Model Context Protocol (MCP) Connectors</div>
+                        <div class="banner-sub">Connect tools (Gmail, Calendar, GitHub, Notion, Filesystem) to Jarvis. Secrets and tokens are saved in Windows Credential Manager.</div>
+                    </div>
+                </div>
+
+                <!-- Connectors Cards Grid -->
+                <div class="connectors-list-scroll">
+                    <div id="connectors-cards-grid" class="connectors-cards-grid">
+                        <div class="connectors-empty-state">
+                            <div class="empty-icon">🔌</div>
+                            <div class="empty-text">Loading connectors...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================================================
          6. Oblivion panel (slides in from the right; see static/js/oblivion.js)
          ========================================================================== -->
     <aside id="ob-panel" class="ob-panel" aria-label="Oblivion assistant" aria-hidden="true">
@@ -929,5 +1141,8 @@
     <script src="/static/js/wizard.js"></script>
     <script src="/static/js/voice.js"></script>
     <script src="/static/js/computer.js"></script>
+    <script src="/static/js/schedules.js"></script>
+    <script src="/static/js/approvals.js"></script>
+    <script src="/static/js/connectors.js"></script>
 </body>
 </html>

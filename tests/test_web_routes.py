@@ -389,5 +389,232 @@ def test_oblivion_computer_routes(client, auth_headers, monkeypatch):
     assert r_reset.get_json()["stopped"] is False
 
 
+def test_oblivion_schedules_routes(client, auth_headers, monkeypatch):
+    """Schedules routes require auth and forward correctly."""
+    calls = []
+
+    class FakeSchedulesBridge:
+        def request(self, method, path, body=None, headers=None):
+            calls.append((method, path, body))
+            if path == "/api/schedules" and method == "GET":
+                return 200, '[{"id": "sched-1", "name": "Morning Brief", "schedule": "0 9 * * *", "enabled": true}]', "application/json"
+            elif path == "/api/schedules" and method == "POST":
+                return 201, '{"id": "sched-2", "name": "Test", "schedule": "every 1h", "enabled": true}', "application/json"
+            elif path == "/api/schedules/sched-1" and method == "GET":
+                return 200, '{"id": "sched-1", "name": "Morning Brief"}', "application/json"
+            elif path == "/api/schedules/sched-1" and method == "PATCH":
+                return 200, '{"id": "sched-1", "enabled": false}', "application/json"
+            elif path == "/api/schedules/sched-1/run" and method == "POST":
+                return 200, '{"triggered": true, "task_id": "sched-1", "outcome": "done"}', "application/json"
+            elif path == "/api/schedules/sched-1" and method == "DELETE":
+                return 200, '{"deleted": true, "id": "sched-1"}', "application/json"
+            elif path == "/api/schedules/starters" and method == "GET":
+                return 200, '[{"id": "morning_brief", "name": "Morning brief", "installed": false}]', "application/json"
+            elif path == "/api/schedules/starters/morning_brief/install" and method == "POST":
+                return 201, '{"id": "starter-morning_brief", "name": "Morning brief", "schedule": "0 8 * * *"}', "application/json"
+            return 404, "Not found", "text/plain"
+
+    monkeypatch.setitem(app.config, "OBLIVION_BRIDGE", FakeSchedulesBridge())
+
+    # Unauthorized requests fail with 403
+    assert client.get("/api/oblivion/schedules").status_code == 403
+    assert client.post("/api/oblivion/schedules").status_code == 403
+    assert client.get("/api/oblivion/schedules/sched-1").status_code == 403
+    assert client.patch("/api/oblivion/schedules/sched-1").status_code == 403
+    assert client.delete("/api/oblivion/schedules/sched-1").status_code == 403
+    assert client.post("/api/oblivion/schedules/sched-1/run").status_code == 403
+
+    # List schedules
+    r_list = client.get("/api/oblivion/schedules", headers=auth_headers)
+    assert r_list.status_code == 200
+    assert len(r_list.get_json()) == 1
+
+    # Create schedule
+    r_create = client.post(
+        "/api/oblivion/schedules",
+        headers=auth_headers,
+        json={"name": "Test", "prompt": "Run test", "schedule": "every 1h"}
+    )
+    assert r_create.status_code == 201
+    assert r_create.get_json()["id"] == "sched-2"
+
+    # Get single schedule
+    r_get = client.get("/api/oblivion/schedules/sched-1", headers=auth_headers)
+    assert r_get.status_code == 200
+    assert r_get.get_json()["id"] == "sched-1"
+
+    # Patch schedule
+    r_patch = client.patch(
+        "/api/oblivion/schedules/sched-1",
+        headers=auth_headers,
+        json={"enabled": False}
+    )
+    assert r_patch.status_code == 200
+    assert r_patch.get_json()["enabled"] is False
+
+    # Run schedule
+    r_run = client.post("/api/oblivion/schedules/sched-1/run", headers=auth_headers)
+    assert r_run.status_code == 200
+    assert r_run.get_json()["triggered"] is True
+
+    # Delete schedule
+    r_del = client.delete("/api/oblivion/schedules/sched-1", headers=auth_headers)
+    assert r_del.status_code == 200
+    assert r_del.get_json()["deleted"] is True
+
+    # Starters routes
+    assert client.get("/api/oblivion/schedules/starters").status_code == 403
+    assert client.post("/api/oblivion/schedules/starters/morning_brief/install").status_code == 403
+
+    r_starters = client.get("/api/oblivion/schedules/starters", headers=auth_headers)
+    assert r_starters.status_code == 200
+    assert len(r_starters.get_json()) == 1
+    assert r_starters.get_json()[0]["id"] == "morning_brief"
+
+    r_inst = client.post("/api/oblivion/schedules/starters/morning_brief/install", headers=auth_headers)
+    assert r_inst.status_code == 201
+    assert r_inst.get_json()["id"] == "starter-morning_brief"
+
+
+def test_oblivion_approvals_and_notifications_routes(client, auth_headers, monkeypatch):
+    """Approvals and notifications routes require auth and forward correctly."""
+    calls = []
+
+    class FakeQueueBridge:
+        def request(self, method, path, body=None, headers=None):
+            calls.append((method, path, body))
+            if path == "/api/approvals" and method == "GET":
+                return 200, '[{"id": "appr-1", "tool_name": "shell", "status": "pending"}]', "application/json"
+            elif path == "/api/approvals?status=pending" and method == "GET":
+                return 200, '[{"id": "appr-1", "tool_name": "shell", "status": "pending"}]', "application/json"
+            elif path == "/api/approvals/appr-1" and method == "GET":
+                return 200, '{"id": "appr-1", "tool_name": "shell", "status": "pending"}', "application/json"
+            elif path == "/api/approvals/appr-1/resolve" and method == "POST":
+                return 200, '{"id": "appr-1", "status": "approved", "resolved_at": "now"}', "application/json"
+            elif path == "/api/notifications" and method == "GET":
+                return 200, '[{"id": "notif-1", "title": "Approval needed", "read": false}]', "application/json"
+            elif path == "/api/notifications?unread=true" and method == "GET":
+                return 200, '[{"id": "notif-1", "title": "Approval needed", "read": false}]', "application/json"
+            elif path == "/api/notifications/notif-1" and method == "GET":
+                return 200, '{"id": "notif-1", "title": "Approval needed", "read": false}', "application/json"
+            elif path == "/api/notifications/notif-1/read" and method == "POST":
+                return 200, '{"read": true, "id": "notif-1"}', "application/json"
+            elif path == "/api/notifications/read-all" and method == "POST":
+                return 200, '{"marked": 1}', "application/json"
+            return 404, "Not found", "text/plain"
+
+    monkeypatch.setitem(app.config, "OBLIVION_BRIDGE", FakeQueueBridge())
+
+    # Unauthorized requests fail with 403
+    assert client.get("/api/oblivion/approvals").status_code == 403
+    assert client.get("/api/oblivion/approvals/appr-1").status_code == 403
+    assert client.post("/api/oblivion/approvals/appr-1/resolve").status_code == 403
+    assert client.get("/api/oblivion/notifications").status_code == 403
+    assert client.get("/api/oblivion/notifications/notif-1").status_code == 403
+    assert client.post("/api/oblivion/notifications/notif-1/read").status_code == 403
+    assert client.post("/api/oblivion/notifications/read-all").status_code == 403
+
+    # Approvals list
+    r_apprs = client.get("/api/oblivion/approvals?status=pending", headers=auth_headers)
+    assert r_apprs.status_code == 200
+    assert len(r_apprs.get_json()) == 1
+
+    # Single approval
+    r_single_appr = client.get("/api/oblivion/approvals/appr-1", headers=auth_headers)
+    assert r_single_appr.status_code == 200
+    assert r_single_appr.get_json()["id"] == "appr-1"
+
+    # Resolve approval
+    r_resolve = client.post(
+        "/api/oblivion/approvals/appr-1/resolve",
+        headers=auth_headers,
+        json={"decision": "approved"},
+    )
+    assert r_resolve.status_code == 200
+    assert r_resolve.get_json()["status"] == "approved"
+
+    # Notifications list
+    r_notifs = client.get("/api/oblivion/notifications?unread=true", headers=auth_headers)
+    assert r_notifs.status_code == 200
+    assert len(r_notifs.get_json()) == 1
+
+    # Single notification
+    r_single_notif = client.get("/api/oblivion/notifications/notif-1", headers=auth_headers)
+    assert r_single_notif.status_code == 200
+    assert r_single_notif.get_json()["id"] == "notif-1"
+
+    # Mark single read
+    r_read = client.post("/api/oblivion/notifications/notif-1/read", headers=auth_headers)
+    assert r_read.status_code == 200
+    assert r_read.get_json()["read"] is True
+
+    # Mark all read
+    r_read_all = client.post("/api/oblivion/notifications/read-all", headers=auth_headers)
+    assert r_read_all.status_code == 200
+    assert r_read_all.get_json()["marked"] == 1
+
+
+def test_oblivion_connectors_routes(client, auth_headers, monkeypatch):
+    """Connectors and credential routes require auth and forward correctly."""
+    calls = []
+
+    class FakeConnectorsBridge:
+        def request(self, method, path, body=None, headers=None):
+            calls.append((method, path, body))
+            if path == "/api/connectors" and method == "GET":
+                return 200, '[{"name": "github", "enabled": false, "has_key": false}]', "application/json"
+            elif path == "/api/connectors/github/key" and method == "POST":
+                return 200, '{"ok": true, "name": "github", "has_key": true}', "application/json"
+            elif path == "/api/connectors/github/key" and method == "DELETE":
+                return 200, '{"ok": true, "name": "github", "has_key": false}', "application/json"
+            elif path == "/api/connectors/github/toggle" and method == "POST":
+                return 200, '{"name": "github", "enabled": true}', "application/json"
+            elif path == "/api/connectors/github/test" and method == "POST":
+                return 200, '{"ok": true, "name": "github", "status": "connected"}', "application/json"
+            return 404, "Not found", "text/plain"
+
+    monkeypatch.setitem(app.config, "OBLIVION_BRIDGE", FakeConnectorsBridge())
+
+    # Unauthorized requests fail with 403
+    assert client.get("/api/oblivion/connectors").status_code == 403
+    assert client.post("/api/oblivion/connectors/github/key").status_code == 403
+    assert client.delete("/api/oblivion/connectors/github/key").status_code == 403
+    assert client.post("/api/oblivion/connectors/github/toggle").status_code == 403
+    assert client.post("/api/oblivion/connectors/github/test").status_code == 403
+
+    # List connectors
+    r_list = client.get("/api/oblivion/connectors", headers=auth_headers)
+    assert r_list.status_code == 200
+    assert len(r_list.get_json()) == 1
+
+    # Save key
+    r_key = client.post(
+        "/api/oblivion/connectors/github/key",
+        headers=auth_headers,
+        json={"key": "ghp_mock_token"},
+    )
+    assert r_key.status_code == 200
+    assert r_key.get_json()["has_key"] is True
+
+    # Test connector
+    r_test = client.post("/api/oblivion/connectors/github/test", headers=auth_headers)
+    assert r_test.status_code == 200
+    assert r_test.get_json()["status"] == "connected"
+
+    # Toggle connector
+    r_toggle = client.post(
+        "/api/oblivion/connectors/github/toggle",
+        headers=auth_headers,
+        json={"enabled": True},
+    )
+    assert r_toggle.status_code == 200
+    assert r_toggle.get_json()["enabled"] is True
+
+    # Delete key
+    r_del = client.delete("/api/oblivion/connectors/github/key", headers=auth_headers)
+    assert r_del.status_code == 200
+    assert r_del.get_json()["has_key"] is False
+
+
 def false_or_true(val):
     return val
