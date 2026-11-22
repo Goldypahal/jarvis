@@ -745,8 +745,42 @@ pub async fn handle_command(
                         }
                     }
                 }
+                "starters" | "templates" => {
+                    let starters = st.starter_automations();
+                    let mut lines = vec![format!("Starter Automations ({}):", starters.len())];
+                    for s in starters {
+                        lines.push(format!(
+                            "  {} [{}] {} — \"{}\"\n     {}\n     Schedule: {}\n",
+                            s.icon, s.id, s.title, s.name, s.description, s.schedule
+                        ));
+                    }
+                    lines.push("Install any starter with: /schedule install <id>  (or /schedule seed)".to_string());
+                    lines.join("\n")
+                }
+                "install" => {
+                    if rest.is_empty() {
+                        "Usage: /schedule install <morning_brief | repo_watcher | weekly_report>".to_string()
+                    } else {
+                        match st.install_starter_automation(rest, Some(&agent.tools.root().to_string_lossy())) {
+                            Ok(task) => format!(
+                                "Installed starter automation '{}' [{}] with schedule '{}'.",
+                                task.name, task.id, task.schedule
+                            ),
+                            Err(e) => format!("Failed to install starter automation: {e}"),
+                        }
+                    }
+                }
+                "seed" => {
+                    match st.seed_starter_automations(Some(&agent.tools.root().to_string_lossy())) {
+                        Ok(tasks) => {
+                            let names: Vec<_> = tasks.iter().map(|t| format!("'{}'", t.name)).collect();
+                            format!("Seeded {} starter automations: {}.", tasks.len(), names.join(", "))
+                        }
+                        Err(e) => format!("Failed to seed starter automations: {e}"),
+                    }
+                }
                 other => format!(
-                    "Unknown schedule subcommand '{other}'. Usage: /schedule list | add | pause | resume | delete"
+                    "Unknown schedule subcommand '{other}'. Usage: /schedule list | add | pause | resume | delete | starters | install | seed"
                 ),
             }
         }
@@ -1003,6 +1037,60 @@ mod tests {
         .unwrap();
         if let Command::Done(txt) = res {
             assert!(txt.contains("Deleted scheduled task"));
+        } else {
+            panic!("expected Command::Done");
+        }
+
+        // 7. Starters command lists templates
+        let res = handle_command(
+            &mut a,
+            &skills,
+            &hub,
+            Some(&store),
+            "schedule starters",
+            &mut sink,
+        )
+        .await
+        .unwrap();
+        if let Command::Done(txt) = res {
+            assert!(txt.contains("Starter Automations"));
+            assert!(txt.contains("morning_brief"));
+            assert!(txt.contains("repo_watcher"));
+            assert!(txt.contains("weekly_report"));
+        } else {
+            panic!("expected Command::Done");
+        }
+
+        // 8. Install morning_brief
+        let res = handle_command(
+            &mut a,
+            &skills,
+            &hub,
+            Some(&store),
+            "schedule install morning_brief",
+            &mut sink,
+        )
+        .await
+        .unwrap();
+        if let Command::Done(txt) = res {
+            assert!(txt.contains("Installed starter automation 'Morning brief'"));
+        } else {
+            panic!("expected Command::Done");
+        }
+
+        // 9. Seed command seeds all 3 starters idempotently
+        let res = handle_command(
+            &mut a,
+            &skills,
+            &hub,
+            Some(&store),
+            "schedule seed",
+            &mut sink,
+        )
+        .await
+        .unwrap();
+        if let Command::Done(txt) = res {
+            assert!(txt.contains("Seeded 3 starter automations"));
         } else {
             panic!("expected Command::Done");
         }

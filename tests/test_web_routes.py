@@ -408,6 +408,10 @@ def test_oblivion_schedules_routes(client, auth_headers, monkeypatch):
                 return 200, '{"triggered": true, "task_id": "sched-1", "outcome": "done"}', "application/json"
             elif path == "/api/schedules/sched-1" and method == "DELETE":
                 return 200, '{"deleted": true, "id": "sched-1"}', "application/json"
+            elif path == "/api/schedules/starters" and method == "GET":
+                return 200, '[{"id": "morning_brief", "name": "Morning brief", "installed": false}]', "application/json"
+            elif path == "/api/schedules/starters/morning_brief/install" and method == "POST":
+                return 201, '{"id": "starter-morning_brief", "name": "Morning brief", "schedule": "0 8 * * *"}', "application/json"
             return 404, "Not found", "text/plain"
 
     monkeypatch.setitem(app.config, "OBLIVION_BRIDGE", FakeSchedulesBridge())
@@ -457,6 +461,19 @@ def test_oblivion_schedules_routes(client, auth_headers, monkeypatch):
     r_del = client.delete("/api/oblivion/schedules/sched-1", headers=auth_headers)
     assert r_del.status_code == 200
     assert r_del.get_json()["deleted"] is True
+
+    # Starters routes
+    assert client.get("/api/oblivion/schedules/starters").status_code == 403
+    assert client.post("/api/oblivion/schedules/starters/morning_brief/install").status_code == 403
+
+    r_starters = client.get("/api/oblivion/schedules/starters", headers=auth_headers)
+    assert r_starters.status_code == 200
+    assert len(r_starters.get_json()) == 1
+    assert r_starters.get_json()[0]["id"] == "morning_brief"
+
+    r_inst = client.post("/api/oblivion/schedules/starters/morning_brief/install", headers=auth_headers)
+    assert r_inst.status_code == 201
+    assert r_inst.get_json()["id"] == "starter-morning_brief"
 
 
 def test_oblivion_approvals_and_notifications_routes(client, auth_headers, monkeypatch):

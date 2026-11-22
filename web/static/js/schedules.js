@@ -92,6 +92,36 @@
                 await handleSaveSchedule();
             });
         }
+
+        // Starters Seed All Button
+        const seedAllBtn = document.getElementById('schedules-starters-seed-all-btn');
+        if (seedAllBtn) {
+            seedAllBtn.addEventListener('click', async () => {
+                seedAllBtn.disabled = true;
+                seedAllBtn.textContent = '⏳ Adding All...';
+                try {
+                    const startersRes = await fetch('/api/oblivion/schedules/starters', { headers: authHeaders() });
+                    if (startersRes.ok) {
+                        const starters = await startersRes.json();
+                        for (const s of starters) {
+                            if (!s.installed) {
+                                await fetch(`/api/oblivion/schedules/starters/${encodeURIComponent(s.id)}/install`, {
+                                    method: 'POST',
+                                    headers: authHeaders()
+                                });
+                            }
+                        }
+                    }
+                    await loadStarterAutomations();
+                    await loadSchedules();
+                } catch (err) {
+                    console.error('Failed to seed all starters:', err);
+                } finally {
+                    seedAllBtn.disabled = false;
+                    seedAllBtn.textContent = '⚡ Add All Starters';
+                }
+            });
+        }
     }
 
     function toggleSchedulesModal() {
@@ -164,6 +194,9 @@
         const container = document.getElementById('schedules-items-container');
         const badge = document.getElementById('schedules-count-badge');
         if (!container) return;
+
+        // Also load starter automations section
+        loadStarterAutomations();
 
         container.innerHTML = '<div class="schedules-empty-state"><div class="empty-icon">⏳</div><div class="empty-text">Loading automations...</div></div>';
 
@@ -440,6 +473,93 @@
             alert(`Error saving automation: ${e.message}`);
         } finally {
             if (saveBtn) saveBtn.disabled = false;
+        }
+    }
+
+    async function loadStarterAutomations() {
+        const grid = document.getElementById('schedules-starters-grid');
+        if (!grid) return;
+
+        try {
+            const res = await fetch('/api/oblivion/schedules/starters', {
+                headers: authHeaders()
+            });
+            if (!res.ok) return;
+
+            const starters = await res.json();
+            grid.innerHTML = '';
+
+            starters.forEach(s => {
+                const card = document.createElement('div');
+                card.className = `starter-card ${s.installed ? 'installed' : ''}`;
+                card.dataset.id = s.id;
+
+                const actionBtn = s.installed
+                    ? `<button class="mem-btn btn-sm btn-starter-active" disabled title="Currently active in schedules">✓ Active</button>`
+                    : `<button class="mem-btn btn-sm btn-starter-install" data-id="${escapeHtml(s.id)}" title="Add ${escapeHtml(s.title)}">+ Add Starter</button>`;
+
+                card.innerHTML = `
+                    <div class="starter-card-header">
+                        <span class="starter-icon">${s.icon || '⚡'}</span>
+                        <div class="starter-title-group">
+                            <span class="starter-title">${escapeHtml(s.title)}</span>
+                            <span class="starter-sched-badge">${escapeHtml(s.schedule)}</span>
+                        </div>
+                    </div>
+                    <div class="starter-desc">${escapeHtml(s.description)}</div>
+                    <div class="starter-card-actions">
+                        ${actionBtn}
+                    </div>
+                `;
+
+                grid.appendChild(card);
+            });
+
+            // Attach install clicks
+            grid.querySelectorAll('.btn-starter-install').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    const id = btn.getAttribute('data-id');
+                    await installStarterAutomation(id, btn);
+                });
+            });
+        } catch (err) {
+            console.error('Failed to load starter automations:', err);
+        }
+    }
+
+    async function installStarterAutomation(id, btn = null) {
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = '⏳ Adding...';
+        }
+        try {
+            const res = await fetch(`/api/oblivion/schedules/starters/${encodeURIComponent(id)}/install`, {
+                method: 'POST',
+                headers: authHeaders()
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.error || `HTTP ${res.status}`);
+            }
+            const task = await res.json();
+            if (window.JarvisApprovals && window.JarvisApprovals.showToast) {
+                window.JarvisApprovals.showToast({
+                    id: 'starter-' + Date.now(),
+                    title: 'Starter Automation Added',
+                    body: `"${task.name}" is now active with schedule "${task.schedule}".`,
+                    kind: 'info'
+                });
+            }
+            await loadStarterAutomations();
+            await loadSchedules();
+        } catch (err) {
+            console.error('Failed to install starter automation:', err);
+            alert(`Failed to add starter automation: ${err.message}`);
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = '+ Add Starter';
+            }
         }
     }
 

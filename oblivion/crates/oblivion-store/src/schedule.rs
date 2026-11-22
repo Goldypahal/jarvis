@@ -72,6 +72,89 @@ impl NewScheduledTask {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StarterAutomation {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub title: &'static str,
+    pub description: &'static str,
+    pub prompt: &'static str,
+    pub schedule: &'static str,
+    pub category: &'static str,
+    pub icon: &'static str,
+}
+
+pub const STARTER_AUTOMATIONS: &[StarterAutomation] = &[
+    StarterAutomation {
+        id: "morning_brief",
+        name: "Morning brief",
+        title: "Daily Morning Brief",
+        description: "Runs every morning at 8:00 AM. Summarizes today's calendar agenda, unread emails, and pending task notifications into an executive brief.",
+        prompt: "Review today's agenda, check unread emails and messages, summarize any pending approvals or task notifications, and create a morning brief.",
+        schedule: "0 8 * * *",
+        category: "productivity",
+        icon: "🌅",
+    },
+    StarterAutomation {
+        id: "repo_watcher",
+        name: "Repo watcher",
+        title: "Watch Repo Issues & PRs",
+        description: "Monitors git changes, branch activity, open issues, and pull requests every 4 hours. Flags urgent review requests or blockers.",
+        prompt: "Inspect recent git commits and diffs in the repository, review active issues and pull requests, and summarize any blockers or pending reviews.",
+        schedule: "0 */4 * * *",
+        category: "development",
+        icon: "🔍",
+    },
+    StarterAutomation {
+        id: "weekly_report",
+        name: "Weekly report",
+        title: "Weekly Workspace Cleanup",
+        description: "Runs every Friday at 6:00 PM. Scans workspace files, temporary scratch data, disk usage, and stale task logs to generate a health and cleanup report.",
+        prompt: "Audit workspace files, check scratch directories, review recent task run logs and disk usage, and generate a weekly cleanup and maintenance report.",
+        schedule: "0 18 * * 5",
+        category: "maintenance",
+        icon: "📊",
+    },
+];
+
+pub fn starter_automations() -> &'static [StarterAutomation] {
+    STARTER_AUTOMATIONS
+}
+
+pub fn get_starter_automation(id: &str) -> Option<&'static StarterAutomation> {
+    STARTER_AUTOMATIONS.iter().find(|s| s.id == id)
+}
+
+pub(crate) fn db_install_starter_automation(
+    conn: &Connection,
+    starter_id: &str,
+    workspace: Option<&str>,
+) -> Result<ScheduledTask> {
+    let starter = get_starter_automation(starter_id)
+        .ok_or_else(|| anyhow::anyhow!("starter automation template '{starter_id}' not found"))?;
+
+    // Check if task with name or id already exists
+    let existing_tasks = db_list_tasks(conn, false)?;
+    if let Some(existing) = existing_tasks.into_iter().find(|t| {
+        t.name.eq_ignore_ascii_case(starter.name) || t.id == format!("starter-{}", starter.id)
+    }) {
+        return Ok(existing);
+    }
+
+    let task = NewScheduledTask {
+        id: Some(format!("starter-{}", starter.id)),
+        name: starter.name.to_string(),
+        prompt: starter.prompt.to_string(),
+        schedule: starter.schedule.to_string(),
+        is_recurring: true,
+        next_run: None,
+        workspace: workspace.map(String::from),
+        enabled: Some(true),
+    };
+
+    db_add_task(conn, &task)
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UpdateScheduledTask {
     pub name: Option<String>,
@@ -351,5 +434,31 @@ mod tests {
         assert_eq!(task.id, parsed.id);
         assert_eq!(task.name, parsed.name);
         assert_eq!(task.is_recurring, parsed.is_recurring);
+    }
+
+    #[test]
+    fn test_starter_automations_templates_and_install() {
+        let starters = starter_automations();
+        assert_eq!(starters.len(), 3);
+        assert!(starters.iter().any(|s| s.id == "morning_brief"));
+        assert!(starters.iter().any(|s| s.id == "repo_watcher"));
+        assert!(starters.iter().any(|s| s.id == "weekly_report"));
+
+        let mut conn = Connection::open_in_memory().unwrap();
+        crate::migrations::migrate(&mut conn).unwrap();
+
+        // Install morning brief
+        let task = db_install_starter_automation(&conn, "morning_brief", Some("/test/ws")).unwrap();
+        assert_eq!(task.name, "Morning brief");
+        assert_eq!(task.id, "starter-morning_brief");
+        assert_eq!(task.schedule, "0 8 * * *");
+        assert_eq!(task.workspace.as_deref(), Some("/test/ws"));
+
+        // Idempotent install
+        let task2 = db_install_starter_automation(&conn, "morning_brief", None).unwrap();
+        assert_eq!(task2.id, task.id);
+
+        let list = db_list_tasks(&conn, false).unwrap();
+        assert_eq!(list.len(), 1);
     }
 }

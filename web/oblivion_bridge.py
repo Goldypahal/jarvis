@@ -894,6 +894,27 @@ def register(app, bridge=None, allowed_port=None, token=None):
         code, text, ct = b.request("POST", path, body=body)
         return Response(text, status=code, mimetype=ct)
 
+    @app.route("/api/oblivion/schedules/starters", methods=["GET"])
+    @app.route("/api/schedules/starters", methods=["GET"])
+    def oblivion_schedule_starters():
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        code, text, ct = b.request("GET", "/api/schedules/starters")
+        return Response(text, status=code, mimetype=ct)
+
+    @app.route("/api/oblivion/schedules/starters/<starter_id>/install", methods=["POST"])
+    @app.route("/api/schedules/starters/<starter_id>/install", methods=["POST"])
+    def oblivion_schedule_starter_install(starter_id):
+        sec = check_security()
+        if sec:
+            return sec
+        b = get_bridge()
+        path = f"/api/schedules/starters/{starter_id}/install"
+        code, text, ct = b.request("POST", path)
+        return Response(text, status=code, mimetype=ct)
+
     # ---------- pending approvals ----------
 
     @app.route("/api/oblivion/approvals", methods=["GET"])

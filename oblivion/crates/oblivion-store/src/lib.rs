@@ -14,7 +14,9 @@ pub use approval::{
 };
 pub use embedding::{EmbedFuture, Embedder, MockEmbedder, OllamaEmbedder};
 pub use memory::{Memory, MemoryFilter, NewMemory};
-pub use schedule::{NewScheduledTask, ScheduledTask, UpdateScheduledTask};
+pub use schedule::{
+    NewScheduledTask, ScheduledTask, StarterAutomation, UpdateScheduledTask, STARTER_AUTOMATIONS,
+};
 pub use tools::MemoryTools;
 
 use std::path::Path;
@@ -867,6 +869,28 @@ impl Store {
     ) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         schedule::db_record_task_run(&conn, id, session_id, outcome, error, next_run)
+    }
+
+    pub fn starter_automations(&self) -> &'static [StarterAutomation] {
+        schedule::starter_automations()
+    }
+
+    pub fn install_starter_automation(
+        &self,
+        starter_id: &str,
+        workspace: Option<&str>,
+    ) -> Result<ScheduledTask> {
+        let conn = self.conn.lock().unwrap();
+        schedule::db_install_starter_automation(&conn, starter_id, workspace)
+    }
+
+    pub fn seed_starter_automations(&self, workspace: Option<&str>) -> Result<Vec<ScheduledTask>> {
+        let mut installed = Vec::new();
+        for s in schedule::starter_automations() {
+            let t = self.install_starter_automation(s.id, workspace)?;
+            installed.push(t);
+        }
+        Ok(installed)
     }
 
     // ---------- pending approvals ----------
@@ -1750,6 +1774,30 @@ mod tests {
         let deleted = st.delete_scheduled_task(&t2.id).unwrap();
         assert!(deleted);
         assert!(st.get_scheduled_task(&t2.id).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_store_starter_automations_seeding_and_idempotence() {
+        let st = Store::in_memory().unwrap();
+
+        let starters = st.starter_automations();
+        assert_eq!(starters.len(), 3);
+
+        let seeded = st
+            .seed_starter_automations(Some("/workspace/demo"))
+            .unwrap();
+        assert_eq!(seeded.len(), 3);
+        assert!(seeded.iter().any(|t| t.id == "starter-morning_brief"));
+        assert!(seeded.iter().any(|t| t.id == "starter-repo_watcher"));
+        assert!(seeded.iter().any(|t| t.id == "starter-weekly_report"));
+
+        // Seeding again is idempotent
+        let seeded_again = st.seed_starter_automations(None).unwrap();
+        assert_eq!(seeded_again.len(), 3);
+        assert_eq!(seeded_again[0].id, seeded[0].id);
+
+        let all = st.list_scheduled_tasks(false).unwrap();
+        assert_eq!(all.len(), 3);
     }
 
     #[test]

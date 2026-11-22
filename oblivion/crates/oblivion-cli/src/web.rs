@@ -666,6 +666,23 @@ pub fn router(state: WebState) -> Router {
             "/api/oblivion/schedules/{id}/run",
             post(run_schedule_handler),
         )
+        // Starter Automations
+        .route(
+            "/api/schedules/starters",
+            get(list_schedule_starters_handler),
+        )
+        .route(
+            "/api/oblivion/schedules/starters",
+            get(list_schedule_starters_handler),
+        )
+        .route(
+            "/api/schedules/starters/{id}/install",
+            post(install_schedule_starter_handler),
+        )
+        .route(
+            "/api/oblivion/schedules/starters/{id}/install",
+            post(install_schedule_starter_handler),
+        )
         // Approvals queue
         .route("/api/approvals", get(list_approvals_handler))
         .route("/api/oblivion/approvals", get(list_approvals_handler))
@@ -2537,6 +2554,105 @@ async fn run_schedule_handler(
             StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({"error": "Scheduler runner is not active"})),
         ))
+    }
+}
+
+#[derive(Serialize)]
+struct StarterAutomationStatus {
+    id: &'static str,
+    name: &'static str,
+    title: &'static str,
+    description: &'static str,
+    prompt: &'static str,
+    schedule: &'static str,
+    category: &'static str,
+    icon: &'static str,
+    installed: bool,
+    task_id: Option<String>,
+}
+
+async fn list_schedule_starters_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q_map): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<StarterAutomationStatus>>, StatusCode> {
+    if !st.authorized(&headers, &q_map) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let existing_tasks = st.store.list_scheduled_tasks(false).unwrap_or_default();
+    let starters = st.store.starter_automations();
+
+    let result = starters
+        .iter()
+        .map(|s| {
+            let matched = existing_tasks.iter().find(|t| {
+                t.name.eq_ignore_ascii_case(s.name) || t.id == format!("starter-{}", s.id)
+            });
+            StarterAutomationStatus {
+                id: s.id,
+                name: s.name,
+                title: s.title,
+                description: s.description,
+                prompt: s.prompt,
+                schedule: s.schedule,
+                category: s.category,
+                icon: s.icon,
+                installed: matched.is_some(),
+                task_id: matched.map(|t| t.id.clone()),
+            }
+        })
+        .collect();
+
+    Ok(Json(result))
+}
+
+async fn install_schedule_starter_handler(
+    State(st): State<WebState>,
+    headers: HeaderMap,
+    Query(q_map): Query<HashMap<String, String>>,
+    Path(starter_id): Path<String>,
+) -> Result<(StatusCode, Json<oblivion_store::ScheduledTask>), (StatusCode, Json<serde_json::Value>)>
+{
+    if !st.authorized(&headers, &q_map) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "unauthorized"})),
+        ));
+    }
+    let ws = std::env::current_dir()
+        .ok()
+        .map(|p| p.to_string_lossy().to_string());
+    match st
+        .store
+        .install_starter_automation(&starter_id, ws.as_deref())
+    {
+        Ok(task) => {
+            // Also calculate next_run if missing
+            if task.next_run.is_none() {
+                if let Ok(Some(nr)) =
+                    oblivion_core::schedule::next_run_after(&task.schedule, chrono::Utc::now())
+                {
+                    let _ = st.store.update_scheduled_task(
+                        &task.id,
+                        &oblivion_store::UpdateScheduledTask {
+                            next_run: Some(Some(nr)),
+                            ..Default::default()
+                        },
+                    );
+                }
+            }
+            let refreshed = st
+                .store
+                .get_scheduled_task(&task.id)
+                .ok()
+                .flatten()
+                .unwrap_or(task);
+            Ok((StatusCode::CREATED, Json(refreshed)))
+        }
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )),
     }
 }
 
@@ -4753,6 +4869,49 @@ mod live {
             .await
             .unwrap();
         assert_eq!(not_found.status(), StatusCode::NOT_FOUND);
+
+        // 10. Starters list -> 200, 3 items
+        let starters_res = client
+            .get(format!("{base}/api/schedules/starters"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(starters_res.status(), StatusCode::OK);
+        let starters: Vec<serde_json::Value> = starters_res.json().await.unwrap();
+        assert_eq!(starters.len(), 3);
+        assert!(starters.iter().any(|s| s["id"] == "morning_brief"));
+        assert!(starters.iter().any(|s| s["id"] == "repo_watcher"));
+        assert!(starters.iter().any(|s| s["id"] == "weekly_report"));
+
+        // 11. Install morning_brief -> 201 Created
+        let install_res = client
+            .post(format!(
+                "{base}/api/schedules/starters/morning_brief/install"
+            ))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(install_res.status(), StatusCode::CREATED);
+        let installed: serde_json::Value = install_res.json().await.unwrap();
+        assert_eq!(installed["id"], "starter-morning_brief");
+        assert_eq!(installed["name"], "Morning brief");
+
+        // 12. Starters list now reflects installed: true
+        let starters_res2 = client
+            .get(format!("{base}/api/schedules/starters"))
+            .header("x-oblivion-token", token)
+            .send()
+            .await
+            .unwrap();
+        let starters2: Vec<serde_json::Value> = starters_res2.json().await.unwrap();
+        let mb = starters2
+            .iter()
+            .find(|s| s["id"] == "morning_brief")
+            .unwrap();
+        assert_eq!(mb["installed"], true);
+        assert_eq!(mb["task_id"], "starter-morning_brief");
     }
 
     #[tokio::test]

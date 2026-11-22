@@ -1970,6 +1970,111 @@ body[data-theme="black"] .schedules-editor-pane {
     padding: 18px 20px;
 }
 
+/* Starter Automations in Schedules Window */
+.schedules-starters-section {
+    padding: 12px 20px;
+    background: rgba(59, 130, 246, 0.05);
+    border-bottom: 1px solid rgba(128, 128, 128, 0.15);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+body[data-theme="black"] .schedules-starters-section {
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+.starters-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 13px;
+}
+.starters-header-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--ob-text, #111827);
+}
+body[data-theme="black"] .starters-header-title {
+    color: #f3f4f6;
+}
+.starters-subtitle {
+    font-size: 11.5px;
+    color: var(--ob-text-muted, #6b7280);
+}
+.starters-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 10px;
+}
+.starter-card {
+    background: var(--ob-card-bg, #ffffff);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 10px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 8px;
+    transition: all 0.15s ease;
+}
+body[data-theme="black"] .starter-card {
+    background: #1c1c1f;
+    border-color: rgba(255, 255, 255, 0.08);
+}
+.starter-card:hover {
+    border-color: rgba(59, 130, 246, 0.35);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+.starter-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.starter-icon {
+    font-size: 20px;
+    line-height: 1;
+}
+.starter-title {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--ob-text, #111827);
+}
+body[data-theme="black"] .starter-title {
+    color: #f3f4f6;
+}
+.starter-sched-badge {
+    font-size: 10px;
+    background: rgba(128, 128, 128, 0.1);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: monospace;
+    color: var(--ob-text-muted, #4b5563);
+}
+body[data-theme="black"] .starter-sched-badge {
+    color: #9ca3af;
+    background: rgba(255, 255, 255, 0.08);
+}
+.starter-desc {
+    font-size: 11px;
+    color: var(--ob-text-muted, #6b7280);
+    line-height: 1.35;
+    flex: 1;
+}
+body[data-theme="black"] .starter-desc {
+    color: #9ca3af;
+}
+.btn-starter-active {
+    background: rgba(16, 185, 129, 0.15) !important;
+    color: #059669 !important;
+    border-color: rgba(16, 185, 129, 0.3) !important;
+    cursor: default;
+}
+body[data-theme="black"] .btn-starter-active {
+    background: rgba(16, 185, 129, 0.25) !important;
+    color: #34d399 !important;
+}
+
 .schedules-cards-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
