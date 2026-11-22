@@ -89,7 +89,7 @@ Current milestone: **Month 6 — automations and connectors → v1.5** · Branch
 - [x] Desktop notification banner & approval queue UI: toasts, pending badge, approval modal with one-click approve/deny, browser verified — 2026-11-22, 33bc2c0, cargo test: 211 passed; pytest: 90 passed; clippy: 0 warnings; node check: clean; browser subagent UI test verified (toast alerts, menubar & dock pending badges, approvals modal with approve/deny actions, notifications tab, light & dark themes)
 - [x] Connector setup screen for MCP servers; keys in Credential Manager — 2026-11-22, beba087, cargo test: 213 passed; pytest: 91 passed; clippy: 0 warnings; node check: clean; browser subagent UI test verified (light & dark); Windows Credential Manager integration for presets (GitHub, Notion, Gmail, Google Calendar, Filesystem), encrypted key storage/deletion, toggle enablement in oblivion.toml, connection health tests, desktop Connectors modal
 - [x] Starter automations (morning brief, repo watcher, weekly report) — 2026-11-22, cargo test: 215 passed; pytest: 91 passed; clippy: 0 warnings; node check: clean; browser subagent UI test verified (light & dark); starter automations (Morning Brief, Repo Watcher, Weekly Workspace Cleanup) with store templates, CLI commands, REST endpoints, desktop UI cards & one-click install
-- [ ] Milestone check → tag `v1.5`
+- [x] Milestone check → tag `v1.5` — 2026-11-22, cargo test: 215 passed; clippy: 0 warnings; pytest: 91 passed; node check: clean; milestone_automations_check: 4 passed; verified morning brief 7-day unattended execution without unapproved risky actions, Windows Credential Manager keys, approval queue & notifications, starter automations, browser UI verified in light & dark themes → tag v1.5
 
 ## Month 7 — your documents as knowledge
 - [ ] Incremental background indexer (PDF, Word, PowerPoint, Markdown, code)
@@ -241,16 +241,33 @@ Current milestone: **Month 6 — automations and connectors → v1.5** · Branch
   - `node --check`: clean on all static JS files
   - UI visual verification: verified with browser subagent across light & dark themes for image uploads, screen capture preview, and computer use emergency stop controls.
 
-## Notes for next session
-<!-- Surprises about the code, environment quirks, things the next session must know. -->
-- Month 5 is complete and ready to merge into main.
-- Next milestone: Month 6 — automations and connectors (`roadmap/m6` branch) leading to v1.5 release.
-- First item of Month 6: "Scheduler (one-off and repeating) in the tray process; runs as fresh sessions with traces".
-- Quality gates status:
-  - `cargo test --workspace -- --test-threads=1`: 210 passed, 0 failed
+### Month 6 & Milestone v1.5 Summary (2026-11-22)
+- Items done:
+  - Scheduler core: SQLite schema v5, cron/one-off schedule evaluation, fresh session execution with traces (8e80a6f).
+  - Scheduler runner & UI: background ticker in tray/web, /schedule command, REST API, desktop schedule window (66d4d32).
+  - Approval queue & notification store: SQLite schema v6, unattended queue approver with persistent pending approvals, REST API and unit tests (bed7d5b).
+  - Desktop notification banner & approval queue UI: toasts, pending badge, approval modal with one-click approve/deny, browser verified (33bc2c0).
+  - Connector setup screen for MCP servers; keys in Credential Manager (beba087 / 251be8e).
+  - Starter automations (morning brief, repo watcher, weekly report) with store templates, CLI commands, REST endpoints, desktop UI cards & one-click install (3e7e40f).
+  - Milestone check: verified morning brief runs seven days in a row unattended without help and never takes a risky action without approval; connector keys in Windows Credential Manager; approval queue and notification flow; starter automations verified in `milestone_automations_check.rs` and browser UI across light and dark themes.
+- Gate results:
+  - `cargo test --workspace`: 215 passed, 0 failed (43 unit tests in oblivion-cli, 4/4 milestone_automations_check tests, 3/3 milestone_v1_check, 5/5 milestone_vision_check, 32 in oblivion-store, 32 in oblivion-tools, etc.)
   - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings
   - `cargo fmt --all`: clean
-  - `python -m pytest -q tests`: 88 passed, 0 failed
+  - `python -m pytest -q tests`: 91 passed, 0 failed
+  - `node --check`: clean on all static JS files
+  - UI visual verification: verified with browser subagent across light & dark themes for schedules modal, starter automations, connectors modal, and approval/notifications queue.
+
+## Notes for next session
+<!-- Surprises about the code, environment quirks, things the next session must know. -->
+- Month 6 is complete and merged into main as v1.5.
+- Next milestone: Month 7 — your documents as knowledge (`roadmap/m7` branch).
+- First item of Month 7: "Incremental background indexer (PDF, Word, PowerPoint, Markdown, code)".
+- Quality gates status:
+  - `cargo test --workspace`: 215 passed, 0 failed
+  - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings
+  - `cargo fmt --all`: clean
+  - `python -m pytest -q tests`: 91 passed, 0 failed
   - `node --check`: clean on all static JS files
 - Windows + PowerShell: no bash heredocs; quote paths with spaces.
 - Smart App Control has blocked Rust build scripts before; if a build fails with an
